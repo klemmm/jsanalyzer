@@ -1,0 +1,16 @@
+
+Requirements
+============
+- gcc
+- mhash library
+
+Compiling
+=========
+
+Edit eccvpn.h, run make
+
+Using
+=====
+
+usage: ./eccvpn <tun iface name> <remote host> <local port> <remote port>
+
