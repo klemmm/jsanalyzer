@@ -1,4 +1,22 @@
-from plugin_manager import register_preexisting_object, register_binary_handler, register_global_symbol, register_method_hook, JSTop, JSUndefNaN, JSPrimitive, JSObject, JSSimFct, JSRef
+from plugin_manager import register_preexisting_object, register_unary_handler, register_binary_handler, register_global_symbol, register_method_hook, JSTop, JSUndefNaN, JSPrimitive, JSObject, JSSimFct, JSRef, to_bool
+
+
+def unary_handler(opname, abs_arg):
+    if abs_arg is JSUndefNaN:
+        return JSUndefNaN
+
+    if opname == '!':
+        return JSPrimitive(not to_bool(abs_arg))
+
+    if isinstance(abs_arg, JSPrimitive):
+        arg = abs_arg.val
+
+        if opname == '-':
+            return -arg
+        else:
+            return JSTop
+
+register_unary_handler(unary_handler)
 
 def binary_handler(opname, abs_arg1, abs_arg2):
     if abs_arg1 is JSUndefNaN or abs_arg2 is JSUndefNaN:
@@ -42,6 +60,17 @@ def console_log(*args):
 console_ref = register_preexisting_object(JSObject({"log": JSSimFct(console_log)}))
 register_global_symbol('console', JSRef(console_ref))
 
+
+def parse_int(s):
+    if isinstance(s, JSPrimitive) and type(s.val) is str:
+        try:
+            return JSPrimitive(int(s.val))
+        except ValueError:
+            return JSTop
+    return JSTop
+
+#register_global_symbol('parseInt', JSSimFct(parse_int))
+
 def array_hook(name, arr):
     def array_pop(arr):
         #FIXME array object should track its abstract size
@@ -82,4 +111,3 @@ def array_hook(name, arr):
         return JSTop
 
 register_method_hook(array_hook)
-

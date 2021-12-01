@@ -1,7 +1,10 @@
 from abstract import State, JSClosure, JSObject, JSUndefNaN, JSTop, JSRef, JSSimFct, JSPrimitive, JSValue
 
 from debug import debug
+
 import plugin_manager
+import config
+
 
 class Interpreter(object):
     def __init__(self, ast):
@@ -9,16 +12,8 @@ class Interpreter(object):
 
     @staticmethod
     def truth_value(v):
-        if isinstance(v, JSPrimitive):
-            if type(v.val) is int:
-                return v.val != 0
-            elif type(v.val) is bool:
-                return v.val
-            else:
-                raise ValueError("truth_value: unhandled concrete type" + str(type(v.val)))
-        else:
-            raise ValueError("truth_value: unhandled abstract type" + str(type(v)))
-
+        return plugin_manager.to_bool(v)
+        
     def scope_lookup(self, state, name):
         debug("looking up:", name, "...", end="")
         if name in state.loc:
@@ -71,6 +66,10 @@ class Interpreter(object):
                     return JSTop
                 else:
                     raise ValueError("Invalid property type: " + str(type(abs_property)))
+
+        elif expr.type == "UnaryExpression":
+            argument = self.calc_expr(state, expr.argument)
+            return plugin_manager.handle_unary_operation(expr.operator, argument)
 
         elif expr.type == "BinaryExpression":
             left = self.calc_expr(state, expr.left)
@@ -180,14 +179,24 @@ class Interpreter(object):
 
     def do_while(self, state, test, body):
         prev_state = None
+        i = 0
+        warned = False
+        saved_loopexit = self.loopexit_state
         while True:
+            i = i + 1
             abs_test_result = self.calc_expr(state, test)
+            if config.max_iter is not None and i > config.max_iter:
+                if not warned:
+                    print("[warning] Loop unrolling stopped after " + str(config.max_iter) + " iterations")
+                    warned = True
+                abs_test_result = JSTop
             if abs_test_result is JSTop:
                 prev_state = state.clone()
                 header_state = state.clone()
                 self.do_sequence(state, body)
                 state.join(header_state)
                 if state == prev_state:
+                    print("Exiting loop after " + str(i) + " iterations because abstract state is stable (condition is unknown)")
                     break
                 continue
             
@@ -195,11 +204,15 @@ class Interpreter(object):
                 prev_state = state.clone()
                 self.do_sequence(state, body)
                 if state == prev_state:
+                    print("Exiting loop after " + str(i) + " iterations because abstract state is stable (condition is true)")
                     state.set_to_bottom()
                     break
             else:
+                print("Exiting loop after " + str(i) + " iterations because condition is false")
                 break
 
+        state.join(self.loopexit_state)
+        self.loopexit_state = saved_loopexit
 
     def do_if(self, state, test, consequent, alternate):
         abs_test_result = self.calc_expr(state, test)
@@ -228,13 +241,19 @@ class Interpreter(object):
             State.dict_assign(closure_env, state.loc)
             scope[name] = JSClosure(params, body.body, closure_env)
 
+
+    def do_break(self, state):
+        self.loopexit_state.join(state)
+        state.set_to_bottom()
+
     def do_return(self, state, argument):
         self.return_state.join(state)
         arg_val = self.calc_expr(state, argument)
         if self.return_value is None:
             self.return_value = arg_val.clone()
-        elif not self.return_value == arg_val:
+        elif not (type(self.return_value) == type(arg_val) and self.return_value == arg_val):
             self.return_value = JSTop
+        state.set_to_bottom()
 
     def do_statement(self, state, statement):
         if state.is_bottom:
@@ -262,6 +281,9 @@ class Interpreter(object):
 
         elif statement.type == "WhileStatement":
             self.do_while(state, statement.test, statement.body.body)
+        
+        elif statement.type == "BreakStatement":
+            self.do_break(state)
 
         else:
             raise ValueError("Statement type not handled: " + statement.type)
@@ -275,6 +297,7 @@ class Interpreter(object):
         self.return_value = None
         self.closure = {}
         self.return_state = State.bottom()
+        self.loopexit_state = State.bottom()
         state.loc = state.glob
 
         for (name, value) in plugin_manager.global_symbols:

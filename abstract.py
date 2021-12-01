@@ -51,9 +51,9 @@ class State(object):
     # Instance methods
 
     def set_to_bottom(self):
-        self.glob = {}
-        self.loc = {}
-        self.objs = {}
+        self.glob.clear()
+        self.loc.clear()
+        self.objs.clear()
         self.is_bottom = True
 
     def clone(self):
