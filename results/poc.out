@@ -1,0 +1,8 @@
+Opening file: poc.js
+Parsing file into abstract syntax tree...
+Starting abstract interpretation...
+console log: [10]
+console log: [Top]
+console log: [10]
+console log: [51]
+Done. Final state:  glob={'console': <ref: 0>, 'a': 10, 'c': 10, 'd': 51}, objs={0: {log: <simfct>} }

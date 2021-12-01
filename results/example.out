@@ -1,0 +1,6 @@
+Opening file: example.js
+Parsing file into abstract syntax tree...
+Starting abstract interpretation...
+console log: [110]
+console log: [23]
+Done. Final state:  glob={'console': <ref: 0>, 'a': 23, 'b': 110}, objs={0: {log: <simfct>} }

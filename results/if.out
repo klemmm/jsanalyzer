@@ -1,0 +1,6 @@
+Opening file: if.js
+Parsing file into abstract syntax tree...
+Starting abstract interpretation...
+console log: [21]
+console log: [2]
+Done. Final state:  glob={'console': <ref: 0>, 'a': 20, 'b': 1, 'c': Undef/NaN, 'piou': <function>, 'k': 42, 'x': 21, 'y': 2, 'z': Undef/NaN}, objs={0: {log: <simfct>} }
