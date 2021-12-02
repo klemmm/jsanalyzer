@@ -182,7 +182,7 @@ class JSObject(JSValue):
                 def bound_method(*args):
                     return r.fct(self, *args)
                 return JSSimFct(bound_method)
-        return self.properties.get(name, JSUndefNaN)
+        return self.properties.get(name, JSUndefNaN) #TODO should be JSTop here (workaround until array bounds are handled)
 
 # Represents a reference to an object or array
 class JSRef(JSValue):

@@ -40,6 +40,43 @@ class Interpreter(object):
             else:
                 return JSTop #untracked identifier
 
+        elif expr.type == "SequenceExpression":
+            for e in expr.expressions:
+                r = self.calc_expr(state, e)
+            return r
+
+        elif expr.type == "AssignmentExpression":
+            abs_rvalue = self.calc_expr(state, expr.right)
+
+            if expr.left.type == "Identifier":
+                scope = self.scope_lookup(state, expr.left.name)
+                if abs_rvalue is JSTop:
+                    scope.pop(expr.left.name, None)
+                else:
+                    scope[expr.left.name] = abs_rvalue
+
+            elif expr.left.type == "MemberExpression":
+                abs_object = self.calc_expr(state, expr.left.object)
+                ref_id = abs_object.ref_id
+                if ref_id in state.objs:
+                    if expr.left.computed is False:
+                        if abs_rvalue is JSTop:
+                            state.objs[ref_id].properties.pop(expr.left.property.name, None)
+                        else:
+                            state.objs[ref_id].properties[expr.left.property.name] = abs_rvalue
+                    else: #expression
+                        abs_property = self.calc_expr(state, expr.left.property)
+                        if isinstance(abs_property, JSPrimitive):
+                            if abs_rvalue is JSTop:
+                                state.objs[ref_id].properties.pop(abs_property.val, None)
+                            else:
+                                state.objs[ref_id].properties[abs_property.val] = abs_rvalue
+                        elif abs_property is not JSTop:
+                            raise ValueError("Invalid property type:" + str(type(abs_property)))
+            else:
+                raise ValueError("Invalid assignment left type")
+            return abs_rvalue
+
         elif expr.type == "ArrayExpression":
             elements = {}
             i = 0
@@ -147,41 +184,7 @@ class Interpreter(object):
 
 
     def do_exprstat(self, state, expr):
-        if expr.type == "AssignmentExpression":
-            abs_rvalue = self.calc_expr(state, expr.right)
-
-            if expr.left.type == "Identifier":
-                scope = self.scope_lookup(state, expr.left.name)
-                if abs_rvalue is JSTop:
-                    scope.pop(expr.left.name, None)
-                else:
-                    scope[expr.left.name] = abs_rvalue
-
-            elif expr.left.type == "MemberExpression":
-                abs_object = self.calc_expr(state, expr.left.object)
-                ref_id = abs_object.ref_id
-                if ref_id in state.objs:
-                    if expr.left.computed is False:
-                        if abs_rvalue is JSTop:
-                            state.objs[ref_id].properties.pop(expr.left.property.name, None)
-                        else:
-                            state.objs[ref_id].properties[expr.left.property.name] = abs_rvalue
-                    else: #expression
-                        abs_property = self.calc_expr(state, expr.left.property)
-                        if isinstance(abs_property, JSPrimitive):
-                            if abs_rvalue is JSTop:
-                                state.objs[ref_id].properties.pop(abs_property.val, None)
-                            else:
-                                state.objs[ref_id].properties[abs_property.val] = abs_rvalue
-                        elif abs_property is not JSTop:
-                            raise ValueError("Invalid property type:" + str(type(abs_property)))
-                            
-            else:
-                raise ValueError("Invalid assignment left type")
-        elif expr.type == "CallExpression":
-            self.calc_expr(state, expr)
-        else:
-            raise ValueError("ExprStatement type not handled:" + expr.type)
+        self.calc_expr(state, expr)
 
     def do_while(self, state, test, body):
         prev_state = None
@@ -232,17 +235,17 @@ class Interpreter(object):
         if abs_test_result is JSTop:
             state_then = state
             state_else = state.clone()
-            self.do_sequence(state_then, consequent.body)
+            self.do_statement(state_then, consequent)
             if alternate is not None:
-                self.do_sequence(state_else, alternate.body)
+                self.do_statement(state_else, alternate)
             state_then.join(state_else)
             return
 
         if Interpreter.truth_value(abs_test_result):
-            self.do_sequence(state, consequent.body)
+            self.do_statement(state, consequent)
         else:
             if alternate is not None:
-                self.do_sequence(state, alternate.body)
+                self.do_statement(state, alternate)
 
     def do_fundecl(self, state, name, params, body):
         scope = state.loc
@@ -304,12 +307,29 @@ class Interpreter(object):
         elif statement.type == "ContinueStatement":
             self.do_continue(state)
 
+        elif statement.type == "TryStatement":
+            self.do_statement(state, statement.block) #TODO we assume that exceptions never happen  ¯\_(ツ)_/¯
+        
+        elif statement.type == "BlockStatement":
+            self.do_sequence_with_hoisting(state, statement.body)
+
         else:
             raise ValueError("Statement type not handled: " + statement.type)
 
     def do_sequence(self, state, sequence):
         for statement in sequence:
             self.do_statement(state, statement)
+    
+    def do_sequence_with_hoisting(self, state, sequence):
+        #half-assed hoisting
+        for statement in sequence:
+            if statement.type == "FunctionDeclaration" or statement.Type == "VariableDeclaration":
+                self.do_statement(state, statement)
+        
+        for statement in sequence:
+            if not (statement.type == "FunctionDeclaration" or statement.Type == "VariableDeclaration"):
+                self.do_statement(state, statement)
+
 
     def run(self):
         state = State.top()
@@ -332,5 +352,5 @@ class Interpreter(object):
         debug(self.ast.body)
         debug("Init state: ", str(state))
         print("Starting abstract interpretation...")
-        self.do_sequence(state, self.ast.body)
+        self.do_sequence_with_hoisting(state, self.ast.body)
         print("Done. Final state: ", str(state))
