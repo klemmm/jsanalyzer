@@ -56,7 +56,7 @@ class Interpreter(object):
                 return JSTop #cannot determine concrete object
             ref_id = abs_object.ref_id
 
-            if expr.property.type == "Identifier":
+            if expr.computed is False:
                 return state.objs[ref_id].member(expr.property.name)
             else: #expression
                 abs_property = self.calc_expr(state, expr.property)
@@ -105,7 +105,6 @@ class Interpreter(object):
                 self.return_value = None
                 self.return_state = State.bottom()
                 saved_loc = state.loc
-                state.loc = {}
                 new_loc = {}
                 
                 i = 0
@@ -114,19 +113,21 @@ class Interpreter(object):
                     i = i + 1
                 state.loc = new_loc
                 self.closure = callee.env
-                debug("Evaluating function", expr.callee.name,"with closure",callee.env)
+                debug("Evaluating function", expr.callee.name,"with closure",callee.env, "and locs", state.loc)
                 self.do_sequence(state, callee.body)
                 debug("return value for", expr.callee.name, "is", self.return_value)
                 debug("return state:", self.return_state)
-                state.assign(self.return_state)
+                state.join(self.return_state)
                 my_return = self.return_value
                 self.return_value = saved_return
                 self.return_state = saved_rstate
                 self.closure = saved_closure
                 state.loc = saved_loc
+                if my_return is None:
+                    return JSUndefNaN
                 return my_return
             else:
-                raise ValueError("Attempted to call a non-callable value")
+                raise ValueError("Attempted to call a non-callable value: " + str(callee))
 
         else:
             raise ValueError("Expr type not handled:" + expr.type)
@@ -148,25 +149,30 @@ class Interpreter(object):
     def do_exprstat(self, state, expr):
         if expr.type == "AssignmentExpression":
             abs_rvalue = self.calc_expr(state, expr.right)
-            if abs_rvalue is JSTop:
-                return
 
             if expr.left.type == "Identifier":
                 scope = self.scope_lookup(state, expr.left.name)
-                scope[expr.left.name] = abs_rvalue
+                if abs_rvalue is JSTop:
+                    scope.pop(expr.left.name, None)
+                else:
+                    scope[expr.left.name] = abs_rvalue
 
             elif expr.left.type == "MemberExpression":
                 abs_object = self.calc_expr(state, expr.left.object)
-                if abs_object is JSTop:
-                    return
                 ref_id = abs_object.ref_id
                 if ref_id in state.objs:
-                    if expr.left.property.type == "Identifier":
-                        state.objs[ref_id].properties[expr.left.property.name] = abs_rvalue
+                    if expr.left.computed is False:
+                        if abs_rvalue is JSTop:
+                            state.objs[ref_id].properties.pop(expr.left.property.name, None)
+                        else:
+                            state.objs[ref_id].properties[expr.left.property.name] = abs_rvalue
                     else: #expression
                         abs_property = self.calc_expr(state, expr.left.property)
                         if isinstance(abs_property, JSPrimitive):
-                            state.objs[ref_id].properties[abs_property.val] = abs_rvalue
+                            if abs_rvalue is JSTop:
+                                state.objs[ref_id].properties.pop(abs_property.val, None)
+                            else:
+                                state.objs[ref_id].properties[abs_property.val] = abs_rvalue
                         elif abs_property is not JSTop:
                             raise ValueError("Invalid property type:" + str(type(abs_property)))
                             
@@ -182,7 +188,11 @@ class Interpreter(object):
         i = 0
         warned = False
         saved_loopexit = self.loopexit_state
-        while True:
+        self.loopexit_state = State.bottom()
+        exit = False
+        while not exit:
+            saved_loopcont = self.loopcont_state
+            self.loopcont_state = State.bottom()
             i = i + 1
             abs_test_result = self.calc_expr(state, test)
             if config.max_iter is not None and i > config.max_iter:
@@ -196,20 +206,22 @@ class Interpreter(object):
                 self.do_sequence(state, body)
                 state.join(header_state)
                 if state == prev_state:
-                    print("Exiting loop after " + str(i) + " iterations because abstract state is stable (condition is unknown)")
-                    break
-                continue
+                    debug("Exiting loop after " + str(i) + " iterations because abstract state is stable (condition is unknown)")
+                    exit = True 
             
-            if Interpreter.truth_value(abs_test_result):
+            elif Interpreter.truth_value(abs_test_result):
                 prev_state = state.clone()
                 self.do_sequence(state, body)
                 if state == prev_state:
-                    print("Exiting loop after " + str(i) + " iterations because abstract state is stable (condition is true)")
+                    debug("Exiting loop after " + str(i) + " iterations because abstract state is stable (condition is true)")
                     state.set_to_bottom()
-                    break
+                    exit = True
             else:
-                print("Exiting loop after " + str(i) + " iterations because condition is false")
-                break
+                debug("Exiting loop after " + str(i) + " iterations because condition is false")
+                exit = True
+
+            state.join(self.loopcont_state)
+            self.loopcont_state = saved_loopcont
 
         state.join(self.loopexit_state)
         self.loopexit_state = saved_loopexit
@@ -244,6 +256,10 @@ class Interpreter(object):
 
     def do_break(self, state):
         self.loopexit_state.join(state)
+        state.set_to_bottom()
+    
+    def do_continue(self, state):
+        self.loopcont_state.join(state)
         state.set_to_bottom()
 
     def do_return(self, state, argument):
@@ -284,6 +300,9 @@ class Interpreter(object):
         
         elif statement.type == "BreakStatement":
             self.do_break(state)
+        
+        elif statement.type == "ContinueStatement":
+            self.do_continue(state)
 
         else:
             raise ValueError("Statement type not handled: " + statement.type)
@@ -298,6 +317,7 @@ class Interpreter(object):
         self.closure = {}
         self.return_state = State.bottom()
         self.loopexit_state = State.bottom()
+        self.loopcont_state = State.bottom()
         state.loc = state.glob
 
         for (name, value) in plugin_manager.global_symbols:

@@ -1,6 +1,7 @@
 #!/bin/bash
 
 cd benchs
+KO="0"
 ls -1 *.js |while read A ; do
 	echo -n "Testing $A ... "
 	../analyze.py "$A" > tmp
@@ -12,7 +13,9 @@ ls -1 *.js |while read A ; do
 		echo "OK"
 	else
 		echo "KO"
+		KO="$(($KO + 1))"
 	fi
 done
 rm tmp
+echo "Number of tests failed: $KO"
 
