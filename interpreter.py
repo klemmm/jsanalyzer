@@ -507,27 +507,6 @@ class Interpreter(object):
         debug(self.ast.body)
         debug("Init state: ", str(state))
         print("Starting abstract interpretation...")
-        print("Processing main program...")
         self.do_sequence_with_hoisting(state, self.ast.body)
-        print("Processing unused functions...")
-        end_state = state
-        for f in self.funcs:
-            if not f.body.used:
-                state = end_state.clone()
-                state.loc = {}
-                for k in f.objs:
-                    if k not in state.objs:
-                        state.objs[k] = f.objs[k]
-                print("Processing function:", f.body.name, "... Tracking", len(self.funcs), "functions and", len(state.objs),"heap objects.")
-                self.return_value = None
-                self.closure = f.env
-                self.return_state = State.bottom()
-                self.loopexit_state = State.bottom()
-                self.loopcont_state = State.bottom()
-                self.do_statement(state, f.body)
-                f.body.used = True
-                state.join(self.return_state)
-       
-
         print("\nAnalysis finished")
 
