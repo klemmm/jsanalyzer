@@ -7,7 +7,7 @@ def unary_handler(opname, abs_arg):
     if abs_arg is JSUndefNaN:
         return JSUndefNaN
 
-    if opname == '!':
+    if opname == '!' and abs_arg is not JSTop:
         return JSPrimitive(not to_bool(abs_arg))
 
     if isinstance(abs_arg, JSPrimitive):
@@ -17,6 +17,7 @@ def unary_handler(opname, abs_arg):
             return JSPrimitive(-arg)
         else:
             return JSTop
+    return JSTop
 
 register_unary_handler(unary_handler)
 
@@ -83,6 +84,8 @@ def array_hook(name, arr):
     def array_pop(arr):
         #FIXME array object should track its abstract size
         indexes = sorted([i for i in arr.properties if type(i) is int])
+        if len(indexes) == 0:
+            return JSTop
         retval = arr.properties[indexes[-1]]
         del arr.properties[indexes[-1]]
         return retval
@@ -90,6 +93,8 @@ def array_hook(name, arr):
     def array_push(arr, value):
         #FIXME array object should track its abstract size
         indexes = sorted([i for i in arr.properties if type(i) is int])
+        if len(indexes) == 0:
+            return JSTop
         retval = arr.properties[indexes[-1]]
         arr.properties[indexes[-1] + 1] = value
         return retval
@@ -97,6 +102,8 @@ def array_hook(name, arr):
     def array_shift(arr):
         #FIXME array object should track its abstract size
         indexes = sorted([i for i in arr.properties if type(i) is int])
+        if len(indexes) == 0:
+            return JSTop
         retval = JSTop
         if 0 in indexes:
             retval = arr.properties[0]

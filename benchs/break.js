@@ -5,4 +5,4 @@ while (true) {
 		break;
 	}
 }
-
+console.log(i);

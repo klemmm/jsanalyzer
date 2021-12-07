@@ -3,12 +3,16 @@ from abstract import State, JSClosure, JSObject, JSUndefNaN, JSTop, JSRef, JSSim
 from debug import debug
 
 import plugin_manager
+import output
 import config
+import sys
 
+to_inspect = [ "toto" ]
 
 class Interpreter(object):
     def __init__(self, ast):
         self.ast = ast
+        self.funcs = []
 
     @staticmethod
     def truth_value(v):
@@ -28,9 +32,21 @@ class Interpreter(object):
             debug("not found")
         return state.glob
 
+    def calc_expr_and_store(self, state, expr):
+        result = self.calc_expr(state, expr)
+        if result is not JSTop and result is not None:
+            if expr.static_value is None:
+                expr.static_value = result.clone()
+            else:
+                if type(expr.static_value) != type(result) or expr.static_value != result:
+                    expr.static_value = JSTop
+        return result
+
     #Takes state, expression, and returns a JSValue
     def calc_expr(self, state, expr):
         if expr.type == "Literal":
+            if expr.value is None:
+                return JSUndefNaN
             return JSPrimitive(expr.value)
 
         elif expr.type == "Identifier":
@@ -40,13 +56,41 @@ class Interpreter(object):
             else:
                 return JSTop #untracked identifier
 
+        elif expr.type == "UpdateExpression":
+            return JSTop #TODO
+
+        elif expr.type == "NewExpression":
+            for argument in expr.arguments:
+                arg_val = self.calc_expr_and_store(state, argument)
+
+            return JSTop
+      
+        elif expr.type == "ConditionalExpression":
+            abs_test_result = self.calc_expr_and_store(state, expr.test)
+
+            if abs_test_result is JSTop:
+                state_then = state
+                state_else = state.clone()
+                expr_then = self.calc_expr_and_store(state_then, expr.consequent)
+                expr_else = self.calc_expr_and_store(state_else, expr.alternate)
+                state_then.join(state_else)
+                if type(expr_then) == type(expr_else) and expr_then == expr_else:
+                    return expr_then
+                else:
+                    return JSTop
+
+            if Interpreter.truth_value(abs_test_result):
+                return self.calc_expr_and_store(state, expr.consequent)
+            else:
+                return self.calc_expr_and_store(state, expr.alternate)
+
         elif expr.type == "SequenceExpression":
             for e in expr.expressions:
-                r = self.calc_expr(state, e)
+                r = self.calc_expr_and_store(state, e)
             return r
 
         elif expr.type == "AssignmentExpression":
-            abs_rvalue = self.calc_expr(state, expr.right)
+            abs_rvalue = self.calc_expr_and_store(state, expr.right)
 
             if expr.left.type == "Identifier":
                 scope = self.scope_lookup(state, expr.left.name)
@@ -54,49 +98,92 @@ class Interpreter(object):
                     scope.pop(expr.left.name, None)
                 else:
                     scope[expr.left.name] = abs_rvalue
+                    if expr.left.name in to_inspect:
+                        print(expr.left.name, ":", abs_rvalue)
+                        if isinstance(abs_rvalue, JSRef):
+                            print("pointed object:", state.objs[abs_rvalue.ref_id])
 
             elif expr.left.type == "MemberExpression":
-                abs_object = self.calc_expr(state, expr.left.object)
-                ref_id = abs_object.ref_id
-                if ref_id in state.objs:
-                    if expr.left.computed is False:
+                abs_object = self.calc_expr_and_store(state, expr.left.object)
+                if expr.left.computed is False:
+                    if abs_object is JSTop:
+                        return JSTop
+                    ref_id = abs_object.ref_id
+                    if ref_id in state.objs:
                         if abs_rvalue is JSTop:
                             state.objs[ref_id].properties.pop(expr.left.property.name, None)
                         else:
                             state.objs[ref_id].properties[expr.left.property.name] = abs_rvalue
-                    else: #expression
-                        abs_property = self.calc_expr(state, expr.left.property)
-                        if isinstance(abs_property, JSPrimitive):
+                    else:
+                        raise ValueError("Referenced object not found, id=" + str(ref_id))
+                else: #expression
+                    abs_property = self.calc_expr_and_store(state, expr.left.property)
+                    if abs_object is JSTop:
+                        return JSTop
+                    ref_id = abs_object.ref_id
+                    if isinstance(abs_property, JSPrimitive):
+                        if ref_id in state.objs:
                             if abs_rvalue is JSTop:
                                 state.objs[ref_id].properties.pop(abs_property.val, None)
                             else:
                                 state.objs[ref_id].properties[abs_property.val] = abs_rvalue
-                        elif abs_property is not JSTop:
-                            raise ValueError("Invalid property type:" + str(type(abs_property)))
+                        else:
+                            raise ValueError("Referenced object not found, id=" + str(ref_id))
+
+                    elif abs_property is not JSTop:
+                        raise ValueError("Invalid property type:" + str(type(abs_property)))
             else:
                 raise ValueError("Invalid assignment left type")
             return abs_rvalue
+        
+        elif expr.type == "ObjectExpression":
+            properties = {}
+            for prop in expr.properties:
+                prop_val = self.calc_expr_and_store(state, prop.value)
+                if prop_val is JSTop:
+                    continue
+                if not prop.computed:
+                    properties[prop.key.value] = prop_val
+                else:
+                    prop_key = self.calc_expr_and_store(state, prop.key)
+                    if isinstance(prop_key, JSPrimitive):
+                        properties[prop_key.val] = prop_val
+            obj_id = State.new_id()
+            state.objs[obj_id] = JSObject(properties)
+            return JSRef(obj_id)
 
         elif expr.type == "ArrayExpression":
             elements = {}
             i = 0
             for elem in expr.elements:
-                elements[i] = self.calc_expr(state, elem)
+                elements[i] = self.calc_expr_and_store(state, elem)
                 i = i + 1
             obj_id = State.new_id()
             state.objs[obj_id] = JSObject(elements)
             return JSRef(obj_id)
 
         elif expr.type == "MemberExpression":
-            abs_object = self.calc_expr(state, expr.object)
-            if abs_object is JSTop:
-                return JSTop #cannot determine concrete object
-            ref_id = abs_object.ref_id
+            abs_object = self.calc_expr_and_store(state, expr.object)
+            ret_top = False
+            if abs_object is JSTop or abs_object is JSUndefNaN:
+                ret_top = True
+
+            if isinstance(abs_object, JSPrimitive) and type(abs_object.val) is str:
+                ret_top = True
+
 
             if expr.computed is False:
+                if ret_top:
+                    return JSTop
+                ref_id = abs_object.ref_id
                 return state.objs[ref_id].member(expr.property.name)
             else: #expression
-                abs_property = self.calc_expr(state, expr.property)
+                abs_property = self.calc_expr_and_store(state, expr.property)
+                if ret_top:
+                    return JSTop
+                ref_id = abs_object.ref_id
+                if ref_id not in state.objs:
+                    raise ValueError("Referenced object not found, id=", str(ref_id))
                 if isinstance(abs_property, JSPrimitive):
                     return state.objs[ref_id].member(abs_property.val)
                 elif abs_property is JSTop:
@@ -105,66 +192,86 @@ class Interpreter(object):
                     raise ValueError("Invalid property type: " + str(type(abs_property)))
 
         elif expr.type == "UnaryExpression":
-            argument = self.calc_expr(state, expr.argument)
+            argument = self.calc_expr_and_store(state, expr.argument)
             return plugin_manager.handle_unary_operation(expr.operator, argument)
 
-        elif expr.type == "BinaryExpression":
-            left = self.calc_expr(state, expr.left)
-            right = self.calc_expr(state, expr.right)
+        elif expr.type == "BinaryExpression" or expr.type == "LogicalExpression":
+            left = self.calc_expr_and_store(state, expr.left)
+            right = self.calc_expr_and_store(state, expr.right)
             return plugin_manager.handle_binary_operation(expr.operator, left, right)
 
-        elif expr.type == "FunctionExpression":
+        elif expr.type == "FunctionExpression" or expr.type == "ArrowFunctionExpression":
             if state.loc is state.glob:
-                return JSClosure(expr.params, expr.body.body, {})
+                f = JSClosure(expr.params, expr.body, {}, {})
             else:
                 closure_env = {}
                 State.dict_assign(closure_env, state.loc)
-                return JSClosure(expr.params, expr.body.body, closure_env)
+                for k in self.closure:
+                    if k not in closure_env:
+                        closure_env[k] = self.closure[k].clone()
+                closure_objs = {}
+                State.dict_assign(closure_objs, state.objs)
+                f = JSClosure(expr.params, expr.body, closure_env, closure_objs)
+            
+            if f.body.seen is not True:
+                f.body.seen = True
+                f.body.name = "<anonymous>"
+                self.funcs.append(f)
+            return f
 
         elif expr.type == "CallExpression":
-            callee = self.calc_expr(state, expr.callee)
+            callee = self.calc_expr_and_store(state, expr.callee)
             #callee can be either JSTop, JSClosure or JSSimFct
-
-            if callee is JSTop:
-                return JSTop # Unsound, since it does not account for side-effects
-
-            elif isinstance(callee, JSSimFct):
+               
+            if isinstance(callee, JSSimFct):
                 args = []
                 for argument in expr.arguments:
-                    arg_val = self.calc_expr(state, argument)
+                    arg_val = self.calc_expr_and_store(state, argument)
                     args.append(arg_val)
                 return callee.fct(*args)
 
-            elif isinstance(callee, JSClosure):
-                saved_return = self.return_value
-                saved_rstate = self.return_state
-                saved_closure = self.closure
-                self.return_value = None
-                self.return_state = State.bottom()
-                saved_loc = state.loc
-                new_loc = {}
-                
-                i = 0
-                for argument in expr.arguments:
-                    new_loc[callee.params[i].name] = self.calc_expr(state, argument)
-                    i = i + 1
-                state.loc = new_loc
+
+
+
+            if isinstance(callee, JSClosure):
+                callee.body.used = True
+            saved_return = self.return_value
+            saved_rstate = self.return_state
+            saved_closure = self.closure
+            self.return_value = None
+            self.return_state = State.bottom()
+            saved_loc = state.loc
+            new_loc = {}
+            
+            i = 0
+            for argument in expr.arguments:
+                if isinstance(callee, JSClosure):
+                    new_loc[callee.params[i].name] = self.calc_expr_and_store(state, argument)
+                else:
+                    self.calc_expr_and_store(state, argument)
+                i = i + 1
+
+            state.loc = new_loc
+            if isinstance(callee, JSClosure):
                 self.closure = callee.env
+                if expr.callee.name == "ToCache":
+                    print("ToCache")
                 debug("Evaluating function", expr.callee.name,"with closure",callee.env, "and locs", state.loc)
-                self.do_sequence(state, callee.body)
+                self.do_statement(state, callee.body)
                 debug("return value for", expr.callee.name, "is", self.return_value)
                 debug("return state:", self.return_state)
                 state.join(self.return_state)
+
                 my_return = self.return_value
-                self.return_value = saved_return
-                self.return_state = saved_rstate
-                self.closure = saved_closure
-                state.loc = saved_loc
-                if my_return is None:
-                    return JSUndefNaN
-                return my_return
             else:
-                raise ValueError("Attempted to call a non-callable value: " + str(callee))
+                my_return = JSTop
+            self.return_value = saved_return
+            self.return_state = saved_rstate
+            self.closure = saved_closure
+            state.loc = saved_loc
+            if my_return is None:
+                return JSUndefNaN
+            return my_return
 
         else:
             raise ValueError("Expr type not handled:" + expr.type)
@@ -174,7 +281,11 @@ class Interpreter(object):
         if decl.type == "VariableDeclarator":
             scope = state.loc
             if decl.init is not None:
-                val = self.calc_expr(state, decl.init)
+                val = self.calc_expr_and_store(state, decl.init)
+                if decl.id.name in to_inspect:
+                    print(decl.id.name, ":", val)
+                    if isinstance(val, JSRef):
+                        print("pointed object:", state.objs[val.ref_id])
                 if val is not JSTop:
                     scope[decl.id.name] = val
             else:
@@ -184,7 +295,7 @@ class Interpreter(object):
 
 
     def do_exprstat(self, state, expr):
-        self.calc_expr(state, expr)
+        self.calc_expr_and_store(state, expr)
 
     def do_while(self, state, test, body):
         prev_state = None
@@ -197,7 +308,7 @@ class Interpreter(object):
             saved_loopcont = self.loopcont_state
             self.loopcont_state = State.bottom()
             i = i + 1
-            abs_test_result = self.calc_expr(state, test)
+            abs_test_result = self.calc_expr_and_store(state, test)
             if config.max_iter is not None and i > config.max_iter:
                 if not warned:
                     print("[warning] Loop unrolling stopped after " + str(config.max_iter) + " iterations")
@@ -208,6 +319,8 @@ class Interpreter(object):
                 header_state = state.clone()
                 self.do_sequence(state, body)
                 state.join(header_state)
+                state.join(self.loopcont_state)
+                self.loopcont_state = saved_loopcont
                 if state == prev_state:
                     debug("Exiting loop after " + str(i) + " iterations because abstract state is stable (condition is unknown)")
                     exit = True 
@@ -215,6 +328,8 @@ class Interpreter(object):
             elif Interpreter.truth_value(abs_test_result):
                 prev_state = state.clone()
                 self.do_sequence(state, body)
+                state.join(self.loopcont_state)
+                self.loopcont_state = saved_loopcont
                 if state == prev_state:
                     debug("Exiting loop after " + str(i) + " iterations because abstract state is stable (condition is true)")
                     state.set_to_bottom()
@@ -223,14 +338,35 @@ class Interpreter(object):
                 debug("Exiting loop after " + str(i) + " iterations because condition is false")
                 exit = True
 
-            state.join(self.loopcont_state)
-            self.loopcont_state = saved_loopcont
 
         state.join(self.loopexit_state)
         self.loopexit_state = saved_loopexit
 
+    def do_switch(self, state, discriminant, cases):
+        abs_discr = self.calc_expr_and_store(state, discriminant)
+        has_true = False
+        states_after = []
+        for case in cases:
+            abs_test = self.calc_expr_and_store(state, case.test)
+            if isinstance(abs_test, JSPrimitive) and isinstance(abs_discr, JSPrimitive) and abs_test.val != abs_discr.val:
+                continue #No
+            elif isinstance(abs_test, JSPrimitive) and isinstance(abs_discr, JSPrimitive) and abs_test.val == abs_discr.val:
+                has_true = True
+                state_clone = state.clone()
+                self.do_sequence(state_clone, case.consequent) #Yes
+                states_after.append(state_clone)
+                break
+            else:
+                state_clone = state.clone()
+                self.do_sequence(state_clone, case.consequent) #Maybe
+                states_after.append(state_clone)
+        if has_true:
+            state.set_to_bottom()
+        for s in states_after:
+            state.join(s)
+
     def do_if(self, state, test, consequent, alternate):
-        abs_test_result = self.calc_expr(state, test)
+        abs_test_result = self.calc_expr_and_store(state, test)
 
         if abs_test_result is JSTop:
             state_then = state
@@ -250,12 +386,22 @@ class Interpreter(object):
     def do_fundecl(self, state, name, params, body):
         scope = state.loc
         if state.glob is state.loc:
-            scope[name] = JSClosure(params, body.body, {})
+            scope[name] = JSClosure(params, body, {}, {})
         else:
             closure_env = {}
             State.dict_assign(closure_env, state.loc)
-            scope[name] = JSClosure(params, body.body, closure_env)
+            for k in self.closure:
+                if k not in closure_env:
+                    closure_env[k] = self.closure[k].clone()
+            closure_objs = {}
+            State.dict_assign(closure_objs, state.objs)
 
+            scope[name] = JSClosure(params, body, closure_env, closure_objs)
+
+        if scope[name].body.seen is not True:
+            scope[name].body.seen = True
+            scope[name].body.name = name
+            self.funcs.append(scope[name])
 
     def do_break(self, state):
         self.loopexit_state.join(state)
@@ -267,7 +413,10 @@ class Interpreter(object):
 
     def do_return(self, state, argument):
         self.return_state.join(state)
-        arg_val = self.calc_expr(state, argument)
+        if argument is None:
+            arg_val = JSUndefNaN
+        else:
+            arg_val = self.calc_expr_and_store(state, argument)
         if self.return_value is None:
             self.return_value = arg_val.clone()
         elif not (type(self.return_value) == type(arg_val) and self.return_value == arg_val):
@@ -312,6 +461,12 @@ class Interpreter(object):
         
         elif statement.type == "BlockStatement":
             self.do_sequence_with_hoisting(state, statement.body)
+        
+        elif statement.type == "EmptyStatement":
+            pass
+
+        elif statement.type == "SwitchStatement":
+            self.do_switch(state, statement.discriminant, statement.cases)
 
         else:
             raise ValueError("Statement type not handled: " + statement.type)
@@ -323,11 +478,11 @@ class Interpreter(object):
     def do_sequence_with_hoisting(self, state, sequence):
         #half-assed hoisting
         for statement in sequence:
-            if statement.type == "FunctionDeclaration" or statement.Type == "VariableDeclaration":
+            if statement.type == "FunctionDeclaration" or statement.type == "AVariableDeclaration":
                 self.do_statement(state, statement)
         
         for statement in sequence:
-            if not (statement.type == "FunctionDeclaration" or statement.Type == "VariableDeclaration"):
+            if not (statement.type == "FunctionDeclaration" or statement.type == "AVariableDeclaration"):
                 self.do_statement(state, statement)
 
 
@@ -352,5 +507,27 @@ class Interpreter(object):
         debug(self.ast.body)
         debug("Init state: ", str(state))
         print("Starting abstract interpretation...")
+        print("Processing main program...")
         self.do_sequence_with_hoisting(state, self.ast.body)
-        print("Done. Final state: ", str(state))
+        print("Processing unused functions...")
+        end_state = state
+        for f in self.funcs:
+            if not f.body.used:
+                state = end_state.clone()
+                state.loc = {}
+                for k in f.objs:
+                    if k not in state.objs:
+                        state.objs[k] = f.objs[k]
+                print("Processing function:", f.body.name, "... Tracking", len(self.funcs), "functions and", len(state.objs),"heap objects.")
+                self.return_value = None
+                self.closure = f.env
+                self.return_state = State.bottom()
+                self.loopexit_state = State.bottom()
+                self.loopcont_state = State.bottom()
+                self.do_statement(state, f.body)
+                f.body.used = True
+                state.join(self.return_state)
+       
+
+        print("\nAnalysis finished")
+

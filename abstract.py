@@ -36,7 +36,7 @@ class State(object):
     def dict_join(d1, d2):
         bye = []
         for k in d1:
-            if (not (k in d2) or (d1[k] != d2[k])):
+            if (not (k in d2) or type(d1[k]) != type(d2[k]) or (d1[k] != d2[k])):
                 bye.append(k)
         for b in bye:
             del d1[b]
@@ -152,6 +152,8 @@ class JSSpecial(JSValue):
         return self.name
     def __repr__(self):
         return self.__str__()
+    def __eq__(self, other):
+        return self.name == other.name
 
 JSUndefNaN = JSSpecial("Undef/NaN") #represents NaN or undefined
 JSTop = JSSpecial("Top")
@@ -214,10 +216,11 @@ class JSSimFct(JSValue):
 
 # Represents a closure (i.e. a js function AST and its closure environment)
 class JSClosure(JSValue):
-    def __init__(self, params, body, env):
+    def __init__(self, params, body, env, objs):
         self.params = params
         self.body = body
         self.env = env
+        self.objs = objs
     def __str__(self):
         if len(self.env) == 0:
             return "<function>"
@@ -230,7 +233,7 @@ class JSClosure(JSValue):
     def clone(self): # /!\ No deep-copy of params and function body, as it is not needed yet
         env = {}
         State.dict_assign(env, self.env)
-        c = JSClosure(self.params, self.body, env)
+        c = JSClosure(self.params, self.body, env, self.objs)
         return c
 
 

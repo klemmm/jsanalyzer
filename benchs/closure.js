@@ -1,9 +1,10 @@
 function maker() {
-	var x = 42;
+	var x;
 	function closure() {
 		x = x + 1;
 		return x;
-	}
+	} 
+	x = 42;
 	return closure;
 }
 

@@ -16,6 +16,9 @@ global_symbols = []
 preexisting_objects = []
 
 def to_bool(v):
+    if v is JSUndefNaN:
+        return False
+
     if isinstance(v, JSPrimitive):
         if type(v.val) is int:
             return v.val != 0
@@ -26,7 +29,7 @@ def to_bool(v):
     elif isinstance(v, JSRef):
         return True
     else:
-        raise ValueError("truth_value: unhandled abstract type" + str(type(v)))
+        raise ValueError("truth_value: unhandled abstract type" + str(type(v)) + "(value: " + str(v) + ")")
 
 def handle_binary_operation(opname, arg1, arg2):
     r = JSTop
