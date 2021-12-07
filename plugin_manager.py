@@ -9,7 +9,7 @@ JSSimFct = abstract.JSSimFct
 JSObject = abstract.JSObject
 JSRef = abstract.JSRef
 
-ref_id = 0
+ref_id = 1 # id 0 is reserved for global scope
 binary_handlers = []
 unary_handlers = []
 global_symbols = []

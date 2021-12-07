@@ -1,10 +1,22 @@
 ## Abstract semantics (State)
 
 class State(object):
-    def __init__(self):
-        self.glob = {} #globals
-        self.loc = {} #locals
-        self.objs = {} #objects/arrays
+    def __init__(self, glob=False, bottom=False):
+        if bottom:
+            self.objs = {}
+            self.gref = None
+            self.lref = None
+            self.is_bottom = True
+        else:
+            self.is_bottom = False
+            self.objs = {} 
+            self.gref = State.new_id()
+            self.objs[self.gref] = {}
+            if glob:
+                self.lref = self.gref
+            else:
+                self.lref = State.new_id()
+                self.objs[self.lref] = {}
 
     # Class attributes
     next_id = 0
@@ -13,14 +25,12 @@ class State(object):
 
     @staticmethod
     def bottom():
-        st = State()
-        st.is_bottom = True
+        st = State(glob=False, bottom=True)
         return st
     
     @staticmethod
     def top():
-        st = State()
-        st.is_bottom = False
+        st = State(glob=False, bottom=False)
         return st
     
     @staticmethod
@@ -46,37 +56,34 @@ class State(object):
     def dict_assign(d1, d2):
         d1.clear()
         for k in d2:
-            d1[k] = d2[k].clone()
+            if isinstance(d2[k], dict):
+                d1[k] = {}
+                State.dict_assign(d1[k], d2[k])
+            else:
+                d1[k] = d2[k].clone()
 
     # Instance methods
 
     def set_to_bottom(self):
-        self.glob.clear()
-        self.loc.clear()
         self.objs.clear()
+        self.gref = None
+        self.lref = None
         self.is_bottom = True
 
     def clone(self):
         c = State()
-        c.is_bottom = self.is_bottom
-        c.glob = {}
-        c.loc = {}
-        State.dict_assign(c.glob, self.glob)
-        if self.loc is self.glob:
-            c.loc = c.glob
-        else:
-            State.dict_assign(c.loc, self.loc)
         State.dict_assign(c.objs, self.objs)
+        c.is_bottom = self.is_bottom
+        c.lref = self.lref
+        c.gref = self.gref
         return c 
 
     def __eq__(self, other):
         if self.is_bottom != other.is_bottom:
             return False
-        if self.glob != other.glob:
+        if self.gref != other.gref:
             return False
-        if self.loc != other.loc:
-            return False
-        if (self.glob is self.loc) != (other.glob is other.loc):
+        if self.lref != other.lref:
             return False
         if self.objs != other.objs:
             return False
@@ -84,14 +91,8 @@ class State(object):
 
     def assign(self, other):
         self.is_bottom = other.is_bottom
-        self.glob.clear()
-        self.loc.clear()
-        State.dict_assign(self.glob, other.glob)
-
-        if other.loc is other.glob:
-            self.loc = self.glob
-        else:
-            State.dict_assign(self.loc, other.loc)
+        self.gref = other.gref
+        self.lref = other.lref
         State.dict_assign(self.objs, other.objs)
 
     def join(self, other):
@@ -100,13 +101,16 @@ class State(object):
         if self.is_bottom:
             self.assign(other)
             return
-        State.dict_join(self.glob, other.glob)
-        State.dict_join(self.loc, other.loc)
+        assert(self.lref == other.lref)
+        assert(self.gref == other.gref)
 
         bye = []
         for k in self.objs:
             if k in other.objs:
-                State.dict_join(self.objs[k].properties, other.objs[k].properties)
+                if isinstance(self.objs[k],dict):
+                    State.dict_join(self.objs[k], other.objs[k])
+                else:
+                    State.dict_join(self.objs[k].properties, other.objs[k].properties)
             else:
                 bye.append(k)
         for b in bye:
@@ -115,10 +119,7 @@ class State(object):
     def __str__(self):
         if self.is_bottom:
             return "Bottom";
-        loc = ""
-        if not (self.glob is self.loc):
-            loc = ", loc=" + str(self.loc)
-        return("glob=" + str(self.glob) + loc + ", objs=" + str(self.objs))
+        return("gref=" + str(self.gref) + ", lref=" + str(self.lref) +", objs=" + str(self.objs))
 
     def __repr__(self):
         return self.__str__()
@@ -216,24 +217,21 @@ class JSSimFct(JSValue):
 
 # Represents a closure (i.e. a js function AST and its closure environment)
 class JSClosure(JSValue):
-    def __init__(self, params, body, env, objs):
+    def __init__(self, params, body, env):
         self.params = params
         self.body = body
         self.env = env
-        self.objs = objs
     def __str__(self):
-        if len(self.env) == 0:
+        if self.env is None:
             return "<function>"
         else:
-            return "<function, env=" + str(self.env) + ">"
+            return "<closure, env=" + str(self.env) + ">"
     def __repr__(self):
         return self.__str__()
     def __eq__(self, other):
         return self.body == other.body and self.params == other.params and self.env == other.env
     def clone(self): # /!\ No deep-copy of params and function body, as it is not needed yet
-        env = {}
-        State.dict_assign(env, self.env)
-        c = JSClosure(self.params, self.body, env, self.objs)
+        c = JSClosure(self.params, self.body, self.env)
         return c
 
 

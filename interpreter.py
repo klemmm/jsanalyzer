@@ -20,17 +20,23 @@ class Interpreter(object):
         
     def scope_lookup(self, state, name):
         debug("looking up:", name, "...", end="")
-        if name in state.loc:
+        if name in state.objs[state.lref]:
             debug("found in local scope")
-            return state.loc
-        if name in self.closure:
+            return state.objs[state.lref]
+
+        current_scope = state.objs[state.lref]
+        found = False
+        while '__closure' in current_scope and not found:
+            current_scope = state.objs[current_scope['__closure'].ref_id]
+            found = name in current_scope
+        if found:
             debug("found in closure scope")
-            return self.closure
-        if name in state.glob:
+            return current_scope
+        if name in state.objs[state.gref]:
             debug("found in global scope")
         else:
             debug("not found")
-        return state.glob
+        return state.objs[state.gref]
 
     def calc_expr_and_store(self, state, expr):
         result = self.calc_expr(state, expr)
@@ -201,17 +207,10 @@ class Interpreter(object):
             return plugin_manager.handle_binary_operation(expr.operator, left, right)
 
         elif expr.type == "FunctionExpression" or expr.type == "ArrowFunctionExpression":
-            if state.loc is state.glob:
-                f = JSClosure(expr.params, expr.body, {}, {})
+            if state.lref == state.gref:
+                f = JSClosure(expr.params, expr.body, None)
             else:
-                closure_env = {}
-                State.dict_assign(closure_env, state.loc)
-                for k in self.closure:
-                    if k not in closure_env:
-                        closure_env[k] = self.closure[k].clone()
-                closure_objs = {}
-                State.dict_assign(closure_objs, state.objs)
-                f = JSClosure(expr.params, expr.body, closure_env, closure_objs)
+                f = JSClosure(expr.params, expr.body, state.lref)
             
             if f.body.seen is not True:
                 f.body.seen = True
@@ -235,12 +234,13 @@ class Interpreter(object):
 
             if isinstance(callee, JSClosure):
                 callee.body.used = True
+            
             saved_return = self.return_value
             saved_rstate = self.return_state
-            saved_closure = self.closure
+            saved_lref = state.lref
+
             self.return_value = None
             self.return_state = State.bottom()
-            saved_loc = state.loc
             new_loc = {}
             
             i = 0
@@ -251,12 +251,13 @@ class Interpreter(object):
                     self.calc_expr_and_store(state, argument)
                 i = i + 1
 
-            state.loc = new_loc
+            lref = State.new_id()
+            state.objs[lref] = new_loc
+            state.lref = lref
             if isinstance(callee, JSClosure):
-                self.closure = callee.env
-                if expr.callee.name == "ToCache":
-                    print("ToCache")
-                debug("Evaluating function", expr.callee.name,"with closure",callee.env, "and locs", state.loc)
+                if callee.env is not None:
+                    state.objs[state.lref]["__closure"] = JSRef(callee.env)
+                debug("Evaluating function", expr.callee.name,"with closure",callee.env, "and locs", state.objs[state.lref])
                 self.do_statement(state, callee.body)
                 debug("return value for", expr.callee.name, "is", self.return_value)
                 debug("return state:", self.return_state)
@@ -267,8 +268,7 @@ class Interpreter(object):
                 my_return = JSTop
             self.return_value = saved_return
             self.return_state = saved_rstate
-            self.closure = saved_closure
-            state.loc = saved_loc
+            state.lref = saved_lref
             if my_return is None:
                 return JSUndefNaN
             return my_return
@@ -277,19 +277,20 @@ class Interpreter(object):
             raise ValueError("Expr type not handled:" + expr.type)
         return
 
-    def do_vardecl(self, state, decl):
+    def do_vardecl(self, state, decl, hoisting=False):
         if decl.type == "VariableDeclarator":
-            scope = state.loc
-            if decl.init is not None:
+            if hoisting or decl.init is None:
+                scope = state.objs[state.lref]
+                scope[decl.id.name] = JSUndefNaN
+            else:
                 val = self.calc_expr_and_store(state, decl.init)
                 if decl.id.name in to_inspect:
                     print(decl.id.name, ":", val)
                     if isinstance(val, JSRef):
                         print("pointed object:", state.objs[val.ref_id])
                 if val is not JSTop:
+                    scope = state.objs[state.lref]
                     scope[decl.id.name] = val
-            else:
-                scope[decl.id.name] = JSUndefNaN
         else:
             raise ValueError("Vardecl type not handled:" + decl.type)
 
@@ -384,19 +385,11 @@ class Interpreter(object):
                 self.do_statement(state, alternate)
 
     def do_fundecl(self, state, name, params, body):
-        scope = state.loc
-        if state.glob is state.loc:
-            scope[name] = JSClosure(params, body, {}, {})
+        scope = state.objs[state.lref]
+        if state.lref == state.gref:
+            scope[name] = JSClosure(params, body, None)
         else:
-            closure_env = {}
-            State.dict_assign(closure_env, state.loc)
-            for k in self.closure:
-                if k not in closure_env:
-                    closure_env[k] = self.closure[k].clone()
-            closure_objs = {}
-            State.dict_assign(closure_objs, state.objs)
-
-            scope[name] = JSClosure(params, body, closure_env, closure_objs)
+            scope[name] = JSClosure(params, body, state.lref)
 
         if scope[name].body.seen is not True:
             scope[name].body.seen = True
@@ -423,7 +416,7 @@ class Interpreter(object):
             self.return_value = JSTop
         state.set_to_bottom()
 
-    def do_statement(self, state, statement):
+    def do_statement(self, state, statement, hoisting=False):
         if state.is_bottom:
             debug("Ignoring dead code: ", statement.type)
             return
@@ -433,7 +426,7 @@ class Interpreter(object):
 
         if statement.type == "VariableDeclaration":
             for decl in statement.declarations:
-                self.do_vardecl(state, decl)
+                self.do_vardecl(state, decl, hoisting)
 
         elif statement.type == "ExpressionStatement":
             self.do_exprstat(state, statement.expression)
@@ -477,30 +470,32 @@ class Interpreter(object):
     
     def do_sequence_with_hoisting(self, state, sequence):
         #half-assed hoisting
+        debug("Sequence before hoisting")
         for statement in sequence:
-            if statement.type == "FunctionDeclaration" or statement.type == "AVariableDeclaration":
-                self.do_statement(state, statement)
+            if statement.type == "FunctionDeclaration" or statement.type == "VariableDeclaration":
+                self.do_statement(state, statement, True)
         
+        debug("Sequence after hoisting")
         for statement in sequence:
-            if not (statement.type == "FunctionDeclaration" or statement.type == "AVariableDeclaration"):
+            if not statement.type == "FunctionDeclaration":
                 self.do_statement(state, statement)
+        debug("Sequence done")
 
 
     def run(self):
-        state = State.top()
+        state = State(glob=True, bottom=False)
         self.return_value = None
         self.closure = {}
         self.return_state = State.bottom()
         self.loopexit_state = State.bottom()
         self.loopcont_state = State.bottom()
-        state.loc = state.glob
 
         for (name, value) in plugin_manager.global_symbols:
-            state.glob[name] = value
+            state.objs[state.gref][name] = value
 
         for (ref_id, obj) in plugin_manager.preexisting_objects:
             state.objs[ref_id] = obj
-
+        
         State.set_next_id(plugin_manager.ref_id)
 
         debug("Dumping Abstract Syntax Tree:")
@@ -509,4 +504,5 @@ class Interpreter(object):
         print("Starting abstract interpretation...")
         self.do_sequence_with_hoisting(state, self.ast.body)
         print("\nAnalysis finished")
+        debug("End state: ", str(state))
 
