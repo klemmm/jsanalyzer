@@ -11,12 +11,12 @@ class State(object):
             self.is_bottom = False
             self.objs = {} 
             self.gref = State.new_id()
-            self.objs[self.gref] = {}
+            self.objs[self.gref] = JSObject({})
             if glob:
                 self.lref = self.gref
             else:
                 self.lref = State.new_id()
-                self.objs[self.lref] = {}
+                self.objs[self.lref] = JSObject({})
 
     # Class attributes
     next_id = 0
@@ -168,6 +168,7 @@ class JSObject(JSValue):
         JSObject.hooks.append(hook)
     def __init__(self, properties):
         self.properties = properties
+        self.refcount = 0
     def __str__(self):
         return "{" + (", ".join([(str(i) + ': ' + str(self.properties[i])) for i in self.properties])) + "} "
     def __repr__(self):
@@ -177,6 +178,7 @@ class JSObject(JSValue):
     def clone(self):
         c = JSObject({})
         State.dict_assign(c.properties, self.properties)
+        c.refcount = self.refcount
         return c
     def member(self, name):
         for h in JSObject.hooks:

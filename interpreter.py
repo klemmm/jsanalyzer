@@ -19,24 +19,72 @@ class Interpreter(object):
         return plugin_manager.to_bool(v)
         
     def scope_lookup(self, state, name):
-        debug("looking up:", name, "...", end="")
-        if name in state.objs[state.lref]:
-            debug("found in local scope")
-            return state.objs[state.lref]
+        if name in state.objs[state.lref].properties:
+            return state.objs[state.lref].properties
 
-        current_scope = state.objs[state.lref]
+        current_scope = state.objs[state.lref].properties
         found = False
         while '__closure' in current_scope and not found:
-            current_scope = state.objs[current_scope['__closure'].ref_id]
+            current_scope = state.objs[current_scope['__closure'].ref_id].properties
             found = name in current_scope
         if found:
-            debug("found in closure scope")
             return current_scope
-        if name in state.objs[state.gref]:
-            debug("found in global scope")
+        return state.objs[state.gref].properties
+
+    def evaluate_function(self, state, callee, arguments):
+        #callee can be either JSTop, JSClosure or JSSimFct
+           
+        if isinstance(callee, JSSimFct):
+            args = []
+            for argument in arguments:
+                arg_val = self.calc_expr_and_store(state, argument)
+                args.append(arg_val)
+            return callee.fct(*args)
+
+
+        if isinstance(callee, JSClosure):
+            callee.body.used = True
+        
+        saved_return = self.return_value
+        saved_rstate = self.return_state
+        saved_lref = state.lref
+
+        self.return_value = None
+        self.return_state = State.bottom()
+        new_loc_obj = JSObject({})
+        new_loc = new_loc_obj.properties
+        
+        i = 0
+        for argument in arguments:
+            if isinstance(callee, JSClosure):
+                new_loc[callee.params[i].name] = self.calc_expr_and_store(state, argument)
+            else:
+                arg = self.calc_expr_and_store(state, argument)
+                if isinstance(arg, JSClosure):
+                    self.evaluate_function(state, arg, [])
+            i = i + 1
+
+        lref = State.new_id()
+        state.objs[lref] = new_loc_obj
+        state.lref = lref
+        if isinstance(callee, JSClosure):
+            if callee.env is not None:
+                state.objs[state.lref].properties["__closure"] = JSRef(callee.env)
+            self.do_statement(state, callee.body)
+            state.join(self.return_state)
+
+            my_return = self.return_value
         else:
-            debug("not found")
-        return state.objs[state.gref]
+            my_return = JSTop
+        self.return_value = saved_return
+        self.return_state = saved_rstate
+        if state.objs[lref].refcount == 0:
+            del state.objs[lref]
+        state.lref = saved_lref
+        if my_return is None:
+            return JSUndefNaN
+        return my_return
+
 
     def calc_expr_and_store(self, state, expr):
         result = self.calc_expr(state, expr)
@@ -210,6 +258,7 @@ class Interpreter(object):
             if state.lref == state.gref:
                 f = JSClosure(expr.params, expr.body, None)
             else:
+                state.objs[state.lref].refcount += 1
                 f = JSClosure(expr.params, expr.body, state.lref)
             
             if f.body.seen is not True:
@@ -220,58 +269,7 @@ class Interpreter(object):
 
         elif expr.type == "CallExpression":
             callee = self.calc_expr_and_store(state, expr.callee)
-            #callee can be either JSTop, JSClosure or JSSimFct
-               
-            if isinstance(callee, JSSimFct):
-                args = []
-                for argument in expr.arguments:
-                    arg_val = self.calc_expr_and_store(state, argument)
-                    args.append(arg_val)
-                return callee.fct(*args)
-
-
-
-
-            if isinstance(callee, JSClosure):
-                callee.body.used = True
-            
-            saved_return = self.return_value
-            saved_rstate = self.return_state
-            saved_lref = state.lref
-
-            self.return_value = None
-            self.return_state = State.bottom()
-            new_loc = {}
-            
-            i = 0
-            for argument in expr.arguments:
-                if isinstance(callee, JSClosure):
-                    new_loc[callee.params[i].name] = self.calc_expr_and_store(state, argument)
-                else:
-                    self.calc_expr_and_store(state, argument)
-                i = i + 1
-
-            lref = State.new_id()
-            state.objs[lref] = new_loc
-            state.lref = lref
-            if isinstance(callee, JSClosure):
-                if callee.env is not None:
-                    state.objs[state.lref]["__closure"] = JSRef(callee.env)
-                debug("Evaluating function", expr.callee.name,"with closure",callee.env, "and locs", state.objs[state.lref])
-                self.do_statement(state, callee.body)
-                debug("return value for", expr.callee.name, "is", self.return_value)
-                debug("return state:", self.return_state)
-                state.join(self.return_state)
-
-                my_return = self.return_value
-            else:
-                my_return = JSTop
-            self.return_value = saved_return
-            self.return_state = saved_rstate
-            state.lref = saved_lref
-            if my_return is None:
-                return JSUndefNaN
-            return my_return
+            return self.evaluate_function(state, callee, expr.arguments)
 
         else:
             raise ValueError("Expr type not handled:" + expr.type)
@@ -280,7 +278,7 @@ class Interpreter(object):
     def do_vardecl(self, state, decl, hoisting=False):
         if decl.type == "VariableDeclarator":
             if hoisting or decl.init is None:
-                scope = state.objs[state.lref]
+                scope = state.objs[state.lref].properties
                 scope[decl.id.name] = JSUndefNaN
             else:
                 val = self.calc_expr_and_store(state, decl.init)
@@ -289,7 +287,7 @@ class Interpreter(object):
                     if isinstance(val, JSRef):
                         print("pointed object:", state.objs[val.ref_id])
                 if val is not JSTop:
-                    scope = state.objs[state.lref]
+                    scope = state.objs[state.lref].properties
                     scope[decl.id.name] = val
         else:
             raise ValueError("Vardecl type not handled:" + decl.type)
@@ -323,7 +321,6 @@ class Interpreter(object):
                 state.join(self.loopcont_state)
                 self.loopcont_state = saved_loopcont
                 if state == prev_state:
-                    debug("Exiting loop after " + str(i) + " iterations because abstract state is stable (condition is unknown)")
                     exit = True 
             
             elif Interpreter.truth_value(abs_test_result):
@@ -332,11 +329,9 @@ class Interpreter(object):
                 state.join(self.loopcont_state)
                 self.loopcont_state = saved_loopcont
                 if state == prev_state:
-                    debug("Exiting loop after " + str(i) + " iterations because abstract state is stable (condition is true)")
                     state.set_to_bottom()
                     exit = True
             else:
-                debug("Exiting loop after " + str(i) + " iterations because condition is false")
                 exit = True
 
 
@@ -385,10 +380,11 @@ class Interpreter(object):
                 self.do_statement(state, alternate)
 
     def do_fundecl(self, state, name, params, body):
-        scope = state.objs[state.lref]
+        scope = state.objs[state.lref].properties
         if state.lref == state.gref:
             scope[name] = JSClosure(params, body, None)
         else:
+            state.objs[state.lref].refcount += 1
             scope[name] = JSClosure(params, body, state.lref)
 
         if scope[name].body.seen is not True:
@@ -470,16 +466,13 @@ class Interpreter(object):
     
     def do_sequence_with_hoisting(self, state, sequence):
         #half-assed hoisting
-        debug("Sequence before hoisting")
         for statement in sequence:
             if statement.type == "FunctionDeclaration" or statement.type == "VariableDeclaration":
                 self.do_statement(state, statement, True)
         
-        debug("Sequence after hoisting")
         for statement in sequence:
             if not statement.type == "FunctionDeclaration":
                 self.do_statement(state, statement)
-        debug("Sequence done")
 
 
     def run(self):
@@ -491,7 +484,7 @@ class Interpreter(object):
         self.loopcont_state = State.bottom()
 
         for (name, value) in plugin_manager.global_symbols:
-            state.objs[state.gref][name] = value
+            state.objs[state.gref].properties[name] = value
 
         for (ref_id, obj) in plugin_manager.preexisting_objects:
             state.objs[ref_id] = obj

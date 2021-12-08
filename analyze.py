@@ -5,6 +5,7 @@ import config
 from interpreter import Interpreter
 from output import Output
 from debug import set_debug
+import cProfile
 
 set_debug(config.debug)
 if (len(sys.argv) < 3):
@@ -20,6 +21,7 @@ print("Parsing file into abstract syntax tree...")
 ast = esprima.parse(data)
 
 i = Interpreter(ast)
+#cProfile.run("i.run()")
 i.run()
 
 print("Producing output file:", sys.argv[2])
