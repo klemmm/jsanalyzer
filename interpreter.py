@@ -437,6 +437,7 @@ class Interpreter(object):
         if Interpreter.truth_value(abs_test_result):
             self.do_statement(state, consequent)
         else:
+            #TODO temporary workaround for probably incorrect boolean value evaluation
             a = self.return_state
             b = self.return_value
             c = self.loopexit_state
@@ -451,6 +452,7 @@ class Interpreter(object):
             self.return_value = b
             self.loopexit_state = c
             self.loopcont_state = d
+            #TODO end of temporary workaround
             if alternate is not None:
                 self.do_statement(state, alternate)
 
