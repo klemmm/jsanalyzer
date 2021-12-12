@@ -169,7 +169,11 @@ class Output(object):
 
 
     def do_statement(self, statement):
-        if statement.type == "VariableDeclaration":
+        if statement.dead_code is True:
+            self.out((self.indent)*" " + "{");
+            self.out((self.indent+self.INDENT)*" " + "/* Dead Code */")
+            self.out((self.indent)*" " + "}");
+        elif statement.type == "VariableDeclaration":
             for decl in statement.declarations:
                 self.out(self.indent*" " + "var " + str(decl.id.name), end="")
                 if decl.init is not None:

@@ -1,4 +1,5 @@
 import re
+import config
 
 from plugin_manager import register_preexisting_object, register_unary_handler, register_binary_handler, register_global_symbol, register_method_hook, JSTop, JSUndefNaN, JSPrimitive, JSObject, JSSimFct, JSRef, to_bool
 
@@ -62,7 +63,8 @@ def binary_handler(opname, abs_arg1, abs_arg2):
 register_binary_handler(binary_handler)
 
 def console_log(*args):
-    print("console log:", list(args))
+    if config.console_enable:
+        print("console log:", list(args))
 
 console_ref = register_preexisting_object(JSObject({"log": JSSimFct(console_log)}))
 register_global_symbol('console', JSRef(console_ref))

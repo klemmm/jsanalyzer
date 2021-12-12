@@ -1,4 +1,6 @@
 ## Abstract semantics (State)
+import sys
+import traceback
 
 class State(object):
     def __init__(self, glob=False, bottom=False):
@@ -116,6 +118,7 @@ class State(object):
         for b in bye:
             del self.objs[b]
 
+
     def __str__(self):
         if self.is_bottom:
             return "Bottom";
@@ -170,7 +173,7 @@ class JSObject(JSValue):
         self.properties = properties
         self.refcount = 0
     def __str__(self):
-        return "{" + (", ".join([(str(i) + ': ' + str(self.properties[i])) for i in self.properties])) + "} "
+        return "{rc:" + str(self.refcount) + " " + (", ".join([(str(i) + ': ' + str(self.properties[i])) for i in self.properties])) + "} "
     def __repr__(self):
         return self.__str__()
     def __eq__(self, other):
@@ -180,6 +183,21 @@ class JSObject(JSValue):
         State.dict_assign(c.properties, self.properties)
         c.refcount = self.refcount
         return c
+
+    def inc(self):
+        self.refcount += 1
+
+    def dec(self, scope, _id):
+        self.refcount -= 1
+        if self.refcount == 0:
+            for k in self.properties:
+                if isinstance(self.properties[k], JSRef):
+                    if self.properties[k].ref_id in scope:
+                        scope[self.properties[k].ref_id].dec(scope, self.properties[k].ref_id)
+                elif isinstance(self.properties[k], JSClosure) and self.properties[k].env is not None:
+                    if self.properties[k].env in scope:
+                        scope[self.properties[k].env].dec(scope, self.properties[k].env)
+        
     def member(self, name):
         for h in JSObject.hooks:
             r = h(name, self)
