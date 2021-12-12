@@ -222,6 +222,8 @@ class Interpreter(object):
         elif expr.type == "ObjectExpression":
             properties = {}
             for prop in expr.properties:
+                if prop.type != "Property":
+                    continue
                 prop_val = self.calc_expr_and_store(state, prop.value)
                 if prop_val is JSTop:
                     continue

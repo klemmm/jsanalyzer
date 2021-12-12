@@ -93,10 +93,13 @@ class Output(object):
                 if prop.computed:
                     self.do_expr(prop.key)
                 else:
-                    self.out(prop.key.value, end="")
-                self.out(": ", end="")
+                    if prop.type == "Property":
+                        self.out(prop.key.value, end="")
+                        self.out(": ", end="")
+                        self.do_expr(prop.value)
+                    else:
+                        self.out("<???>") #TODO
 
-                self.do_expr(prop.value)
             self.indent -= self.INDENT
             self.out("\n}")
 
