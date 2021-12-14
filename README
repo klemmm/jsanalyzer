@@ -1,6 +1,0 @@
-# JS Analyzer
-
-This is a project to analyze obfuscated JS code using abstract interpretation.
-
-It requires python3 with module `esprima`
-
