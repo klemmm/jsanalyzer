@@ -3,6 +3,7 @@ if (Math.random(1) < undefined){
   b = 42
   c = 10
 }
+else
 {
   b = 69
   c = 10
@@ -10,6 +11,7 @@ if (Math.random(1) < undefined){
 if (true){
   d = 51
 }
+else
 {
   d = 58
 }

@@ -2,6 +2,7 @@ a = [0, 1, 2]
 if (Math.random(1)){
   a[0] = 5
 }
+else
 {
   a[5] = 5
 }

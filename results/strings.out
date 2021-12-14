@@ -11,6 +11,7 @@ plop = function()
     f = 5
     return
 "lilili"  }
+  else
   {
     d = 3
     f = 5

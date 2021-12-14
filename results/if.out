@@ -10,6 +10,7 @@ if (true){
   a = 20
   b = 1
 }
+else
 {
   a = 20
   b = 2
