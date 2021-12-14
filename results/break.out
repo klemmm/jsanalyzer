@@ -1,4 +1,9 @@
-Opening file: break.js
-Parsing file into abstract syntax tree...
-Starting abstract interpretation...
-Done. Final state:  glob={'console': <ref: 0>, 'parseInt': <simfct>, 'i': 10}, objs={0: {log: <simfct>} }
+i = 0
+while (true)
+{
+  i = i + 1
+  if (i == 10)  {
+    break
+  }
+}
+console.log(10)

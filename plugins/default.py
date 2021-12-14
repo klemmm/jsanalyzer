@@ -31,6 +31,11 @@ def binary_handler(opname, abs_arg1, abs_arg2):
     if isinstance(abs_arg1, JSPrimitive) and isinstance(abs_arg2, JSPrimitive):
         arg1 = abs_arg1.val
         arg2 = abs_arg2.val
+        
+        if type(arg1) is int and type(arg2) is str:
+            arg1 = str(arg1)
+        if type(arg1) is str and type(arg2) is int:
+            arg2= str(arg2)
 
         if opname == "+":
             r = arg1 + arg2

@@ -1,7 +1,10 @@
 function foo(x) {
-	var bar = function(y) {
+	var cl = 123;
+	console.log("titu");
+	var bar = function (y) {
 		console.log(y);
 	} 
+	console.log("totito");
 	bar(x);
 }
 

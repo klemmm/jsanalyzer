@@ -1,4 +1,9 @@
-Opening file: loc.js
-Parsing file into abstract syntax tree...
-Starting abstract interpretation...
-Done. Final state:  glob={'console': <ref: 0>, 'parseInt': <simfct>, 'x': 10, 'toto': <function>, 'z': 42, 'y': 5}, objs={0: {log: <simfct>} }
+x = 10
+function toto()
+{
+  var x
+  x = 5
+  z = 42
+  return
+5}
+y = 5

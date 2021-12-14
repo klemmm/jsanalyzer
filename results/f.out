@@ -1,4 +1,7 @@
-Opening file: f.js
-Parsing file into abstract syntax tree...
-Starting abstract interpretation...
-Done. Final state:  glob={'console': <ref: 0>, 'parseInt': <simfct>, 'toto': <function>, 'titi': <function>, 'x': 42}, objs={0: {log: <simfct>} }
+function toto()
+{
+  return
+42  return
+69}
+titi = toto
+x = 42

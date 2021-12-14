@@ -26,14 +26,17 @@ class Interpreter(object):
             return state.objs[state.lref].properties
 
         current_scope = state.objs[state.lref].properties
-        found = False
-        while '__closure' in current_scope and not found:
-            current_scope = state.objs[current_scope['__closure'].ref_id].properties
-            found = name in current_scope
-        if found:
-            if trace:
-                print("closure scope")
-            return current_scope
+        try:
+            found = False
+            while '__closure' in current_scope and not found:
+                current_scope = state.objs[current_scope['__closure'].ref_id].properties
+                found = name in current_scope
+            if found:
+                if trace:
+                    print("closure scope")
+                return current_scope
+        except:
+            print("[warning] dangling ref to closure", name)
         if trace:
             print("not found")
         return state.objs[state.gref].properties
@@ -82,7 +85,8 @@ class Interpreter(object):
         if isinstance(callee, JSClosure):
             if callee.env is not None:
                 state.objs[state.lref].properties["__closure"] = JSRef(callee.env)
-                state.objs[callee.env].inc()
+                if callee.env in state.objs:
+                    state.objs[callee.env].inc()
             self.do_statement(state, callee.body)
             state.join(self.return_state)
             if state.is_bottom:
@@ -157,6 +161,10 @@ class Interpreter(object):
                 r = self.calc_expr_and_store(state, e)
             return r
 
+        elif expr.type == "ThisExpression":
+            return JSTop
+
+
         elif expr.type == "AssignmentExpression":
             abs_rvalue = self.calc_expr_and_store(state, expr.right)
 
@@ -201,14 +209,17 @@ class Interpreter(object):
                         raise ValueError("Referenced object not found, id=" + str(ref_id))
                 else: #expression
                     abs_property = self.calc_expr_and_store(state, expr.left.property)
-                    if abs_object is JSTop:
+                    if abs_object is JSTop or isinstance(abs_object, JSClosure):
                         return JSTop
                     ref_id = abs_object.ref_id
                     if isinstance(abs_property, JSPrimitive):
                         if ref_id in state.objs:
-                            if abs_rvalue is JSTop:
-                                state.objs[ref_id].properties.pop(abs_property.val, None)
-                            else:
+                            old = state.objs[ref_id].properties.pop(abs_property.val, None)
+                            if isinstance(old, JSRef):
+                                state.objs[old.ref_id].dec(state.objs, old.ref_id)
+                            if isinstance(old, JSClosure) and old.env is not None:
+                                state.objs[old.env].dec(state.objs, old.env)
+                            if abs_rvalue is not JSTop:
                                 state.objs[ref_id].properties[abs_property.val] = abs_rvalue
                         else:
                             raise ValueError("Referenced object not found, id=" + str(ref_id))
@@ -261,7 +272,7 @@ class Interpreter(object):
         elif expr.type == "MemberExpression":
             abs_object = self.calc_expr_and_store(state, expr.object)
             ret_top = False
-            if abs_object is JSTop or abs_object is JSUndefNaN:
+            if abs_object is JSTop or abs_object is JSUndefNaN or isinstance(abs_object, JSClosure):
                 ret_top = True
 
             if isinstance(abs_object, JSPrimitive) and type(abs_object.val) is str:
@@ -335,6 +346,8 @@ class Interpreter(object):
 
                 if isinstance(val, JSRef):
                     state.objs[val.ref_id].inc()
+                if isinstance(val, JSClosure) and val.env is not None:
+                    state.objs[val.env].inc()
                 scope = state.objs[state.lref].properties
                 if val is not JSTop:
                     scope[decl.id.name] = val
@@ -499,7 +512,7 @@ class Interpreter(object):
         state.set_to_bottom()
 
     def bring_out_your_dead(self, state):
-        #print("cleanup", state)
+        #print("before clean", state)
         if config.delete_unused:
             bye = []
             for o in state.objs:
@@ -513,6 +526,7 @@ class Interpreter(object):
                         bye.append(o)
             for b in bye:
                 del state.objs[b]
+        #print("after clean", state)
 
     def do_statement(self, state, statement, hoisting=False):
         if state.is_bottom:
@@ -528,6 +542,12 @@ class Interpreter(object):
 
         elif statement.type == "ExpressionStatement":
             self.do_exprstat(state, statement.expression)
+
+        elif statement.type == "ForOfStatement":
+            pass #TODO
+        
+        elif statement.type == "ForStatement":
+            pass #TODO
 
         elif statement.type == "IfStatement":
             self.do_if(state, statement.test, statement.consequent, statement.alternate)

@@ -1,4 +1,14 @@
-Opening file: loop.js
-Parsing file into abstract syntax tree...
-Starting abstract interpretation...
-Done. Final state:  glob={'console': <ref: 0>, 'parseInt': <simfct>, 'x': 10, 'y': 20, 'b': 10}, objs={0: {log: <simfct>} }
+x = 0
+y = 0
+while (x < 10)
+{
+  x = x + 1
+  y = y + 2
+}
+a = 0
+b = 10
+while (Math.random() < undefined)
+{
+  a = 1
+  b = 10
+}

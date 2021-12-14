@@ -1,6 +1,16 @@
-Opening file: closure.js
-Parsing file into abstract syntax tree...
-Starting abstract interpretation...
-console log: [43]
-console log: [44]
-Done. Final state:  glob={'console': <ref: 0>, 'parseInt': <simfct>, 'maker': <function>, 'f': <function, env={'x': 44}>, 'x': 44}, objs={0: {log: <simfct>} }
+function maker()
+{
+  var x
+  function closure()
+  {
+    x = x + 1
+    return
+x  }
+  x = 42
+  return
+closure}
+f = maker()
+x = 43
+console.log(43)
+x = 44
+console.log(44)

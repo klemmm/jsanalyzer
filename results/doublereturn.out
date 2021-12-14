@@ -1,4 +1,9 @@
-Opening file: doublereturn.js
-Parsing file into abstract syntax tree...
-Starting abstract interpretation...
-Done. Final state:  glob={'console': <ref: 0>, 'parseInt': <simfct>, 'foo': <function>, 'x': 41}, objs={0: {log: <simfct>} }
+function foo()
+{
+  if (false)  {
+    return
+42  }
+  return
+41  return
+43}
+x = 41

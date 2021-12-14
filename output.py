@@ -58,6 +58,9 @@ class Output(object):
             self.do_expr(expr.alternate)
             self.out(" ) ", end="")
 
+        elif expr.type == "ThisExpression":
+            self.out("ThisExpression")
+
         elif expr.type == "SequenceExpression":
             first = True
             for e in expr.expressions:
@@ -76,7 +79,7 @@ class Output(object):
                     self.do_expr(expr.left.property)
                     self.out("]", end="")
                 else:
-                    self.out("." + expr.left.name, end="")
+                    self.out("." + expr.left.property.name, end="")
                 self.out(" = ", end="")
 
             self.do_expr(expr.right)
@@ -233,6 +236,12 @@ class Output(object):
         
         elif statement.type == "EmptyStatement":
             pass
+        
+        elif statement.type == "ForStatement":
+            self.out(self.indent*" " + "ForStatement;")
+        
+        elif statement.type == "ForOfStatement":
+            self.out(self.indent*" " + "ForOfStatement;")
 
         elif statement.type == "SwitchStatement":
             self.out(self.indent*" " + "switch (", end="")
