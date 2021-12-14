@@ -1,5 +1,13 @@
-Opening file: objects.js
-Parsing file into abstract syntax tree...
-Starting abstract interpretation...
-console log: [42]
-Done. Final state:  glob={'console': <ref: 0>, 'parseInt': <simfct>, 'a': <ref: 1>, 'foo': <function>, 'x': 42, 'y': 51}, objs={0: {log: <simfct>} , 1: {0: 51, f: <function>} }
+a = [51]
+a.f = function()
+{
+  return
+42}
+
+function foo()
+{
+  return
+51}
+x = 42
+y = 51
+console.log(42)

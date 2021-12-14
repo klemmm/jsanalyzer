@@ -1,8 +1,19 @@
-Opening file: poc.js
-Parsing file into abstract syntax tree...
-Starting abstract interpretation...
-console log: [10]
-console log: [Top]
-console log: [10]
-console log: [51]
-Done. Final state:  glob={'console': <ref: 0>, 'parseInt': <simfct>, 'a': 10, 'c': 10, 'd': 51}, objs={0: {log: <simfct>} }
+a = 10
+if (Math.random(1) < undefined){
+  b = 42
+  c = 10
+}
+{
+  b = 69
+  c = 10
+}
+if (true){
+  d = 51
+}
+{
+  d = 58
+}
+console.log(10)
+console.log(b)
+console.log(10)
+console.log(51)

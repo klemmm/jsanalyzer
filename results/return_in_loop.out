@@ -1,4 +1,23 @@
-Opening file: return_in_loop.js
-Parsing file into abstract syntax tree...
-Starting abstract interpretation...
-Done. Final state:  glob={'console': <ref: 0>, 'parseInt': <simfct>, 'foo': <function>, 'x': 42, 'z': 10}, objs={0: {log: <simfct>} }
+function foo()
+{
+  var i = 4
+  while (true)
+  {
+    i = i + 1
+    if (i == 10)    {
+      return
+42    }
+  }
+  return
+i}
+x = 42
+y = 0
+while (Math.random())
+{
+  y = 1
+}
+z = 0
+while (z < 10)
+{
+  z = z + 1
+}

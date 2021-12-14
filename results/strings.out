@@ -1,5 +1,23 @@
-Opening file: strings.js
-Parsing file into abstract syntax tree...
-Starting abstract interpretation...
-console log: [lilili]
-Done. Final state:  glob={'console': <ref: 0>, 'parseInt': <simfct>, 'toto': blabla, 'blibli': blablatutu, 'plop': <function>, 'e': 42, 'f': 5, 'p': lilili}, objs={0: {log: <simfct>} }
+var toto
+toto = "blabla"
+blibli = "blablatutu"
+plop = function()
+{
+  var c = 1
+  d = 10
+  e = 42
+  if (Math.random(undefined))  {
+    d = 2
+    f = 5
+    return
+"lilili"  }
+  {
+    d = 3
+    f = 5
+    return
+"lilili"  }
+  f = 6
+}
+
+p = "lilili"
+console.log("lilili")

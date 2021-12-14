@@ -624,6 +624,7 @@ class Interpreter(object):
         print("Starting abstract interpretation...")
         self.do_sequence_with_hoisting(state, self.ast.body)
         print("\nAnalysis finished")
+        #print(state)
         for f in self.funcs:
             if not f.body.used:
                 f.body.dead_code = True

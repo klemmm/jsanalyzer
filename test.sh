@@ -4,7 +4,7 @@ cd benchs
 KO="0"
 ls -1 *.js |while read A ; do
 	echo -n "Testing $A ... "
-	../analyze.py "$A" > tmp
+	../analyze.py "$A" tmp >/dev/null
 	if [ "$?" != "0" ]; then
 		exit 1
 	fi

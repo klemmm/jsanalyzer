@@ -1,5 +1,8 @@
-Opening file: obf.js
-Parsing file into abstract syntax tree...
-Starting abstract interpretation...
-console log: [Hello Spectrum]
-Done. Final state:  glob={'console': <ref: 0>, 'parseInt': <simfct>, 't':  S, 'f': rum, 'k': llo, 'm': ct, 'i': pe, 'x': He, 'message': Hello Spectrum}, objs={0: {log: <simfct>} }
+t = " S"
+f = "rum"
+k = "llo"
+m = "ct"
+i = "pe"
+x = "He"
+message = "Hello Spectrum"
+console.log("Hello Spectrum")

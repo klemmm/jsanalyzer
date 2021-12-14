@@ -1,5 +1,13 @@
-Opening file: nestedfunc.js
-Parsing file into abstract syntax tree...
-Starting abstract interpretation...
-console log: [42]
-Done. Final state:  glob={'console': <ref: 0>, 'parseInt': <simfct>, 'foo': <function>, 'v': Undef/NaN}, objs={0: {log: <simfct>} }
+function foo()
+{
+  var cl = 123
+  console.log("titu")
+  var bar =   function()
+  {
+    console.log(42)
+  }
+
+  console.log("totito")
+  bar(42)
+}
+v = foo(42)
