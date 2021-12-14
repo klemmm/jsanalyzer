@@ -72,7 +72,7 @@ else
 }
 console.log(10)
 console.log(b)
-``
+```
 
 
 ### Constant expression detection
