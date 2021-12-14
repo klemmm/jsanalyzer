@@ -198,6 +198,7 @@ class Output(object):
             self.out(")", end="")
             self.do_statement(statement.consequent)
             if statement.alternate is not None:
+                self.out(self.indent*" " + "else")
                 self.do_statement(statement.alternate)
 
         elif statement.type == "FunctionDeclaration":
