@@ -118,6 +118,18 @@ class State(object):
         for b in bye:
             del self.objs[b]
 
+    def scope_lookup(self, name):
+        if name in self.objs[self.lref].properties:
+            return self.objs[self.lref].properties
+
+        current_scope = self.objs[self.lref].properties
+        found = False
+        while '__closure' in current_scope and not found:
+            current_scope = self.objs[current_scope['__closure'].ref_id].properties
+            found = name in current_scope
+        if found:
+            return current_scope
+        return self.objs[self.gref].properties
 
     def __str__(self):
         if self.is_bottom:
@@ -130,6 +142,8 @@ class State(object):
 ## Classes for wrapping JS values
 
 class JSValue(object):
+    def ref(self):
+        return None
     pass
 
 # Represents any simple type (for example: a number)
@@ -217,6 +231,8 @@ class JSRef(JSValue):
         return self.__str__() 
     def __eq__(self, other):
         return self.ref_id == other.ref_id
+    def ref(self):
+        return self.ref_id
     def clone(self):
         c = JSRef(self.ref_id)
         return c
@@ -241,6 +257,8 @@ class JSClosure(JSValue):
         self.params = params
         self.body = body
         self.env = env
+    def ref(self):
+        return self.env
     def __str__(self):
         if self.env is None:
             return "<function>"

@@ -16,30 +16,7 @@ class Interpreter(object):
 
     @staticmethod
     def truth_value(v):
-        return plugin_manager.to_bool(v)
-        
-    def scope_lookup(self, state, name):
-        trace = False #(name == '_0x2abc3f')
-        if name in state.objs[state.lref].properties:
-            if trace:
-                print("local scope")
-            return state.objs[state.lref].properties
-
-        current_scope = state.objs[state.lref].properties
-        try:
-            found = False
-            while '__closure' in current_scope and not found:
-                current_scope = state.objs[current_scope['__closure'].ref_id].properties
-                found = name in current_scope
-            if found:
-                if trace:
-                    print("closure scope")
-                return current_scope
-        except:
-            print("[warning] dangling ref to closure", name)
-        if trace:
-            print("not found")
-        return state.objs[state.gref].properties
+        return plugin_manager.to_bool(v)        
 
     def evaluate_function(self, state, callee, arguments):
         #callee can be either JSTop, JSClosure or JSSimFct
@@ -69,10 +46,8 @@ class Interpreter(object):
             arg = self.calc_expr_and_store(state, argument)
             if isinstance(callee, JSClosure):
                 new_loc[callee.params[i].name] = arg 
-                if isinstance(arg, JSClosure) and arg.env is not None:
-                    state.objs[arg.env].inc()
-                if isinstance(arg, JSRef):
-                    state.objs[arg.ref_id].inc()
+                if arg.ref() is not None:
+                    state.objs[arg.ref()].inc()
             else:
                 if isinstance(arg, JSClosure):
                     self.evaluate_function(state, arg, [])
@@ -122,7 +97,7 @@ class Interpreter(object):
             return JSPrimitive(expr.value)
 
         elif expr.type == "Identifier":
-            scope = self.scope_lookup(state, expr.name)
+            scope = state.scope_lookup(expr.name)
             if expr.name in scope:
                 return scope[expr.name]
             else:
@@ -169,23 +144,18 @@ class Interpreter(object):
             abs_rvalue = self.calc_expr_and_store(state, expr.right)
 
             if expr.left.type == "Identifier":
-                scope = self.scope_lookup(state, expr.left.name)
+                scope = state.scope_lookup(expr.left.name)
                 old = scope.pop(expr.left.name, None)
-                if isinstance(old, JSRef):
-                    state.objs[old.ref_id].dec(state.objs, old.ref_id)
-                if isinstance(old, JSClosure) and old.env is not None:
-                    if old.env in state.objs:
-                        state.objs[old.env].dec(state.objs, old.env)
+                if old is not None and old.ref() is not None:
+                    state.objs[old.ref()].dec(state.objs, old.ref())
                 if abs_rvalue is not JSTop:
                     scope[expr.left.name] = abs_rvalue
                     if expr.left.name in to_inspect:
                         print(expr.left.name, ":", abs_rvalue)
                         if isinstance(abs_rvalue, JSRef):
                             print("pointed object:", state.objs[abs_rvalue.ref_id])
-                    if isinstance(abs_rvalue, JSRef):
-                        state.objs[abs_rvalue.ref_id].inc()
-                    if isinstance(abs_rvalue, JSClosure) and abs_rvalue.env is not None:
-                        state.objs[abs_rvalue.env].inc()
+                    if abs_rvalue.ref() is not None:
+                        state.objs[abs_rvalue.ref()].inc()
 
             elif expr.left.type == "MemberExpression":
                 abs_object = self.calc_expr_and_store(state, expr.left.object)
@@ -195,16 +165,12 @@ class Interpreter(object):
                     ref_id = abs_object.ref_id
                     if ref_id in state.objs:
                         old = state.objs[ref_id].properties.pop(expr.left.property.name, None)
-                        if isinstance(old, JSRef):
-                            state.objs[old.ref_id].dec(state.objs, old.ref_id)
-                        if isinstance(old, JSClosure) and old.env is not None:
-                            state.objs[old.env].dec(state.objs, old.env)
+                        if old is not None and old.ref() is not None:
+                            state.objs[old.ref()].dec(state.objs, old.ref())
                         if abs_rvalue is not JSTop:
                             state.objs[ref_id].properties[expr.left.property.name] = abs_rvalue
-                            if isinstance(abs_rvalue, JSRef):
-                                state.objs[abs_rvalue.ref_id].inc()
-                            if isinstance(abs_rvalue, JSClosure) and abs_rvalue.env is not None:
-                                state.objs[abs_rvalue.env].inc()
+                            if abs_rvalue.ref() is not None:
+                                state.objs[abs_rvalue.ref()].inc()
                     else:
                         raise ValueError("Referenced object not found, id=" + str(ref_id))
                 else: #expression
@@ -215,10 +181,8 @@ class Interpreter(object):
                     if isinstance(abs_property, JSPrimitive):
                         if ref_id in state.objs:
                             old = state.objs[ref_id].properties.pop(abs_property.val, None)
-                            if isinstance(old, JSRef):
-                                state.objs[old.ref_id].dec(state.objs, old.ref_id)
-                            if isinstance(old, JSClosure) and old.env is not None:
-                                state.objs[old.env].dec(state.objs, old.env)
+                            if old is not None and old.ref() is not None:
+                                state.objs[old.ref()].dec(state.objs, old.ref())
                             if abs_rvalue is not JSTop:
                                 state.objs[ref_id].properties[abs_property.val] = abs_rvalue
                         else:
@@ -240,19 +204,15 @@ class Interpreter(object):
                     continue
                 if not prop.computed:
                     properties[prop.key.value] = prop_val
-                    if isinstance(prop_val, JSRef):
-                        state.objs[prop_val.ref_id].inc()
-                    if isinstance(prop_val, JSClosure) and prop_val.env is not None:
-                        state.objs[prop_val.env].inc()
+                    if prop_val.ref() is not None:
+                        state.objs[prop_val.ref()].inc()
 
                 else:
                     prop_key = self.calc_expr_and_store(state, prop.key)
                     if isinstance(prop_key, JSPrimitive):
                         properties[prop_key.val] = prop_val
-                        if isinstance(prop_val, JSRef):
-                            state.objs[prop_val.ref_id].inc()
-                        if isinstance(prop_val, JSClosure) and prop_val.env is not None:
-                            state.objs[prop_val.env].inc()
+                        if prop_val.ref() is not None:
+                            state.objs[prop_val.ref()].inc()
             obj_id = State.new_id()
             state.objs[obj_id] = JSObject(properties)
             return JSRef(obj_id)
@@ -262,8 +222,8 @@ class Interpreter(object):
             i = 0
             for elem in expr.elements:
                 elements[i] = self.calc_expr_and_store(state, elem)
-                if isinstance(elements[i], JSRef):
-                    state.objs[elements[i].ref_id].inc()
+                if elements[i].ref() is not None:
+                    state.objs[elements[i].ref()].inc()
                 i = i + 1
             obj_id = State.new_id()
             state.objs[obj_id] = JSObject(elements)
@@ -344,10 +304,8 @@ class Interpreter(object):
                     if isinstance(val, JSRef):
                         print("pointed object:", state.objs[val.ref_id])
 
-                if isinstance(val, JSRef):
-                    state.objs[val.ref_id].inc()
-                if isinstance(val, JSClosure) and val.env is not None:
-                    state.objs[val.env].inc()
+                if val.ref() is not None:
+                    state.objs[val.ref()].inc()
                 scope = state.objs[state.lref].properties
                 if val is not JSTop:
                     scope[decl.id.name] = val
@@ -475,10 +433,8 @@ class Interpreter(object):
             scope[name] = JSClosure(params, body, None)
         else:
             if name in scope:
-                if isinstance(scope[name], JSRef):
-                    state.objs[scope[name].ref_id].dec()
-                if isinstance(scope[name], JSClosure) and scope[name].env is not None:
-                    state.objs[scope[name].env].dec()
+                if scope[name].ref() is not None:
+                    state.objs[scope[name].ref()].dec()
             scope[name] = JSClosure(params, body, state.lref)
             state.objs[state.lref].inc()
 
@@ -613,8 +569,8 @@ class Interpreter(object):
         
         for (name, value) in plugin_manager.global_symbols:
             state.objs[state.gref].properties[name] = value
-            if isinstance(value, JSRef):
-                state.objs[value.ref_id].inc()
+            if value.ref() is not None:
+                state.objs[value.ref()].inc()
         
         State.set_next_id(plugin_manager.ref_id)
 
