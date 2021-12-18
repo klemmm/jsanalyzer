@@ -14,17 +14,13 @@ class Interpreter(object):
         self.ast = ast
         self.funcs = []
 
-    @staticmethod
-    def truth_value(v):
-        return plugin_manager.to_bool(v)        
-
-    def evaluate_function(self, state, callee, arguments):
+    def eval_func_call(self, state, callee, arguments):
         #callee can be either JSTop, JSClosure or JSSimFct
            
         if isinstance(callee, JSSimFct):
             args = []
             for argument in arguments:
-                arg_val = self.calc_expr_and_store(state, argument)
+                arg_val = self.eval_expr_annotate(state, argument)
                 args.append(arg_val)
             return callee.fct(*args)
 
@@ -43,14 +39,14 @@ class Interpreter(object):
         
         i = 0
         for argument in arguments:
-            arg = self.calc_expr_and_store(state, argument)
+            arg = self.eval_expr_annotate(state, argument)
             if isinstance(callee, JSClosure):
                 new_loc[callee.params[i].name] = arg 
                 if arg.ref() is not None:
                     state.objs[arg.ref()].inc()
             else:
                 if isinstance(arg, JSClosure):
-                    self.evaluate_function(state, arg, [])
+                    self.eval_func_call(state, arg, [])
             i = i + 1
 
         lref = State.new_id()
@@ -79,8 +75,8 @@ class Interpreter(object):
         return my_return
 
 
-    def calc_expr_and_store(self, state, expr):
-        result = self.calc_expr(state, expr)
+    def eval_expr_annotate(self, state, expr):
+        result = self.eval_expr(state, expr)
         if result is not JSTop and result is not None:
             if expr.static_value is None:
                 expr.static_value = result.clone()
@@ -90,7 +86,7 @@ class Interpreter(object):
         return result
 
     #Takes state, expression, and returns a JSValue
-    def calc_expr(self, state, expr):
+    def eval_expr(self, state, expr):
         if expr.type == "Literal":
             if expr.value is None:
                 return JSUndefNaN
@@ -108,32 +104,32 @@ class Interpreter(object):
 
         elif expr.type == "NewExpression":
             for argument in expr.arguments:
-                arg_val = self.calc_expr_and_store(state, argument)
+                arg_val = self.eval_expr_annotate(state, argument)
 
             return JSTop
       
         elif expr.type == "ConditionalExpression":
-            abs_test_result = self.calc_expr_and_store(state, expr.test)
+            abs_test_result = self.eval_expr_annotate(state, expr.test)
 
             if abs_test_result is JSTop:
                 state_then = state
                 state_else = state.clone()
-                expr_then = self.calc_expr_and_store(state_then, expr.consequent)
-                expr_else = self.calc_expr_and_store(state_else, expr.alternate)
+                expr_then = self.eval_expr_annotate(state_then, expr.consequent)
+                expr_else = self.eval_expr_annotate(state_else, expr.alternate)
                 state_then.join(state_else)
                 if type(expr_then) == type(expr_else) and expr_then == expr_else:
                     return expr_then
                 else:
                     return JSTop
 
-            if Interpreter.truth_value(abs_test_result):
-                return self.calc_expr_and_store(state, expr.consequent)
+            if plugin_manager.to_bool(abs_test_result):
+                return self.eval_expr_annotate(state, expr.consequent)
             else:
-                return self.calc_expr_and_store(state, expr.alternate)
+                return self.eval_expr_annotate(state, expr.alternate)
 
         elif expr.type == "SequenceExpression":
             for e in expr.expressions:
-                r = self.calc_expr_and_store(state, e)
+                r = self.eval_expr_annotate(state, e)
             return r
 
         elif expr.type == "ThisExpression":
@@ -141,7 +137,7 @@ class Interpreter(object):
 
 
         elif expr.type == "AssignmentExpression":
-            abs_rvalue = self.calc_expr_and_store(state, expr.right)
+            abs_rvalue = self.eval_expr_annotate(state, expr.right)
 
             if expr.left.type == "Identifier":
                 scope = state.scope_lookup(expr.left.name)
@@ -158,7 +154,7 @@ class Interpreter(object):
                         state.objs[abs_rvalue.ref()].inc()
 
             elif expr.left.type == "MemberExpression":
-                abs_object = self.calc_expr_and_store(state, expr.left.object)
+                abs_object = self.eval_expr_annotate(state, expr.left.object)
                 if expr.left.computed is False:
                     if abs_object is JSTop:
                         return JSTop
@@ -174,7 +170,7 @@ class Interpreter(object):
                     else:
                         raise ValueError("Referenced object not found, id=" + str(ref_id))
                 else: #expression
-                    abs_property = self.calc_expr_and_store(state, expr.left.property)
+                    abs_property = self.eval_expr_annotate(state, expr.left.property)
                     if abs_object is JSTop or isinstance(abs_object, JSClosure):
                         return JSTop
                     ref_id = abs_object.ref_id
@@ -199,7 +195,7 @@ class Interpreter(object):
             for prop in expr.properties:
                 if prop.type != "Property":
                     continue
-                prop_val = self.calc_expr_and_store(state, prop.value)
+                prop_val = self.eval_expr_annotate(state, prop.value)
                 if prop_val is JSTop:
                     continue
                 if not prop.computed:
@@ -208,7 +204,7 @@ class Interpreter(object):
                         state.objs[prop_val.ref()].inc()
 
                 else:
-                    prop_key = self.calc_expr_and_store(state, prop.key)
+                    prop_key = self.eval_expr_annotate(state, prop.key)
                     if isinstance(prop_key, JSPrimitive):
                         properties[prop_key.val] = prop_val
                         if prop_val.ref() is not None:
@@ -221,7 +217,7 @@ class Interpreter(object):
             elements = {}
             i = 0
             for elem in expr.elements:
-                elements[i] = self.calc_expr_and_store(state, elem)
+                elements[i] = self.eval_expr_annotate(state, elem)
                 if elements[i].ref() is not None:
                     state.objs[elements[i].ref()].inc()
                 i = i + 1
@@ -230,7 +226,7 @@ class Interpreter(object):
             return JSRef(obj_id)
 
         elif expr.type == "MemberExpression":
-            abs_object = self.calc_expr_and_store(state, expr.object)
+            abs_object = self.eval_expr_annotate(state, expr.object)
             ret_top = False
             if abs_object is JSTop or abs_object is JSUndefNaN or isinstance(abs_object, JSClosure):
                 ret_top = True
@@ -245,7 +241,7 @@ class Interpreter(object):
                 ref_id = abs_object.ref_id
                 return state.objs[ref_id].member(expr.property.name)
             else: #expression
-                abs_property = self.calc_expr_and_store(state, expr.property)
+                abs_property = self.eval_expr_annotate(state, expr.property)
                 if ret_top:
                     return JSTop
                 ref_id = abs_object.ref_id
@@ -261,12 +257,12 @@ class Interpreter(object):
                     raise ValueError("Invalid property type: " + str(type(abs_property)) + "," + str(abs_property))
 
         elif expr.type == "UnaryExpression":
-            argument = self.calc_expr_and_store(state, expr.argument)
+            argument = self.eval_expr_annotate(state, expr.argument)
             return plugin_manager.handle_unary_operation(expr.operator, argument)
 
         elif expr.type == "BinaryExpression" or expr.type == "LogicalExpression":
-            left = self.calc_expr_and_store(state, expr.left)
-            right = self.calc_expr_and_store(state, expr.right)
+            left = self.eval_expr_annotate(state, expr.left)
+            right = self.eval_expr_annotate(state, expr.right)
             return plugin_manager.handle_binary_operation(expr.operator, left, right)
 
         elif expr.type == "FunctionExpression" or expr.type == "ArrowFunctionExpression":
@@ -284,8 +280,8 @@ class Interpreter(object):
             return f
 
         elif expr.type == "CallExpression":
-            callee = self.calc_expr_and_store(state, expr.callee)
-            ret =  self.evaluate_function(state, callee, expr.arguments)
+            callee = self.eval_expr_annotate(state, expr.callee)
+            ret =  self.eval_func_call(state, callee, expr.arguments)
             return ret
 
         else:
@@ -298,7 +294,7 @@ class Interpreter(object):
                 scope = state.objs[state.lref].properties
                 scope[decl.id.name] = JSUndefNaN
             else:
-                val = self.calc_expr_and_store(state, decl.init)
+                val = self.eval_expr_annotate(state, decl.init)
                 if decl.id.name in to_inspect:
                     print(decl.id.name, ":", val)
                     if isinstance(val, JSRef):
@@ -317,7 +313,7 @@ class Interpreter(object):
 
 
     def do_exprstat(self, state, expr):
-        self.calc_expr_and_store(state, expr)
+        self.eval_expr_annotate(state, expr)
 
     def do_while(self, state, test, body):
         prev_state = None
@@ -331,7 +327,7 @@ class Interpreter(object):
             saved_loopcont = self.loopcont_state
             self.loopcont_state = State.bottom()
             i = i + 1
-            abs_test_result = self.calc_expr_and_store(state, test)
+            abs_test_result = self.eval_expr_annotate(state, test)
             self.bring_out_your_dead(state)
             if config.max_iter is not None and i > config.max_iter:
                 if not warned:
@@ -355,7 +351,7 @@ class Interpreter(object):
                         print("prev_state:", prev_state)
                         raise ValueError
             
-            elif Interpreter.truth_value(abs_test_result):
+            elif plugin_manager.to_bool(abs_test_result):
                 prev_state = state.clone()
                 self.do_sequence(state, body)
                 state.join(self.loopcont_state)
@@ -371,11 +367,11 @@ class Interpreter(object):
         self.loopexit_state = saved_loopexit
 
     def do_switch(self, state, discriminant, cases):
-        abs_discr = self.calc_expr_and_store(state, discriminant)
+        abs_discr = self.eval_expr_annotate(state, discriminant)
         has_true = False
         states_after = []
         for case in cases:
-            abs_test = self.calc_expr_and_store(state, case.test)
+            abs_test = self.eval_expr_annotate(state, case.test)
             if isinstance(abs_test, JSPrimitive) and isinstance(abs_discr, JSPrimitive) and abs_test.val != abs_discr.val:
                 continue #No
             elif isinstance(abs_test, JSPrimitive) and isinstance(abs_discr, JSPrimitive) and abs_test.val == abs_discr.val:
@@ -394,7 +390,7 @@ class Interpreter(object):
             state.join(s)
 
     def do_if(self, state, test, consequent, alternate):
-        abs_test_result = self.calc_expr_and_store(state, test)
+        abs_test_result = self.eval_expr_annotate(state, test)
 
         if abs_test_result is JSTop:
             state_then = state
@@ -405,7 +401,7 @@ class Interpreter(object):
             state_then.join(state_else)
             return
 
-        if Interpreter.truth_value(abs_test_result):
+        if plugin_manager.to_bool(abs_test_result):
             self.do_statement(state, consequent)
         else:
             #TODO temporary workaround for probably incorrect boolean value evaluation
@@ -457,7 +453,7 @@ class Interpreter(object):
         if argument is None:
             arg_val = JSUndefNaN
         else:
-            arg_val = self.calc_expr_and_store(state, argument)
+            arg_val = self.eval_expr_annotate(state, argument)
         if self.return_value is None:
             self.return_value = arg_val.clone()
         elif not (type(self.return_value) == type(arg_val) and self.return_value == arg_val):
