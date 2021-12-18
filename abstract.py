@@ -272,4 +272,13 @@ class JSClosure(JSValue):
         c = JSClosure(self.params, self.body, self.env)
         return c
 
+def value_join(v1, v2):
+    if v1 is None:
+        return v2
+    if v2 is None:
+        return v1
+    if type(v1) == type(v2) and v1 == v2:
+        return v1
+    else:
+        return JSTop
 

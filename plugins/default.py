@@ -70,6 +70,7 @@ register_binary_handler(binary_handler)
 def console_log(*args):
     if config.console_enable:
         print("console log:", list(args))
+    return JSUndefNaN
 
 console_ref = register_preexisting_object(JSObject({"log": JSSimFct(console_log)}))
 register_global_symbol('console', JSRef(console_ref))

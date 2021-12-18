@@ -1,4 +1,4 @@
-from abstract import State, JSClosure, JSObject, JSUndefNaN, JSTop, JSRef, JSSimFct, JSPrimitive, JSValue
+from abstract import State, JSClosure, JSObject, JSUndefNaN, JSTop, JSRef, JSSimFct, JSPrimitive, JSValue, value_join
 
 from debug import debug
 
@@ -79,12 +79,8 @@ class Interpreter(object):
         
     def eval_expr_annotate(self, state, expr):
         result = self.eval_expr(state, expr)
-        if result is not JSTop and result is not None:
-            if expr.static_value is None:
-                expr.static_value = result.clone()
-            else:
-                if type(expr.static_value) != type(result) or expr.static_value != result:
-                    expr.static_value = JSTop
+        if result is not JSTop:
+            expr.static_value = value_join(expr.static_value, result)
         return result
 
     #Takes state, expression, and returns a JSValue
