@@ -16,65 +16,67 @@ class Interpreter(object):
 
     def eval_func_call(self, state, callee, arguments):
         #callee can be either JSTop, JSClosure or JSSimFct
-           
-        if isinstance(callee, JSSimFct):
-            args = []
-            for argument in arguments:
-                arg_val = self.eval_expr_annotate(state, argument)
-                args.append(arg_val)
-            return callee.fct(*args)
+        
+        #Argument evaluation is the same in each case.
+        #Evaluate argument, then handle the actual function call.
+        args_val = []
+        for argument in arguments:
+            v = self.eval_expr_annotate(state, argument)
+            if isinstance(callee, JSSimFct) or isinstance(callee, JSClosure):
+                args_val.append(v)
+            elif isinstance(v, JSClosure):
+                #If the function is unknown, and closures are passed as arguments, we assume these closures will be called by the unknown function.
+                self.eval_func_call(state, v, [])
 
+        if isinstance(callee, JSSimFct):
+            return callee.fct(*args_val)
 
         if isinstance(callee, JSClosure):
             callee.body.used = True
         
-        saved_return = self.return_value
-        saved_rstate = self.return_state
-        saved_lref = state.lref
+            #Enter callee context 
+            saved_return = self.return_value
+            saved_rstate = self.return_state
+            saved_lref = state.lref
 
-        self.return_value = None
-        self.return_state = State.bottom()
-        new_loc_obj = JSObject({})
-        new_loc = new_loc_obj.properties
-        
-        i = 0
-        for argument in arguments:
-            arg = self.eval_expr_annotate(state, argument)
-            if isinstance(callee, JSClosure):
-                new_loc[callee.params[i].name] = arg 
-                if arg.ref() is not None:
-                    state.objs[arg.ref()].inc()
-            else:
-                if isinstance(arg, JSClosure):
-                    self.eval_func_call(state, arg, [])
-            i = i + 1
+            self.return_value = None
+            self.return_state = State.bottom()
+            state.lref = State.new_id()
+            state.objs[state.lref] = JSObject({})
+            state.objs[state.lref].inc()
 
-        lref = State.new_id()
-        state.objs[lref] = new_loc_obj
-        state.objs[lref].inc()
-        state.lref = lref
-        if isinstance(callee, JSClosure):
-            if callee.env is not None:
-                state.objs[state.lref].properties["__closure"] = JSRef(callee.env)
-                if callee.env in state.objs:
-                    state.objs[callee.env].inc()
+            #bind argument values
+            i = 0
+            for v in args_val:
+                state.objs[state.lref].properties[callee.params[i].name] = v
+                if v.ref() is not None:
+                    state.objs[v.ref()].inc()
+                i = i + 1
+       
+            #bind closure environment, if any
+            if callee.ref() is not None:
+                state.objs[state.lref].properties["__closure"] = JSRef(callee.ref())
+                state.objs[callee.env].inc()
+           
+            #evaluate function, join any return states
             self.do_statement(state, callee.body)
             state.join(self.return_state)
-            if state.is_bottom:
-                raise ValueError
+           
+            #Save function return value
+            return_value = self.return_value
+       
+            #Leave callee context
+            self.return_value = saved_return
+            self.return_state = saved_rstate
+            state.objs[state.lref].dec(state.objs, state.lref)
+            state.lref = saved_lref
 
-            my_return = self.return_value
-        else:
-            my_return = JSTop
-        self.return_value = saved_return
-        self.return_state = saved_rstate
-        state.objs[lref].dec(state.objs, lref)
-        state.lref = saved_lref
-        if my_return is None:
-            return JSUndefNaN
-        return my_return
+            if return_value is None:
+                return JSUndefNaN
 
-
+            return return_value
+        return JSTop
+        
     def eval_expr_annotate(self, state, expr):
         result = self.eval_expr(state, expr)
         if result is not JSTop and result is not None:
