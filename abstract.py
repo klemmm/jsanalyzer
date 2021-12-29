@@ -24,7 +24,6 @@ class State(object):
     next_id = 0
 
     # Class methods
-
     @staticmethod
     def bottom():
         st = State(glob=False, bottom=True)
@@ -48,7 +47,7 @@ class State(object):
     def dict_join(d1, d2):
         bye = []
         for k in d1:
-            if (not (k in d2) or type(d1[k]) != type(d2[k]) or (d1[k] != d2[k])):
+            if not k in d2 or not State.value_equal(d1[k], d2[k]):
                 bye.append(k)
         for b in bye:
             del d1[b]
@@ -64,8 +63,22 @@ class State(object):
             else:
                 d1[k] = d2[k].clone()
 
-    # Instance methods
+    @staticmethod
+    def value_equal(v1, v2):
+        return type(v1) == type(v2) and v1 == v2
 
+    @staticmethod
+    def value_join(v1, v2):
+        if v1 is None:
+            return v2
+        if v2 is None:
+            return v1
+        if State.value_equal(v1, v2):
+            return v1
+        else:
+            return JSTop
+
+    # Instance methods
     def set_to_bottom(self):
         self.objs.clear()
         self.gref = None
@@ -272,13 +285,4 @@ class JSClosure(JSValue):
         c = JSClosure(self.params, self.body, self.env)
         return c
 
-def value_join(v1, v2):
-    if v1 is None:
-        return v2
-    if v2 is None:
-        return v1
-    if type(v1) == type(v2) and v1 == v2:
-        return v1
-    else:
-        return JSTop
 

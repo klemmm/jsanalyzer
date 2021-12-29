@@ -1,4 +1,4 @@
-from abstract import State, JSClosure, JSObject, JSUndefNaN, JSTop, JSRef, JSSimFct, JSPrimitive, JSValue, value_join
+from abstract import State, JSClosure, JSObject, JSUndefNaN, JSTop, JSRef, JSSimFct, JSPrimitive, JSValue
 
 from debug import debug
 
@@ -6,8 +6,6 @@ import plugin_manager
 import output
 import config
 import sys
-
-to_inspect = []
 
 class Interpreter(object):
     def __init__(self, ast):
@@ -80,7 +78,7 @@ class Interpreter(object):
     def eval_expr_annotate(self, state, expr):
         result = self.eval_expr(state, expr)
         if result is not JSTop:
-            expr.static_value = value_join(expr.static_value, result)
+            expr.static_value = State.value_join(expr.static_value, result)
         return result
 
     #Takes state, expression, and returns a JSValue
@@ -103,7 +101,6 @@ class Interpreter(object):
         elif expr.type == "NewExpression":
             for argument in expr.arguments:
                 arg_val = self.eval_expr_annotate(state, argument)
-
             return JSTop
       
         elif expr.type == "ConditionalExpression":
@@ -115,7 +112,7 @@ class Interpreter(object):
                 expr_then = self.eval_expr_annotate(state_then, expr.consequent)
                 expr_else = self.eval_expr_annotate(state_else, expr.alternate)
                 state_then.join(state_else)
-                if type(expr_then) == type(expr_else) and expr_then == expr_else:
+                if State.value_equal(expr_then, expr_else):
                     return expr_then
                 else:
                     return JSTop
@@ -133,61 +130,57 @@ class Interpreter(object):
         elif expr.type == "ThisExpression":
             return JSTop
 
-
         elif expr.type == "AssignmentExpression":
+            #Assignment can be either to an identifier (simple variable) or member expression (object.field or object[field])
+            #In case of member expression, the field can be computed (blah[i + i]) or not (blah.toto)
+
+            #In any case, we start by computing the (source) rvalue. 
+            #Even if it is JSTop, we cannot return right away, because we might need to delete dict entries
             abs_rvalue = self.eval_expr_annotate(state, expr.right)
 
+            #Next try to find the dict holding the identifier or property that is being written to, and the property/identifier name
             if expr.left.type == "Identifier":
-                scope = state.scope_lookup(expr.left.name)
-                old = scope.pop(expr.left.name, None)
-                if old is not None and old.ref() is not None:
-                    state.objs[old.ref()].dec(state.objs, old.ref())
-                if abs_rvalue is not JSTop:
-                    scope[expr.left.name] = abs_rvalue
-                    if expr.left.name in to_inspect:
-                        print(expr.left.name, ":", abs_rvalue)
-                        if isinstance(abs_rvalue, JSRef):
-                            print("pointed object:", state.objs[abs_rvalue.ref_id])
-                    if abs_rvalue.ref() is not None:
-                        state.objs[abs_rvalue.ref()].inc()
+                #Identifier type: the simple case.
+                target = state.scope_lookup(expr.left.name)
+                prop = expr.left.name
 
             elif expr.left.type == "MemberExpression":
-                abs_object = self.eval_expr_annotate(state, expr.left.object)
-                if expr.left.computed is False:
-                    if abs_object is JSTop:
-                        return JSTop
-                    ref_id = abs_object.ref_id
-                    if ref_id in state.objs:
-                        old = state.objs[ref_id].properties.pop(expr.left.property.name, None)
-                        if old is not None and old.ref() is not None:
-                            state.objs[old.ref()].dec(state.objs, old.ref())
-                        if abs_rvalue is not JSTop:
-                            state.objs[ref_id].properties[expr.left.property.name] = abs_rvalue
-                            if abs_rvalue.ref() is not None:
-                                state.objs[abs_rvalue.ref()].inc()
-                    else:
-                        raise ValueError("Referenced object not found, id=" + str(ref_id))
-                else: #expression
-                    abs_property = self.eval_expr_annotate(state, expr.left.property)
-                    if abs_object is JSTop or isinstance(abs_object, JSClosure):
-                        return JSTop
-                    ref_id = abs_object.ref_id
-                    if isinstance(abs_property, JSPrimitive):
-                        if ref_id in state.objs:
-                            old = state.objs[ref_id].properties.pop(abs_property.val, None)
-                            if old is not None and old.ref() is not None:
-                                state.objs[old.ref()].dec(state.objs, old.ref())
-                            if abs_rvalue is not JSTop:
-                                state.objs[ref_id].properties[abs_property.val] = abs_rvalue
-                        else:
-                            raise ValueError("Referenced object not found, id=" + str(ref_id))
+                #Member expression type: first, try to find referenced object
+                abs_ref = self.eval_expr_annotate(state, expr.left.object)
 
-                    elif abs_property is not JSTop:
-                        raise ValueError("Invalid property type:" + str(type(abs_property)), + ", " + str(abs_property))
+                #If we cannot locate the referenced object, there's nothing we can do
+                if abs_ref is JSTop:
+                    return JSTop
+
+                target = state.objs[abs_ref.ref()].properties
+
+                #Now, try to find the property name, it can be directly given, or computed.
+                if expr.left.computed:
+                    #Property name is computed (i.e. tab[x + 1])
+                    abs_property = self.eval_expr_annotate(state, expr.left.property)
+                    if abs_property is JSTop or isinstance(abs_property, JSClosure): #TODO
+                        return JSTop
+                    elif isinstance(abs_property, JSPrimitive):
+                        prop = abs_property.val
+                    else:
+                        raise ValueError("Invalid property type")
+                else:
+                    #Property name is directly given (i.e. foo.bar)
+                    prop = expr.left.property.name
+
             else:
                 raise ValueError("Invalid assignment left type")
+
+            #Delete old value (if any), and decrease reference counter if needed
+            old = target.pop(prop, None)
+            if old is not None and old.ref() is not None:
+                state.objs[old.ref()].dec(state.objs, old.ref())
+
+            if abs_rvalue is not JSTop:
+                target[prop] = abs_rvalue
+                if abs_rvalue.ref() is not None:
+                    state.objs[abs_rvalue.ref()].inc()
             return abs_rvalue
-        
         elif expr.type == "ObjectExpression":
             properties = {}
             for prop in expr.properties:
@@ -293,10 +286,6 @@ class Interpreter(object):
                 scope[decl.id.name] = JSUndefNaN
             else:
                 val = self.eval_expr_annotate(state, decl.init)
-                if decl.id.name in to_inspect:
-                    print(decl.id.name, ":", val)
-                    if isinstance(val, JSRef):
-                        print("pointed object:", state.objs[val.ref_id])
 
                 if val.ref() is not None:
                     state.objs[val.ref()].inc()
