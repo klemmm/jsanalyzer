@@ -12,6 +12,7 @@ class Interpreter(object):
         self.ast = ast
         self.funcs = []
 
+    #Evaluate a function call, takes callee and function arguments, returns abstract value
     def eval_func_call(self, state, callee, arguments):
         #callee can be either JSTop, JSClosure or JSSimFct
         
@@ -74,13 +75,15 @@ class Interpreter(object):
 
             return return_value
         return JSTop
-        
+       
+    #Evaluate expression and annotate AST in case of statically known value. Return abstract value.
     def eval_expr_annotate(self, state, expr):
         result = self.eval_expr(state, expr)
         if result is not JSTop:
             expr.static_value = State.value_join(expr.static_value, result)
         return result
 
+    #Helper function to decompose member expression into object (dict) and property (string). Returns None if not found.
     def use_member(self, state, expr):
         #Member expression type: first, try to find referenced object
         abs_ref = self.eval_expr_annotate(state, expr.object)
@@ -172,6 +175,7 @@ class Interpreter(object):
                 prop = expr.left.name
 
             elif expr.left.type == "MemberExpression":
+                #Member expression: identify target object (dict), and property name (string)
                 r = self.use_member(state, expr.left)
                 if r is None:
                     return JSTop
@@ -234,19 +238,19 @@ class Interpreter(object):
             target, prop = r
             return target.member(prop)
 
-        elif expr.type == "UnaryExpression":
+        elif expr.type == "UnaryExpression": #Unary expression computation delegated to plugins
             argument = self.eval_expr_annotate(state, expr.argument)
             return plugin_manager.handle_unary_operation(expr.operator, argument)
 
-        elif expr.type == "BinaryExpression" or expr.type == "LogicalExpression":
+        elif expr.type == "BinaryExpression" or expr.type == "LogicalExpression": #Also delegated to plugins
             left = self.eval_expr_annotate(state, expr.left)
             right = self.eval_expr_annotate(state, expr.right)
             return plugin_manager.handle_binary_operation(expr.operator, left, right)
 
         elif expr.type == "FunctionExpression" or expr.type == "ArrowFunctionExpression":
-            if state.lref == state.gref:
+            if state.lref == state.gref: #if global scope, no closure
                 f = JSClosure(expr.params, expr.body, None)
-            else:
+            else: #otherwise, closure referencing local scope
                 f = JSClosure(expr.params, expr.body, state.lref)
             
             if f.body.seen is not True:
@@ -267,24 +271,28 @@ class Interpreter(object):
         return
 
     def do_vardecl(self, state, decl, hoisting=False):
+        #This is called twice.
+        #One time during hoisting (to declare variables)
+        #And one time to do variable initialization
         if decl.type == "VariableDeclarator":
-            if hoisting or decl.init is None:
+            if hoisting or decl.init is None: #Only declaration (set value to undefined)
                 scope = state.objs[state.lref].properties
                 scope[decl.id.name] = JSUndefNaN
             else:
                 val = self.eval_expr_annotate(state, decl.init)
-
-                if val.ref() is not None:
-                    state.objs[val.ref()].inc()
                 scope = state.objs[state.lref].properties
+                #remove old variable
+                old = scope.pop(decl.id.name, None)
+                if old is not None and old.ref() is not None:
+                    state.objs[old.ref()].dec(state.objs, old.ref())
+
+                #compute new value
                 if val is not JSTop:
                     scope[decl.id.name] = val
-                else:
-                    if decl.id.name in scope:
-                        del scope[decl.id.name]
+                    if val.ref() is not None:
+                        state.objs[val.ref()].inc()
         else:
             raise ValueError("Vardecl type not handled:" + decl.type)
-
 
     def do_exprstat(self, state, expr):
         self.eval_expr_annotate(state, expr)
@@ -416,14 +424,21 @@ class Interpreter(object):
             self.funcs.append(scope[name])
 
     def do_break(self, state):
+        #do_break works by merging loopexit_state with current state
+        #loopexit_state will be merged with the state after the loop
         self.loopexit_state.join(state)
         state.set_to_bottom()
     
     def do_continue(self, state):
+        #do_continue works by merging loopcont_state with current state
+        #loopexit_state will be merged with the state after the current iteration
         self.loopcont_state.join(state)
         state.set_to_bottom()
 
     def do_return(self, state, argument):
+        #do_return works by merging return_state with current state
+        #return_state will be used as the state after the function call
+        #also we merge return_value as the upper bound of all possible return values
         if argument is None:
             arg_val = JSUndefNaN
         else:
@@ -438,6 +453,8 @@ class Interpreter(object):
         state.set_to_bottom()
 
     def bring_out_your_dead(self, state):
+        #garbage collect all unreferenced objects
+
         #print("before clean", state)
         if config.delete_unused:
             bye = []
@@ -448,6 +465,7 @@ class Interpreter(object):
                         c_obj = state.objs[o].properties[c]
                         if isinstance(c_obj, JSClosure) and c_obj.env == o:
                             nclosures += 1
+                    #when counting references to object, do not count closures within it, referencing to the object itself
                     if state.objs[o].refcount == nclosures:
                         bye.append(o)
             for b in bye:
