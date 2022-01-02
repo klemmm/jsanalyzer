@@ -148,17 +148,17 @@ class Interpreter(object):
                 #Member expression type: first, try to find referenced object
                 abs_ref = self.eval_expr_annotate(state, expr.left.object)
 
-                #If we cannot locate the referenced object, there's nothing we can do
-                if abs_ref is JSTop:
-                    return JSTop
+                #If we cannot locate the referenced object, we will return JSTop (but still evaluate computed property, if needed)
+                no_ref_obj = abs_ref is JSTop
 
-                target = state.objs[abs_ref.ref()].properties
+                if abs_ref is not JSTop:
+                    target = state.objs[abs_ref.ref()].properties
 
                 #Now, try to find the property name, it can be directly given, or computed.
                 if expr.left.computed:
                     #Property name is computed (i.e. tab[x + 1])
                     abs_property = self.eval_expr_annotate(state, expr.left.property)
-                    if abs_property is JSTop or isinstance(abs_property, JSClosure): #TODO
+                    if abs_property is JSTop or isinstance(abs_property, JSClosure) or no_ref_obj:
                         return JSTop
                     elif isinstance(abs_property, JSPrimitive):
                         prop = abs_property.val
@@ -181,6 +181,7 @@ class Interpreter(object):
                 if abs_rvalue.ref() is not None:
                     state.objs[abs_rvalue.ref()].inc()
             return abs_rvalue
+
         elif expr.type == "ObjectExpression":
             properties = {}
             for prop in expr.properties:
@@ -217,6 +218,8 @@ class Interpreter(object):
             return JSRef(obj_id)
 
         elif expr.type == "MemberExpression":
+            #abs_ref = self.eval_expr_annotate(state, expr.object)
+
             abs_object = self.eval_expr_annotate(state, expr.object)
             ret_top = False
             if abs_object is JSTop or abs_object is JSUndefNaN or isinstance(abs_object, JSClosure):
