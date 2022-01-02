@@ -81,6 +81,33 @@ class Interpreter(object):
             expr.static_value = State.value_join(expr.static_value, result)
         return result
 
+    def use_member(self, state, expr):
+        #Member expression type: first, try to find referenced object
+        abs_ref = self.eval_expr_annotate(state, expr.object)
+
+        #If we cannot locate the referenced object, we will return JSTop later (but still evaluate computed property, if needed)
+        has_ref_obj = isinstance(abs_ref, JSRef)
+
+        if has_ref_obj:
+            target = state.objs[abs_ref.ref()]
+
+        #Now, try to find the property name, it can be directly given, or computed.
+        if expr.computed:
+            #Property name is computed (i.e. tab[x + 1])
+            abs_property = self.eval_expr_annotate(state, expr.property)
+            if abs_property is JSTop:
+                return None
+            elif isinstance(abs_property, JSPrimitive):
+                prop = abs_property.val
+            else:
+                raise ValueError("Invalid property type")
+        else:
+            #Property name is directly given (i.e. foo.bar)
+            prop = expr.property.name
+        if not has_ref_obj:
+            return None
+        return target, prop
+
     #Takes state, expression, and returns a JSValue
     def eval_expr(self, state, expr):
         if expr.type == "Literal":
@@ -145,28 +172,11 @@ class Interpreter(object):
                 prop = expr.left.name
 
             elif expr.left.type == "MemberExpression":
-                #Member expression type: first, try to find referenced object
-                abs_ref = self.eval_expr_annotate(state, expr.left.object)
-
-                #If we cannot locate the referenced object, we will return JSTop later (but still evaluate computed property, if needed)
-                no_ref_obj = abs_ref is JSTop
-
-                if abs_ref is not JSTop:
-                    target = state.objs[abs_ref.ref()].properties                  
-
-                #Now, try to find the property name, it can be directly given, or computed.
-                if expr.left.computed:
-                    #Property name is computed (i.e. tab[x + 1])
-                    abs_property = self.eval_expr_annotate(state, expr.left.property)
-                    if abs_property is JSTop or no_ref_obj:
-                        return JSTop
-                    elif isinstance(abs_property, JSPrimitive):
-                        prop = abs_property.val
-                    else:
-                        raise ValueError("Invalid property type")
-                else:
-                    #Property name is directly given (i.e. foo.bar)
-                    prop = expr.left.property.name
+                r = self.use_member(state, expr.left)
+                if r is None:
+                    return JSTop
+                target = r[0].properties
+                prop = r[1]
 
             else:
                 raise ValueError("Invalid assignment left type")
@@ -218,30 +228,10 @@ class Interpreter(object):
             return JSRef(obj_id)
 
         elif expr.type == "MemberExpression":
-            abs_ref = self.eval_expr_annotate(state, expr.object)
-            no_ref_obj = not isinstance(abs_ref, JSRef) #If we do not have a reference to an object, we will return JSTop later, but still need to evaluate member property, if needed.
-           
-            if not no_ref_obj:
-                target = state.objs[abs_ref.ref()]
-
-            if expr.computed is False: #property is given statically (ex: someObj.someProperty)
-                if no_ref_obj:
-                    return JSTop
-                prop = expr.property.name
-
-            else: #property is computed (ex: someObj[x + 1])
-                abs_property = self.eval_expr_annotate(state, expr.property)
-                if no_ref_obj:
-                    return JSTop
-                if isinstance(abs_property, JSPrimitive):
-                    prop = abs_property.val
-                elif abs_property is JSTop:
-                    return JSTop
-                elif abs_property is JSUndefNaN:
-                    return JSUndefNaN
-                else:
-                    raise ValueError("Invalid property type: " + str(type(abs_property)) + "," + str(abs_property))
-            
+            r = self.use_member(state, expr)
+            if r is None:
+                return JSTop
+            target, prop = r
             return target.member(prop)
 
         elif expr.type == "UnaryExpression":
