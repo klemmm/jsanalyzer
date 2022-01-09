@@ -2,6 +2,7 @@ from abstract import State, JSClosure, JSObject, JSUndefNaN, JSTop, JSRef, JSSim
 
 from debug import debug
 
+import esprima
 import plugin_manager
 import output
 import config
@@ -12,8 +13,33 @@ class Interpreter(object):
         self.ast = ast
         self.funcs = []
 
+    @staticmethod
+    def beta_reduction(expression, formal_args, effective_args):
+        if expression.type == "BinaryExpression":
+            l = Interpreter.beta_reduction(expression.left, formal_args, effective_args)
+            r = Interpreter.beta_reduction(expression.right, formal_args, effective_args)
+            return esprima.nodes.BinaryExpression(expression.operator, l, r)
+        elif expression.type == "Identifier":
+            i = 0
+            found = False
+            for a in formal_args:
+                if a.name is expression.name:
+                    found = True
+                    break
+                i += 1
+            if found:
+                expression.name = effective_args[i].name
+                return esprima.nodes.Identifier(effective_args[i].name)
+
+        else:
+            raise ValueError("beta_reduction: unhandled expression type " + str(expression.type))
+
     #Evaluate a function call, takes callee and function arguments, returns abstract value
-    def eval_func_call(self, state, callee, arguments):
+    def eval_func_call(self, state, callee, expr):
+        if expr is None:
+            arguments = []
+        else:
+            arguments = expr.arguments
         #callee can be either JSTop, JSClosure or JSSimFct
         
         #Argument evaluation is the same in each case.
@@ -25,24 +51,38 @@ class Interpreter(object):
                 args_val.append(v)
             elif isinstance(v, JSClosure):
                 #If the function is unknown, and closures are passed as arguments, we assume these closures will be called by the unknown function.
-                self.eval_func_call(state, v, [])
+                self.eval_func_call(state, v, None)
 
         if isinstance(callee, JSSimFct):
+            self.pure = False #TODO implement a way for plugins to tell the interpreter that a python function is pure.
             return callee.fct(*args_val)
 
         if isinstance(callee, JSClosure):
             callee.body.used = True
+            
+            if callee.body.type is "ReturnStatement":
+                callee.body.redex = True
+                return_statement = callee.body
+
+            if callee.body.type is "BlockStatement" and len(callee.body.body) > 0 and callee.body.body[0].type is "ReturnStatement":
+                callee.body.redex = True
+                return_statement = callee.body.body[0]
+
+            if callee.body.redex and expr is not None:
+                expr.reduced = Interpreter.beta_reduction(return_statement.argument, callee.params, arguments)
         
             #Enter callee context 
             saved_return = self.return_value
             saved_rstate = self.return_state
             saved_lref = state.lref
+            saved_pure = self.pure
 
             self.return_value = None
             self.return_state = State.bottom()
             state.lref = State.new_id()
             state.objs[state.lref] = JSObject({})
             state.objs[state.lref].inc()
+            self.pure = True
 
             #bind argument values
             i = 0
@@ -59,6 +99,7 @@ class Interpreter(object):
            
             #evaluate function, join any return states
             self.do_statement(state, callee.body)
+            callee.body.pure = self.pure
             state.join(self.return_state)
            
             #Save function return value
@@ -69,11 +110,13 @@ class Interpreter(object):
             self.return_state = saved_rstate
             state.objs[state.lref].dec(state.objs, state.lref)
             state.lref = saved_lref
+            self.pure = saved_pure and self.pure
 
             if return_value is None:
                 return JSUndefNaN
 
             return return_value
+        self.pure = False
         return JSTop
        
     #Evaluate expression and annotate AST in case of statically known value. Return abstract value.
@@ -173,8 +216,11 @@ class Interpreter(object):
                 #Identifier type: the simple case.
                 target = state.scope_lookup(expr.left.name)
                 prop = expr.left.name
+                if target is not state.objs[state.lref].properties:
+                    self.pure = False
 
             elif expr.left.type == "MemberExpression":
+                self.pure = False
                 #Member expression: identify target object (dict), and property name (string)
                 r = self.use_member(state, expr.left)
                 if r is None:
@@ -263,7 +309,7 @@ class Interpreter(object):
 
         elif expr.type == "CallExpression":
             callee = self.eval_expr_annotate(state, expr.callee)
-            ret =  self.eval_func_call(state, callee, expr.arguments)
+            ret =  self.eval_func_call(state, callee, expr)
             return ret
 
         else:
@@ -550,7 +596,7 @@ class Interpreter(object):
         self.return_state = State.bottom()
         self.loopexit_state = State.bottom()
         self.loopcont_state = State.bottom()
-
+        self.pure = True
 
         for (ref_id, obj) in plugin_manager.preexisting_objects:
             state.objs[ref_id] = obj
@@ -568,7 +614,6 @@ class Interpreter(object):
         print("Starting abstract interpretation...")
         self.do_sequence_with_hoisting(state, self.ast.body)
         print("\nAnalysis finished")
-        #print(state)
         for f in self.funcs:
             if not f.body.used:
                 f.body.dead_code = True

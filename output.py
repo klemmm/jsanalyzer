@@ -145,6 +145,7 @@ class Output(object):
 
         elif expr.type == "FunctionExpression":
             self.out(self.indent*" " + "function()")
+            self.out("/* PURE: " + str(expr.body.pure) + " REDEX: " + str(expr.body.redex) + " */")
             self.do_statement(expr.body)
 
         elif expr.type == "ArrowFunctionExpression":
@@ -152,6 +153,9 @@ class Output(object):
             self.do_statement(expr.body)
 
         elif expr.type == "CallExpression":
+            if expr.reduced is not None:
+                self.do_expr(expr.reduced)
+                return
             self.do_expr(expr.callee)
             self.out("(", end="")
             first = True
@@ -203,6 +207,7 @@ class Output(object):
 
         elif statement.type == "FunctionDeclaration":
             self.out(self.indent*" " + "function " + statement.id.name + "()")
+            self.out("/* PURE: " + str(statement.body.pure) + " REDEX: " + str(statement.body.redex) + " */")
             self.do_statement(statement.body)
        
         elif statement.type == "ReturnStatement":
