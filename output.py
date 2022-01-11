@@ -75,9 +75,12 @@ class Output(object):
             else: #MemberExpression
                 self.do_expr(expr.left.object)
                 if expr.left.computed:
-                    self.out("[", end="")
-                    self.do_expr(expr.left.property)
-                    self.out("]", end="")
+                    if isinstance(expr.left.property.static_value, JSPrimitive) and type(expr.left.property.static_value.val) is str:
+                        self.out("." + expr.left.property.static_value.val, end="")
+                    else:
+                        self.out("[", end="")
+                        self.do_expr(expr.left.property)
+                        self.out("]", end="")
                 else:
                     self.out("." + expr.left.property.name, end="")
                 self.out(" = ", end="")
@@ -119,9 +122,12 @@ class Output(object):
         elif expr.type == "MemberExpression":
             self.do_expr(expr.object)
             if expr.computed:
-                self.out("[", end="")
-                self.do_expr(expr.property)
-                self.out("]", end="")
+                if isinstance(expr.property.static_value, JSPrimitive) and type(expr.property.static_value.val) is str:
+                    self.out("." + expr.property.static_value.val, end="")
+                else:
+                    self.out("[", end="")
+                    self.do_expr(expr.property)
+                    self.out("]", end="")
             else:
                 self.out("." + expr.property.name, end="")
 
@@ -144,7 +150,15 @@ class Output(object):
             self.do_expr(expr.right)
 
         elif expr.type == "FunctionExpression":
-            self.out(self.indent*" " + "function()")
+            first = True
+            params = ""
+            for a in expr.params:
+                if first:
+                    first = False
+                else:
+                    params += ", "
+                params += a.name
+            self.out(self.indent*" " + "function(" + params + ")")
             self.out("/* PURE: " + str(expr.body.pure) + " REDEX: " + str(expr.body.redex) + " */")
             self.do_statement(expr.body)
 
@@ -154,6 +168,8 @@ class Output(object):
 
         elif expr.type == "CallExpression":
             if expr.reduced is not None:
+                #print("reduced2:")
+                #print(expr.reduced)
                 self.do_expr(expr.reduced)
                 return
             self.do_expr(expr.callee)
@@ -206,12 +222,20 @@ class Output(object):
                 self.do_statement(statement.alternate)
 
         elif statement.type == "FunctionDeclaration":
-            self.out(self.indent*" " + "function " + statement.id.name + "()")
+            first = True
+            params = ""
+            for a in statement.params:
+                if first:
+                    first = False
+                else:
+                    params += ", "
+                params += a.name
+            self.out(self.indent*" " + "function " + statement.id.name + "(" + params + ")")
             self.out("/* PURE: " + str(statement.body.pure) + " REDEX: " + str(statement.body.redex) + " */")
             self.do_statement(statement.body)
        
         elif statement.type == "ReturnStatement":
-            self.out(self.indent*" " + "return")
+            self.out(self.indent*" " + "return ", end="")
             if statement.argument is not None:
                 self.do_expr(statement.argument)
 

@@ -8,6 +8,11 @@ import output
 import config
 import sys
 
+class Stats:
+    computed_values = 0
+    beta_reductions = 0
+    steps = 0
+
 class Interpreter(object):
     def __init__(self, ast):
         self.ast = ast
@@ -23,14 +28,26 @@ class Interpreter(object):
             i = 0
             found = False
             for a in formal_args:
-                if a.name is expression.name:
+                if a.name ==  expression.name:
                     found = True
                     break
                 i += 1
             if found:
-                expression.name = effective_args[i].name
-                return esprima.nodes.Identifier(effective_args[i].name)
+                return effective_args[i]
+            else:
+                return expression
 
+        elif expression.type == "CallExpression":
+            args = []
+            for a in expression.arguments:
+
+                reduced_arg = Interpreter.beta_reduction(a, formal_args, effective_args)
+                if reduced_arg is None:
+                    raise ValueeError
+                args.append(reduced_arg)
+
+
+            return esprima.nodes.CallExpression(Interpreter.beta_reduction(expression.callee, formal_args, effective_args), args)
         else:
             raise ValueError("beta_reduction: unhandled expression type " + str(expression.type))
 
@@ -68,7 +85,8 @@ class Interpreter(object):
                 callee.body.redex = True
                 return_statement = callee.body.body[0]
 
-            if callee.body.redex and expr is not None:
+            if config.inlining and callee.body.redex and expr is not None:
+                Stats.beta_reductions += 1
                 expr.reduced = Interpreter.beta_reduction(return_statement.argument, callee.params, arguments)
         
             #Enter callee context 
@@ -124,6 +142,7 @@ class Interpreter(object):
         result = self.eval_expr(state, expr)
         if result is not JSTop:
             expr.static_value = State.value_join(expr.static_value, result)
+            Stats.computed_values += 1
         return result
 
     #Helper function to decompose member expression into object (dict) and property (string). Returns None if not found.
@@ -523,6 +542,8 @@ class Interpreter(object):
             debug("Ignoring dead code: ", statement.type)
             return
 
+        Stats.steps += 1
+
         debug("Current state: ", state)
         debug("Interpreting statement:", statement.type)
 
@@ -613,10 +634,18 @@ class Interpreter(object):
         debug("Init state: ", str(state))
         print("Starting abstract interpretation...")
         self.do_sequence_with_hoisting(state, self.ast.body)
-        print("\nAnalysis finished")
+        print("\nAbstract state stabilized after", Stats.steps, "steps")
+        dead_funcs = 0
+        funcs = 0
         for f in self.funcs:
+            funcs += 1
             if not f.body.used:
                 f.body.dead_code = True
+                dead_funcs += 1
+        print("Functions analyzed: ", funcs)
+        print("Dead-code functions: ", dead_funcs)
+        print("Static values computed: ", Stats.computed_values)
+        print("Beta-reductions: ", Stats.beta_reductions)
 
 
 
