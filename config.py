@@ -1,4 +1,4 @@
-debug=False #Various debug info
+debug=True #Various debug info
 
 #List of enabled plugins
 enabled_plugins = [
@@ -11,5 +11,5 @@ delete_unused = True #Delete unused data from states (Performance will be really
 
 console_enable = True #Show expressions passed to console.log
 
-inlining = True
+inlining = False
 

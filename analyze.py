@@ -18,9 +18,9 @@ data = f.read()
 f.close()
 
 print("Parsing file into abstract syntax tree...")
-ast = esprima.parse(data)
+ast = esprima.parse(data, options={ 'range': True})
 
-i = Interpreter(ast)
+i = Interpreter(ast, data)
 #cProfile.run("i.run()")
 i.run()
 

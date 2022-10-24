@@ -7,6 +7,7 @@ import plugin_manager
 import output
 import config
 import sys
+import bisect
 
 class Stats:
     computed_values = 0
@@ -14,9 +15,19 @@ class Stats:
     steps = 0
 
 class Interpreter(object):
-    def __init__(self, ast):
+    def __init__(self, ast, data):
         self.ast = ast
         self.funcs = []
+        self.data = data
+        self.lines  = []
+        i = 0
+        while i < len(self.data):
+            if self.data[i] == '\n':
+                self.lines.append(i)
+            i += 1
+
+    def offset2line(self, offset):
+        return bisect.bisect_left(self.lines, offset) + 1
 
     @staticmethod
     def beta_reduction(expression, formal_args, effective_args):
@@ -188,6 +199,7 @@ class Interpreter(object):
                 return JSTop #untracked identifier
 
         elif expr.type == "UpdateExpression":
+            print("UpdateExpression")
             return JSTop #TODO
 
         elif expr.type == "NewExpression":
@@ -544,8 +556,12 @@ class Interpreter(object):
 
         Stats.steps += 1
 
-        debug("Current state: ", state)
-        debug("Interpreting statement:", statement.type)
+        #debug("Current state: ", state)
+
+        line1 = self.offset2line(statement.range[0])
+        line2 = self.offset2line(statement.range[1])
+
+        debug("Interpreting statement:", statement.type, " range:", statement.range, " lines:", str(line1) + "-" + str(line2))
 
         if statement.type == "VariableDeclaration":
             for decl in statement.declarations:
@@ -555,9 +571,11 @@ class Interpreter(object):
             self.do_exprstat(state, statement.expression)
 
         elif statement.type == "ForOfStatement":
+            print("ForOfStatement")
             pass #TODO
         
         elif statement.type == "ForStatement":
+            print("ForStatement")
             pass #TODO
 
         elif statement.type == "IfStatement":
