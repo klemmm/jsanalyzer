@@ -193,6 +193,23 @@ JSTop = JSSpecial("Top")
 class JSObject(JSValue):
     hooks = []
 
+    #convenience functions to build obj/simfct/function/closure
+    @classmethod
+    def function(cls, body, params):
+        return cls({}, body, params, None, None)
+    
+    @classmethod
+    def closure(cls, body, params, env):
+        return cls({}, body, params, env, None)
+    
+    @classmethod
+    def simfct(cls, simfct)
+        return cls({}, None, None, None, simfct)
+    
+    @classmethod
+    def object(cls)
+        return cls({}, None, None, None, None)
+
     @staticmethod
     def add_hook(hook):
         JSObject.hooks.append(hook)

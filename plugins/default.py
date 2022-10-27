@@ -1,7 +1,7 @@
 import re
 import config
 
-from plugin_manager import register_preexisting_object, register_unary_handler, register_binary_handler, register_global_symbol, register_method_hook, JSTop, JSUndefNaN, JSPrimitive, JSObject, JSSimFct, JSRef, to_bool
+from plugin_manager import register_preexisting_object, register_unary_handler, register_binary_handler, register_global_symbol, register_method_hook, JSTop, JSUndefNaN, JSPrimitive, JSObject, JSRef, to_bool
 
 
 def unary_handler(opname, abs_arg):
@@ -86,7 +86,8 @@ def console_log(*args):
         print("console log:", list(args))
     return JSUndefNaN
 
-console_ref = register_preexisting_object(JSObject({"log": JSSimFct(console_log)}))
+console_log_ref = register_preexisting_object(JSObject.simfct(console_log));
+console_ref = register_preexisting_object(JSObject({"log": JSRef(console_log_ref)}))
 register_global_symbol('console', JSRef(console_ref))
 
 def parse_int(s):
@@ -100,50 +101,55 @@ def parse_int(s):
             return JSPrimitive(int(prefix))
     return JSTop
 
-register_global_symbol('parseInt', JSSimFct(parse_int))
+parse_int_ref = register_preexisting_object(JSObject.simfct(parse_int));
+register_global_symbol('parseInt', JSRef(parse_int_ref))
+    
+def array_pop(arr):
+    #FIXME array object should track its abstract size
+    indexes = sorted([i for i in arr.properties if type(i) is int])
+    if len(indexes) == 0:
+        return JSTop
+    retval = arr.properties[indexes[-1]]
+    del arr.properties[indexes[-1]]
+    return retval
+
+def array_push(arr, value):
+    #FIXME array object should track its abstract size
+    indexes = sorted([i for i in arr.properties if type(i) is int])
+    if len(indexes) == 0:
+        return JSTop
+    retval = arr.properties[indexes[-1]]
+    arr.properties[indexes[-1] + 1] = value
+    return retval
+
+def array_shift(arr):
+    #FIXME array object should track its abstract size
+    indexes = sorted([i for i in arr.properties if type(i) is int])
+    if len(indexes) == 0:
+        return JSTop
+    retval = JSTop
+    if 0 in indexes:
+        retval = arr.properties[0]
+        del arr.properties[0]
+        del indexes[0]
+
+    for i in indexes:
+        arr.properties[i - 1] = arr.properties[i]
+        del arr.properties[i]
+
+    return retval
+
+array_pop_ref = register_preexisting_object(JSObject.simfct(array_pop));
+array_push_ref = register_preexisting_object(JSObject.simfct(array_push));
+array_shift_ref = register_preexisting_object(JSObject.simfct(array_shift));
 
 def array_hook(name, arr):
-    def array_pop(arr):
-        #FIXME array object should track its abstract size
-        indexes = sorted([i for i in arr.properties if type(i) is int])
-        if len(indexes) == 0:
-            return JSTop
-        retval = arr.properties[indexes[-1]]
-        del arr.properties[indexes[-1]]
-        return retval
-    
-    def array_push(arr, value):
-        #FIXME array object should track its abstract size
-        indexes = sorted([i for i in arr.properties if type(i) is int])
-        if len(indexes) == 0:
-            return JSTop
-        retval = arr.properties[indexes[-1]]
-        arr.properties[indexes[-1] + 1] = value
-        return retval
-    
-    def array_shift(arr):
-        #FIXME array object should track its abstract size
-        indexes = sorted([i for i in arr.properties if type(i) is int])
-        if len(indexes) == 0:
-            return JSTop
-        retval = JSTop
-        if 0 in indexes:
-            retval = arr.properties[0]
-            del arr.properties[0]
-            del indexes[0]
-
-        for i in indexes:
-            arr.properties[i - 1] = arr.properties[i]
-            del arr.properties[i]
-
-        return retval
-
     if name == "pop":
-        return JSSimFct(array_pop)
+        return JSRef(array_pop_ref)
     elif name == "shift":
-        return JSSimFct(array_shift)
+        return JSRef(array_shift_ref)
     elif name == "push":
-        return JSSimFct(array_push)
+        return JSRef(array_push_ref)
     else:
         return JSTop
 
