@@ -196,19 +196,44 @@ class JSObject(JSValue):
     @staticmethod
     def add_hook(hook):
         JSObject.hooks.append(hook)
-    def __init__(self, properties):
-        self.properties = properties
-        self.refcount = 0
+    def __init__(self, properties, body=None, params=None, env=None, simfct=None):
+        self.refcount = 0 #Number of references to that object
+        self.properties = properties #dict listing properties of the object / array elements
+        self.body = body #if function, represents the body AST
+        self.params = params #if function, represents the arguments ASTs
+        self.env = env #if function, this is the ID of object representing closure-captured environment, if any
+        self.simfct = simct #Simulated function, if any
     def __str__(self):
-        return "{rc:" + str(self.refcount) + " " + (", ".join([(str(i) + ': ' + str(self.properties[i])) for i in self.properties])) + "} "
+        props = "{rc:" + str(self.refcount) + " " + (", ".join([(str(i) + ': ' + str(self.properties[i])) for i in self.properties])) + "} "
+        if self.simfct is not None:
+            return "<simfct " + props + ">"
+        elif self.env is None:
+            return "<function " + props + ">"
+        else:
+            return "<closure, env=" + str(self.env) + " " + props + ">"
+
     def __repr__(self):
         return self.__str__()
     def __eq__(self, other):
-        return self.properties == other.properties
+        return self.properties == other.properties and self.body == other.body and self.params == other.params and self.env == other.env and self.simfct == other.simfct
+    def is_callable(self):
+        return not (self.body is None and self.simfct is None)
+    def is_simfct(self):
+        return self.simfct is not None
+    def is_function(self):
+        return self.body is not None
+    def is_closure(self):
+        return self.env is not None
+    def ref(self):
+        return self.env
     def clone(self):
         c = JSObject({})
         State.dict_assign(c.properties, self.properties)
         c.refcount = self.refcount
+        c.body = self.body
+        c.params = self.params
+        c.env = self.env
+        c.simfct = self.simfct
         return c
 
     def inc(self):
@@ -249,40 +274,4 @@ class JSRef(JSValue):
     def clone(self):
         c = JSRef(self.ref_id)
         return c
-
-# Represents a simulated function (i.e. a js function re-implemented in python)
-class JSSimFct(JSValue):
-    def __init__(self, fct):
-        self.fct = fct
-    def __str__(self):
-        return "<simfct>"
-    def __repr__(self):
-        return self.__str__()
-    def __eq__(self, other):
-        return self.fct == other.fct
-    def clone(self):
-        c = JSSimFct(self.fct)
-        return c
-
-# Represents a closure (i.e. a js function AST and its closure environment)
-class JSClosure(JSValue):
-    def __init__(self, params, body, env):
-        self.params = params
-        self.body = body
-        self.env = env
-    def ref(self):
-        return self.env
-    def __str__(self):
-        if self.env is None:
-            return "<function>"
-        else:
-            return "<closure, env=" + str(self.env) + ">"
-    def __repr__(self):
-        return self.__str__()
-    def __eq__(self, other):
-        return self.body == other.body and self.params == other.params and self.env == other.env
-    def clone(self): # /!\ No deep-copy of params and function body, as it is not needed yet
-        c = JSClosure(self.params, self.body, self.env)
-        return c
-
 
