@@ -4,8 +4,6 @@ import config
 JSTop = abstract.JSTop
 JSUndefNaN = abstract.JSUndefNaN
 JSPrimitive = abstract.JSPrimitive
-JSClosure = abstract.JSClosure
-JSSimFct = abstract.JSSimFct
 JSObject = abstract.JSObject
 JSRef = abstract.JSRef
 

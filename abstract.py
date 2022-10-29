@@ -1,6 +1,7 @@
 ## Abstract semantics (State)
 import sys
 import traceback
+import config
 
 class State(object):
     def __init__(self, glob=False, bottom=False):
@@ -8,10 +9,12 @@ class State(object):
             self.objs = {}
             self.gref = None
             self.lref = None
+            self.pending = None
             self.is_bottom = True
         else:
             self.is_bottom = False
             self.objs = {} 
+            self.pending = set()
             self.gref = State.new_id()
             self.objs[self.gref] = JSObject({})
             if glob:
@@ -91,6 +94,7 @@ class State(object):
         c.is_bottom = self.is_bottom
         c.lref = self.lref
         c.gref = self.gref
+        c.pending = self.pending.copy()
         return c 
 
     def __eq__(self, other):
@@ -102,6 +106,8 @@ class State(object):
             return False
         if self.objs != other.objs:
             return False
+        if self.pending != other.pending:
+            return False
         return True
 
     def assign(self, other):
@@ -109,6 +115,7 @@ class State(object):
         self.gref = other.gref
         self.lref = other.lref
         State.dict_assign(self.objs, other.objs)
+        self.pending = other.pending.copy()
 
     def join(self, other):
         if other.is_bottom:
@@ -118,6 +125,7 @@ class State(object):
             return
         assert(self.lref == other.lref)
         assert(self.gref == other.gref)
+        assert(self.pending == other.pending)
 
         bye = []
         for k in self.objs:
@@ -147,16 +155,39 @@ class State(object):
     def __str__(self):
         if self.is_bottom:
             return "Bottom";
-        return("gref=" + str(self.gref) + ", lref=" + str(self.lref) +", objs=" + str(self.objs))
+        return("gref=" + str(self.gref) + ", lref=" + str(self.lref) +", objs=" + str(self.objs) + ", pending="+ str(self.pending))
 
     def __repr__(self):
         return self.__str__()
 
+    def consume_expr(self, expr, consumed_refs=None):
+        if consumed_refs is None:
+            if isinstance(expr, JSRef):
+                self.pending.discard(expr.target())
+                #print("PEND discard: ", expr.target())
+                if expr.is_bound():
+                    self.pending.discard(expr.this())
+                    #print("PEND discard: ", expr.this())
+        else:
+            if isinstance(expr, JSRef):
+                consumed_refs.add(expr.target())
+                #print("PEND consume: ", expr.target())
+                if expr.is_bound():
+                    consumed_refs.add(expr.this())
+                    #print("PEND consume: ", expr.this())
+
+
 ## Classes for wrapping JS values
 
 class JSValue(object):
-    def ref(self):
-        return None
+    def is_callable(self):
+        return False
+    def is_simfct(self):
+        return False
+    def is_function(self):
+        return False
+    def is_closure(self):
+        return False
     pass
 
 # Represents any simple type (for example: a number)
@@ -192,6 +223,7 @@ JSTop = JSSpecial("Top")
 # Represents an object or array
 class JSObject(JSValue):
     hooks = []
+    GC_IGNORE = -1
 
     #convenience functions to build obj/simfct/function/closure
     @classmethod
@@ -203,31 +235,32 @@ class JSObject(JSValue):
         return cls({}, body, params, env, None)
     
     @classmethod
-    def simfct(cls, simfct)
+    def simfct(cls, simfct):
         return cls({}, None, None, None, simfct)
     
     @classmethod
-    def object(cls)
+    def object(cls):
         return cls({}, None, None, None, None)
 
     @staticmethod
     def add_hook(hook):
         JSObject.hooks.append(hook)
     def __init__(self, properties, body=None, params=None, env=None, simfct=None):
-        self.refcount = 0 #Number of references to that object
         self.properties = properties #dict listing properties of the object / array elements
         self.body = body #if function, represents the body AST
         self.params = params #if function, represents the arguments ASTs
         self.env = env #if function, this is the ID of object representing closure-captured environment, if any
-        self.simfct = simct #Simulated function, if any
+        self.simfct = simfct #Simulated function, if any
     def __str__(self):
-        props = "{rc:" + str(self.refcount) + " " + (", ".join([(str(i) + ': ' + str(self.properties[i])) for i in self.properties])) + "} "
+        props = "{" + (", ".join([(str(i) + ': ' + str(self.properties[i])) for i in self.properties])) + "} "
         if self.simfct is not None:
             return "<simfct " + props + ">"
-        elif self.env is None:
+        elif self.env is not None:
+            return "<closure, env=" + str(self.env) + " " + props + ">"
+        elif self.body is not None:
             return "<function " + props + ">"
         else:
-            return "<closure, env=" + str(self.env) + " " + props + ">"
+            return "<object " + props + ">"
 
     def __repr__(self):
         return self.__str__()
@@ -241,54 +274,46 @@ class JSObject(JSValue):
         return self.body is not None
     def is_closure(self):
         return self.env is not None
-    def ref(self):
+    def closure_env(self):
         return self.env
     def clone(self):
         c = JSObject({})
         State.dict_assign(c.properties, self.properties)
-        c.refcount = self.refcount
         c.body = self.body
         c.params = self.params
         c.env = self.env
         c.simfct = self.simfct
         return c
 
-    def inc(self):
-        self.refcount += 1
-
-    def dec(self, scope, _id):
-        self.refcount -= 1
-        if self.refcount == 0:
-            for k in self.properties:
-                if isinstance(self.properties[k], JSRef):
-                    if self.properties[k].ref_id in scope:
-                        scope[self.properties[k].ref_id].dec(scope, self.properties[k].ref_id)
-                elif isinstance(self.properties[k], JSClosure) and self.properties[k].env is not None:
-                    if self.properties[k].env in scope:
-                        scope[self.properties[k].env].dec(scope, self.properties[k].env)
-        
     def member(self, name):
         for h in JSObject.hooks:
-            r = h(name, self)
+            r = h(name)
             if r is not JSTop:
-                def bound_method(*args):
-                    return r.fct(self, *args)
-                return JSSimFct(bound_method)
+                return r
         return self.properties.get(name, JSUndefNaN) #TODO should be JSTop here (workaround until array bounds are handled)
 
 # Represents a reference to an object or array
 class JSRef(JSValue):
     def __init__(self, ref_id):
         self.ref_id = ref_id
+        self.this_id = None
+        if self.ref_id == 21108:
+            print("ICI!")
     def __str__(self):
         return "<ref: " + str(self.ref_id) + ">"
     def __repr__(self):
         return self.__str__() 
     def __eq__(self, other):
         return self.ref_id == other.ref_id
-    def ref(self):
+    def target(self):
         return self.ref_id
     def clone(self):
         c = JSRef(self.ref_id)
         return c
+    def is_bound(self):
+        return self.this_id is not None
+    def bind(self, this_id):
+        self.this_id = this_id
+    def this(self):
+        return self.this_id
 

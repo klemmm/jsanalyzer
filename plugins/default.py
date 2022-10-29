@@ -81,7 +81,7 @@ def binary_handler(opname, abs_arg1, abs_arg2):
 
 register_binary_handler(binary_handler)
 
-def console_log(*args):
+def console_log(this, *args):
     if config.console_enable:
         print("console log:", list(args))
     return JSUndefNaN
@@ -143,7 +143,7 @@ array_pop_ref = register_preexisting_object(JSObject.simfct(array_pop));
 array_push_ref = register_preexisting_object(JSObject.simfct(array_push));
 array_shift_ref = register_preexisting_object(JSObject.simfct(array_shift));
 
-def array_hook(name, arr):
+def array_hook(name):
     if name == "pop":
         return JSRef(array_pop_ref)
     elif name == "shift":

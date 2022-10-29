@@ -231,7 +231,7 @@ class Output(object):
                     params += ", "
                 params += a.name
             self.out(self.indent*" " + "function " + statement.id.name + "(" + params + ")")
-            self.out("/* PURE: " + str(statement.body.pure) + " REDEX: " + str(statement.body.redex) + " */")
+            #self.out("/* PURE: " + str(statement.body.pure) + " REDEX: " + str(statement.body.redex) + " */")
             self.do_statement(statement.body)
        
         elif statement.type == "ReturnStatement":
