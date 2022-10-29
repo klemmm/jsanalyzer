@@ -159,7 +159,7 @@ class Output(object):
                     params += ", "
                 params += a.name
             self.out(self.indent*" " + "function(" + params + ")")
-            self.out("/* PURE: " + str(expr.body.pure) + " REDEX: " + str(expr.body.redex) + " */")
+            #self.out("/* PURE: " + str(expr.body.pure) + " REDEX: " + str(expr.body.redex) + " */")
             self.do_statement(expr.body)
 
         elif expr.type == "ArrowFunctionExpression":

@@ -786,7 +786,6 @@ class Interpreter(object):
         print("Dead-code functions: ", dead_funcs)
         print("Static values computed: ", Stats.computed_values)
         print("Beta-reductions: ", Stats.beta_reductions)
-        print(state)
 
 
 
