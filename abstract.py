@@ -125,7 +125,9 @@ class State(object):
             return
         assert(self.lref == other.lref)
         assert(self.gref == other.gref)
-        assert(self.pending == other.pending)
+
+        self.pending.intersection_update(other.pending)
+
 
         bye = []
         for k in self.objs:
@@ -299,8 +301,6 @@ class JSRef(JSValue):
     def __init__(self, ref_id):
         self.ref_id = ref_id
         self.this_id = None
-        if self.ref_id == 21108:
-            print("ICI!")
     def __str__(self):
         return "<ref: " + str(self.ref_id) + ">"
     def __repr__(self):

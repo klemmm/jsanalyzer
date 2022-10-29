@@ -221,7 +221,6 @@ class Interpreter(object):
                 return JSTop #untracked identifier
 
         elif expr.type == "UpdateExpression":
-            print("UpdateExpression")
             return JSTop #TODO
 
         elif expr.type == "NewExpression":
