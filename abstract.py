@@ -188,6 +188,8 @@ class JSValue(object):
         return False
     def is_closure(self):
         return False
+    def is_bound(self):
+        return False
     pass
 
 # Represents any simple type (for example: a number)

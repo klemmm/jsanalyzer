@@ -85,9 +85,9 @@ class Interpreter(object):
             state.consume_expr(v, consumed_refs)
             if callee.is_callable():
                 args_val.append(v)
-            elif v.is_function():
+            elif isinstance(v, JSRef) and state.objs[v.target()].is_function():
                 #If the function is unknown, and closures are passed as arguments, we assume these closures will be called by the unknown function.
-                self.eval_func_call(state, v, None)
+                self.eval_func_call(state, state.objs[v.target()], None)
 
         #Handle the case where callee is a simfct
         if callee.is_simfct(): 
@@ -394,15 +394,20 @@ class Interpreter(object):
 
         elif expr.type == "CallExpression":
             consumed_refs = set()
-            callee = self.eval_expr(state, expr.callee)
-            state.consume_expr(callee, consumed_refs)
-            if callee is JSTop or callee is JSUndefNaN:
-                return JSTop
+            callee_ref = self.eval_expr(state, expr.callee)
+            state.consume_expr(callee_ref, consumed_refs)
+
             this = None
-            if callee.is_bound():
-                this = callee.this()
-            ret =  self.eval_func_call(state, state.objs[callee.target()], expr, this, consumed_refs)
+            if callee_ref.is_bound():
+                this = callee_ref.this()
+
+            callee = JSTop
+            if isinstance(callee_ref, JSRef):
+                callee = state.objs[callee_ref.target()]
+
+            ret =  self.eval_func_call(state, callee, expr, this, consumed_refs)
             state.consume_expr(ret, consumed_refs)
+
             state.pending.difference_update(consumed_refs)
             return ret
 
@@ -666,6 +671,8 @@ class Interpreter(object):
         line2 = self.offset2line(statement.range[1])
 
         self.last = statement.type + ", range: " + str(statement.range) + ", lines: "+ str(line1) + "-" + str(line2) + "\n" + self.data[statement.range[0]:statement.range[1]] + "\n"
+
+        debug("interpreting: ", self.last)
 
 
         if statement.type == "VariableDeclaration":
