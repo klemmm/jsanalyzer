@@ -103,6 +103,14 @@ def parse_int(s):
 
 parse_int_ref = register_preexisting_object(JSObject.simfct(parse_int));
 register_global_symbol('parseInt', JSRef(parse_int_ref))
+
+def analyzer_assert(b):
+    if (isinstance(b, JSPrimitive) or isinstance(b, JSRef)) and to_bool(b):
+        return
+    raise AssertionError("Analyzer assertion failed: " + str(b))
+
+analyzer_assert = register_preexisting_object(JSObject.simfct(analyzer_assert));
+register_global_symbol('analyzer_assert', JSRef(analyzer_assert))
     
 def array_pop(arr):
     #FIXME array object should track its abstract size
