@@ -226,6 +226,7 @@ class Interpreter(object):
                 return JSTop #untracked identifier
 
         elif expr.type == "UpdateExpression":
+            print("UpdateExpression")
             return JSTop #TODO
 
         elif expr.type == "NewExpression":
@@ -462,11 +463,21 @@ class Interpreter(object):
             raise ValueError("Vardecl type not handled:" + decl.type)
         state.pending.difference_update(consumed_refs)
 
+    def do_expr_or_statement(self, state, exprstat):
+        if exprstat.type in output.EXPRESSIONS:
+            discarded = self.eval_expr(state, exprstat)
+            state.consume_expr(discarded)
+        else:
+            self.do_statement(state, exprstat)
+
     def do_exprstat(self, state, expr):
         discarded = self.eval_expr(state, expr)
         state.consume_expr(discarded)
-
+    
     def do_while(self, state, test, body):
+        self.do_for(state, None, test, None, body)
+
+    def do_for(self, state, init, test, update, body):
         state_is_bottom = False
         consumed_refs = set()
         prev_state = None
@@ -475,6 +486,8 @@ class Interpreter(object):
         saved_loopexit = self.loopexit_state
         self.loopexit_state = State.bottom()
         exit = False
+        if init is not None:
+            self.do_expr_or_statement(state, init)
         while not exit:
             #print("loop", i)
             saved_loopcont = self.loopcont_state
@@ -494,6 +507,8 @@ class Interpreter(object):
                 prev_state = state.clone()
                 header_state = state.clone()
                 self.do_sequence(state, body)
+                if update:
+                    self.do_expr_or_statement(state, update)
                 state.join(header_state)
                 state.join(self.loopcont_state)
                 self.loopcont_state = saved_loopcont
@@ -510,6 +525,8 @@ class Interpreter(object):
             elif plugin_manager.to_bool(abs_test_result):
                 prev_state = state.clone()
                 self.do_sequence(state, body)
+                if update:
+                    self.do_exprstat(state, update)
                 state.join(self.loopcont_state)
                 self.loopcont_state = saved_loopcont
                 if state == prev_state:
@@ -716,8 +733,7 @@ class Interpreter(object):
             pass #TODO
         
         elif statement.type == "ForStatement":
-            print("ForStatement")
-            pass #TODO
+            self.do_for(state, statement.init, statement.test, statement.update, statement.body.body)
 
         elif statement.type == "IfStatement":
             self.do_if(state, statement.test, statement.consequent, statement.alternate)

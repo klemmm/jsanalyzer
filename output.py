@@ -1,4 +1,5 @@
 from abstract import JSPrimitive
+EXPRESSIONS = ["BinaryExpression", "UnaryExpression", "Identifier", "CallExpression", "Literal", "NewExpression", "UpdateExpression", "ConditionalExpression", "NewExpression", "ThisExpression", "AssignmentExpression", "MemberExpression", "ObjectExpression", "ArrayExpression", "LogicalExpression", "FunctionExpression", "ArrowFunctionExpression"]
 
 class Output(object):
     def __init__(self, ast, f):
@@ -27,6 +28,12 @@ class Output(object):
         else:
             self.out("undefined", end="")
         return
+
+    def do_expr_or_statement(self, exprstat, simplify=True, end="\n"):
+        if exprstat.type in EXPRESSIONS:
+            self.do_expr(exprstat, simplify)
+        else:
+            self.do_statement(exprstat, end)
 
     def do_expr(self, expr, simplify=True):
         if simplify and (expr.static_value is not None and isinstance(expr.static_value, JSPrimitive)):
@@ -191,10 +198,7 @@ class Output(object):
             self.out(expr)
             raise ValueError("Expr type not handled: " + expr.type)
 
-
-
-
-    def do_statement(self, statement):
+    def do_statement(self, statement, end="\n"):
         if statement.dead_code is True:
             self.out((self.indent)*" " + "{");
             self.out((self.indent+self.INDENT)*" " + "/* Dead Code */")
@@ -205,12 +209,12 @@ class Output(object):
                 if decl.init is not None:
                     self.out(" = ", end="")
                     self.do_expr(decl.init)
-                self.out("")
+                self.out("", end=end)
 
         elif statement.type == "ExpressionStatement":
             self.out(" "*self.indent, end="")
             self.do_expr(statement.expression, simplify=False)
-            self.out("")
+            self.out("", end=end)
 
         elif statement.type == "IfStatement":
             self.out(self.indent*" " + "if (", end="")
@@ -268,7 +272,15 @@ class Output(object):
             pass
         
         elif statement.type == "ForStatement":
-            self.out(self.indent*" " + "ForStatement;")
+            self.out(self.indent*" " + "for(", end="")
+            self.do_expr_or_statement(statement.init, simplify=False, end="")
+            self.out("; ", end="")
+            self.do_expr(statement.test)
+            self.out("; ", end="")
+            self.do_expr_or_statement(statement.update, simplify=False, end="")
+            self.out("; ", end="")
+            self.out(")")
+            self.do_statement(statement.body)
         
         elif statement.type == "ForOfStatement":
             self.out(self.indent*" " + "ForOfStatement;")
