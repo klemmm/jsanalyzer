@@ -14,3 +14,5 @@ console_enable = True #Show expressions passed to console.log
 
 inlining = True
 
+process_not_taken = True #workaround for probably incorrect boolean evaluation
+

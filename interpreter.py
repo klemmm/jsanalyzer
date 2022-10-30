@@ -569,20 +569,21 @@ class Interpreter(object):
             self.do_statement(state, consequent)
         else:
             #TODO temporary workaround for probably incorrect boolean value evaluation
-            a = self.return_state
-            b = self.return_value
-            c = self.loopexit_state
-            d = self.loopcont_state
-            self.return_state = State.bottom()
-            self.return_value = None
-            self.loopexit_state = State.bottom()
-            self.loopcont_state = State.bottom()
-            cl = state.clone()
-            self.do_statement(cl, consequent)
-            self.return_state = a
-            self.return_value = b
-            self.loopexit_state = c
-            self.loopcont_state = d
+            if config.process_not_taken:
+                a = self.return_state
+                b = self.return_value
+                c = self.loopexit_state
+                d = self.loopcont_state
+                self.return_state = State.bottom()
+                self.return_value = None
+                self.loopexit_state = State.bottom()
+                self.loopcont_state = State.bottom()
+                cl = state.clone()
+                self.do_statement(cl, consequent)
+                self.return_state = a
+                self.return_value = b
+                self.loopexit_state = c
+                self.loopcont_state = d
             #TODO end of temporary workaround
             if alternate is not None:
                 self.do_statement(state, alternate)
