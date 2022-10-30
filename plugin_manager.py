@@ -24,6 +24,8 @@ def to_bool(v):
             return v.val != 0
         elif type(v.val) is bool:
             return v.val
+        elif type(v.val) is str:
+            return len(v.val) > 0
         else:
             raise ValueError("truth_value: unhandled concrete type" + str(type(v.val)))
     elif isinstance(v, JSRef):

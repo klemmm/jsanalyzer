@@ -415,7 +415,7 @@ class Interpreter(object):
                 expr.active = 0
             if expr.active > config.max_recursion:
                 if expr.recursion_state is None:
-                    print("[warning] Loop unrolling stopped at depth=", expr.active)
+                    print("[warning] Recursion inlining stopped at depth=", expr.active)
                     expr.recursion_state = State(glob=False, bottom=True)
                 new_recursion_state = expr.recursion_state.clone()
                 new_recursion_state.join(state)
