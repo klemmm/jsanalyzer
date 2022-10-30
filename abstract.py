@@ -9,7 +9,7 @@ class State(object):
             self.objs = {}
             self.gref = None
             self.lref = None
-            self.pending = None
+            self.pending = set()
             self.is_bottom = True
             self.stack_frames = []
         else:
@@ -90,6 +90,7 @@ class State(object):
         self.lref = None
         self.is_bottom = True
         self.stack_frames = []
+        self.pending = set()
 
     def clone(self):
         c = State()
@@ -124,26 +125,31 @@ class State(object):
         self.pending = other.pending.copy()
         self.stack_frames = other.stack_frames.copy()
 
+    #In case of join on recursion state, other is the state of the greater recursion depth, self is the state of lesser recursion depth
     def join(self, other):
         if other.is_bottom:
             return
         if self.is_bottom:
             self.assign(other)
             return
-        assert(self.lref == other.lref)
-        assert(self.gref == other.gref)
-        assert(self.stack_frames == other.stack_frames)
+
+        assert self.gref == other.gref
+
+        #handle recursion
+        if self.lref != other.lref or self.stack_frames != other.stack_frames:
+            assert len(self.stack_frames) < len(other.stack_frames)
+            assert self.lref < other.lref
+            assert(self.lref in other.stack_frames)
+            lref_idx = other.stack_frames.index(self.lref)
+            assert(self.stack_frames == other.stack_frames[0:lref_idx])
+            State.dict_join(self.objs[self.lref].properties, other.objs[other.lref].properties)
 
         self.pending.intersection_update(other.pending)
-
 
         bye = []
         for k in self.objs:
             if k in other.objs:
-                if isinstance(self.objs[k],dict):
-                    State.dict_join(self.objs[k], other.objs[k])
-                else:
-                    State.dict_join(self.objs[k].properties, other.objs[k].properties)
+                State.dict_join(self.objs[k].properties, other.objs[k].properties)
             else:
                 bye.append(k)
         for b in bye:
@@ -165,7 +171,7 @@ class State(object):
     def __str__(self):
         if self.is_bottom:
             return "Bottom";
-        return("gref=" + str(self.gref) + ", lref=" + str(self.lref) +", objs=" + str(self.objs) + ", pending="+ str(self.pending))
+        return("frames=" + str(self.stack_frames) + " gref=" + str(self.gref) + ", lref=" + str(self.lref) +", objs=" + str(self.objs) + ", pending="+ str(self.pending))
 
     def __repr__(self):
         return self.__str__()
@@ -231,6 +237,7 @@ class JSSpecial(JSValue):
 
 JSUndefNaN = JSSpecial("Undef/NaN") #represents NaN or undefined
 JSTop = JSSpecial("Top")
+JSBot = JSSpecial("Bot")
 
 # Represents an object or array
 class JSObject(JSValue):

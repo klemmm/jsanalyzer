@@ -1,4 +1,4 @@
-from abstract import State, JSObject, JSUndefNaN, JSTop, JSRef, JSPrimitive, JSValue
+from abstract import State, JSObject, JSUndefNaN, JSTop, JSBot, JSRef, JSPrimitive, JSValue
 
 from debug import debug
 
@@ -153,7 +153,8 @@ class Interpreter(object):
             #Leave callee context
             self.return_value = saved_return
             self.return_state = saved_rstate
-            state.lref = state.stack_frames.pop()
+            if not state.is_bottom:
+                state.lref = state.stack_frames.pop()
             self.stack_trace.pop()
             self.pure = saved_pure and self.pure
 
@@ -166,6 +167,8 @@ class Interpreter(object):
        
     #Evaluate expression and annotate AST in case of statically known value. Return abstract value.
     def eval_expr(self, state, expr):
+        if state.is_bottom:
+            return JSBot
         result = self.eval_expr_aux(state, expr)
         if result is not JSTop:
             expr.static_value = State.value_join(expr.static_value, result)
@@ -279,6 +282,8 @@ class Interpreter(object):
             #In any case, we start by computing the (source) rvalue. 
             #Even if it is JSTop, we cannot return right away, because we might need to delete dict entries
             abs_rvalue = self.eval_expr(state, expr.right)
+            if state.is_bottom:
+                return JSBot
             state.consume_expr(abs_rvalue, consumed_refs)
 
             #Next try to find the dict holding the identifier or property that is being written to, and the property/identifier name
@@ -406,7 +411,25 @@ class Interpreter(object):
             if isinstance(callee_ref, JSRef):
                 callee = state.objs[callee_ref.target()]
 
+            if expr.active is None:
+                expr.active = 0
+            if expr.active > config.max_recursion:
+                if expr.recursion_state is None:
+                    print("[warning] Loop unrolling stopped at depth=", expr.active)
+                    expr.recursion_state = State(glob=False, bottom=True)
+                new_recursion_state = expr.recursion_state.clone()
+                new_recursion_state.join(state)
+                if new_recursion_state == expr.recursion_state:
+                    print("Recursion state stabilized at depth=", expr.active)
+                    state.pending.difference_update(consumed_refs)
+                    state.set_to_bottom()
+                    expr.recursion_state = None
+                    return JSBot
+                expr.recursion_state = new_recursion_state.clone()
+                state.assign(new_recursion_state)
+            expr.active += 1
             ret =  self.eval_func_call(state, callee, expr, this, consumed_refs)
+            expr.active -= 1
             state.consume_expr(ret, consumed_refs)
 
             state.pending.difference_update(consumed_refs)
@@ -444,6 +467,7 @@ class Interpreter(object):
         state.consume_expr(discarded)
 
     def do_while(self, state, test, body):
+        state_is_bottom = False
         consumed_refs = set()
         prev_state = None
         i = 0
@@ -457,6 +481,8 @@ class Interpreter(object):
             self.loopcont_state = State.bottom()
             i = i + 1
             abs_test_result = self.eval_expr(state, test)
+            if state.is_bottom:
+                break
             state.consume_expr(abs_test_result, consumed_refs)
             self.bring_out_your_dead(state)
             if config.max_iter is not None and i > config.max_iter:
@@ -596,7 +622,9 @@ class Interpreter(object):
         if argument is None:
             arg_val = JSUndefNaN
         else:
-            arg_val = self.eval_expr(state, argument) #TODO reflechir a quoi faire pour le pending ici
+            arg_val = self.eval_expr(state, argument) 
+            if state.is_bottom:
+                return
         if self.return_value is None:
             self.return_value = arg_val.clone()
         elif not (type(self.return_value) == type(arg_val) and self.return_value == arg_val):
@@ -665,7 +693,6 @@ class Interpreter(object):
 
         Stats.steps += 1
 
-        debug("Current callstack: ", state.stack_frames)
         debug("Current state: ", state)
 
         line1 = self.offset2line(statement.range[0])
@@ -767,8 +794,6 @@ class Interpreter(object):
         except:
             if self.last is not None:
                 print("\n=== ERROR DURING ABSTRACT INTERPRETATION ===")
-                print("\nStack frames ID: ")
-                print(state.stack_frames)
                 print("\nWith abstract state: ")
                 print(state)
                 print("\nAt analyzed program statement: ")

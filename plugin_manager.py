@@ -1,6 +1,8 @@
 import abstract
 import config
 
+
+JSBot = abstract.JSBot
 JSTop = abstract.JSTop
 JSUndefNaN = abstract.JSUndefNaN
 JSPrimitive = abstract.JSPrimitive
