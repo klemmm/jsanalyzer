@@ -20,7 +20,6 @@ class Interpreter(object):
         self.funcs = []
         self.data = data
         self.lines  = []
-        self.stack_frames = []
         self.stack_trace = []
         self.last = None
         i = 0
@@ -126,7 +125,7 @@ class Interpreter(object):
 
             self.return_value = None
             self.return_state = State.bottom()
-            self.stack_frames.append(state.lref)
+            state.stack_frames.append(state.lref)
             self.stack_trace.append(self.last)
             state.lref = State.new_id()
             state.objs[state.lref] = JSObject({})
@@ -154,7 +153,7 @@ class Interpreter(object):
             #Leave callee context
             self.return_value = saved_return
             self.return_state = saved_rstate
-            state.lref = self.stack_frames.pop()
+            state.lref = state.stack_frames.pop()
             self.stack_trace.pop()
             self.pure = saved_pure and self.pure
 
@@ -636,7 +635,7 @@ class Interpreter(object):
         visit(state.gref) #global context gc root
 
         #callstack local contexts gc root
-        for ref in self.stack_frames:
+        for ref in state.stack_frames:
             if ref is None:
                 raise ValueError
             visit(ref)
@@ -666,7 +665,7 @@ class Interpreter(object):
 
         Stats.steps += 1
 
-        debug("Current callstack: ", self.stack_frames)
+        debug("Current callstack: ", state.stack_frames)
         debug("Current state: ", state)
 
         line1 = self.offset2line(statement.range[0])
@@ -769,7 +768,7 @@ class Interpreter(object):
             if self.last is not None:
                 print("\n=== ERROR DURING ABSTRACT INTERPRETATION ===")
                 print("\nStack frames ID: ")
-                print(self.stack_frames)
+                print(state.stack_frames)
                 print("\nWith abstract state: ")
                 print(state)
                 print("\nAt analyzed program statement: ")

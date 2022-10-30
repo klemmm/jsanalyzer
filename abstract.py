@@ -11,10 +11,12 @@ class State(object):
             self.lref = None
             self.pending = None
             self.is_bottom = True
+            self.stack_frames = []
         else:
             self.is_bottom = False
             self.objs = {} 
             self.pending = set()
+            self.stack_frames = []
             self.gref = State.new_id()
             self.objs[self.gref] = JSObject({})
             if glob:
@@ -87,6 +89,7 @@ class State(object):
         self.gref = None
         self.lref = None
         self.is_bottom = True
+        self.stack_frames = []
 
     def clone(self):
         c = State()
@@ -95,6 +98,7 @@ class State(object):
         c.lref = self.lref
         c.gref = self.gref
         c.pending = self.pending.copy()
+        c.stack_frames = self.stack_frames.copy()
         return c 
 
     def __eq__(self, other):
@@ -108,6 +112,8 @@ class State(object):
             return False
         if self.pending != other.pending:
             return False
+        if self.stack_frames != other.stack_frames:
+            return False
         return True
 
     def assign(self, other):
@@ -116,6 +122,7 @@ class State(object):
         self.lref = other.lref
         State.dict_assign(self.objs, other.objs)
         self.pending = other.pending.copy()
+        self.stack_frames = other.stack_frames.copy()
 
     def join(self, other):
         if other.is_bottom:
@@ -125,6 +132,7 @@ class State(object):
             return
         assert(self.lref == other.lref)
         assert(self.gref == other.gref)
+        assert(self.stack_frames == other.stack_frames)
 
         self.pending.intersection_update(other.pending)
 
