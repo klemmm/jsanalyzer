@@ -1,8 +1,18 @@
 import re
 import config
 
-from plugin_manager import register_preexisting_object, register_unary_handler, register_binary_handler, register_global_symbol, register_method_hook, JSTop, JSUndefNaN, JSPrimitive, JSObject, JSRef, to_bool
+from plugin_manager import register_preexisting_object, register_update_handler, register_unary_handler, register_binary_handler, register_global_symbol, register_method_hook, JSTop, JSUndefNaN, JSPrimitive, JSObject, JSRef, to_bool
 
+def update_handler(opname, abs_arg):
+    if isinstance(abs_arg, JSPrimitive) and type(abs_arg.val) is int:
+        if opname == "++":
+            return JSPrimitive(abs_arg.val + 1)
+        elif opname == "--":
+            return JSPrimitive(abs_arg.val - 1)
+    else:
+        return JSTop
+
+register_update_handler(update_handler)
 
 def unary_handler(opname, abs_arg):
     if abs_arg is JSUndefNaN:

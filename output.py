@@ -191,7 +191,7 @@ class Output(object):
 
         elif expr.type == "UpdateExpression":
             self.out("(", end="")
-            self.do_expr(expr.argument)
+            self.do_expr(expr.argument, simplify=False)
             self.out(")" + expr.operator, end="")
 
         else:

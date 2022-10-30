@@ -180,6 +180,33 @@ class Interpreter(object):
                 state.pending.add(result.this())
                 #print("PEND: (this) add: ", result.this())
         return result
+            
+    def do_assignment(self, state, lvalue_expr, abs_rvalue, consumed_refs=None):
+        #try to find the dict holding the identifier or property that is being written to, and the property/identifier name
+        if lvalue_expr.type == "Identifier":
+            #Identifier type: the simple case.
+            target = state.scope_lookup(lvalue_expr.name)
+            prop = lvalue_expr.name
+            if target is not state.objs[state.lref].properties:
+                self.pure = False
+
+        elif lvalue_expr.type == "MemberExpression": #member as lvalue
+            self.pure = False
+            #Member expression: identify target object (dict), and property name (string)
+            r = self.use_member(state, lvalue_expr, consumed_refs)
+            if r is None:
+                return
+            target = r[0].properties
+            prop = r[1]
+            target_id = r[2]
+        else:
+            raise ValueError("Invalid assignment left type")
+
+        #Delete old value (if any)
+        old = target.pop(prop, None)
+
+        if abs_rvalue is not JSTop:
+            target[prop] = abs_rvalue
 
     #Helper function to decompose member expression into object (dict) and property (string). Returns None if not found.
     def use_member(self, state, expr, consumed_refs=None):
@@ -226,8 +253,24 @@ class Interpreter(object):
                 return JSTop #untracked identifier
 
         elif expr.type == "UpdateExpression":
-            print("UpdateExpression")
-            return JSTop #TODO
+            return JSTop
+            consumed_refs = set()
+            argument = self.eval_expr(state, expr.argument)
+            state.consume_expr(argument, consumed_refs)
+            result = plugin_manager.handle_update_operation(expr.operator, argument)
+            print(result)
+            state.consume_expr(result, consumed_refs)
+
+            self.do_assignment(state, expr.argument, result, consumed_refs)
+            state.pending.difference_update(consumed_refs)
+            
+            if expr.prefix:
+                return result
+            else:
+                if result is JSTop:
+                    return JSTop
+                else:
+                    return argument
 
         elif expr.type == "NewExpression":
             consumed_refs = set()
@@ -273,47 +316,16 @@ class Interpreter(object):
             return r
 
         elif expr.type == "ThisExpression":
+            print("ThisExpression")
             return JSTop
 
         elif expr.type == "AssignmentExpression":
             consumed_refs = set()
-            #Assignment can be either to an identifier (simple variable) or member expression (object.field or object[field])
-            #In case of member expression, the field can be computed (blah[i + i]) or not (blah.toto)
-
-            #In any case, we start by computing the (source) rvalue. 
-            #Even if it is JSTop, we cannot return right away, because we might need to delete dict entries
             abs_rvalue = self.eval_expr(state, expr.right)
             if state.is_bottom:
                 return JSBot
             state.consume_expr(abs_rvalue, consumed_refs)
-
-            #Next try to find the dict holding the identifier or property that is being written to, and the property/identifier name
-            if expr.left.type == "Identifier":
-                #Identifier type: the simple case.
-                target = state.scope_lookup(expr.left.name)
-                prop = expr.left.name
-                if target is not state.objs[state.lref].properties:
-                    self.pure = False
-
-            elif expr.left.type == "MemberExpression": #member as lvalue
-                self.pure = False
-                #Member expression: identify target object (dict), and property name (string)
-                r = self.use_member(state, expr.left, consumed_refs)
-                if r is None:
-                    state.pending.difference_update(consumed_refs)
-                    return JSTop
-                target = r[0].properties
-                prop = r[1]
-                target_id = r[2]
-
-            else:
-                raise ValueError("Invalid assignment left type")
-
-            #Delete old value (if any), and decrease reference counter if needed
-            old = target.pop(prop, None)
-
-            if abs_rvalue is not JSTop:
-                target[prop] = abs_rvalue
+            self.do_assignment(state, expr.left, abs_rvalue, consumed_refs)
             state.pending.difference_update(consumed_refs)
             return abs_rvalue
 

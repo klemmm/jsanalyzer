@@ -11,6 +11,7 @@ JSRef = abstract.JSRef
 
 ref_id = 1 # id 0 is reserved for global scope
 binary_handlers = []
+update_handlers = []
 unary_handlers = []
 global_symbols = []
 preexisting_objects = []
@@ -41,6 +42,14 @@ def handle_binary_operation(opname, arg1, arg2):
             break
     return r
 
+def handle_update_operation(opname, arg):
+    r = JSTop
+    for f in update_handlers:
+        r = f(opname, arg)
+        if r is not JSTop:
+            break
+    return r
+
 def handle_unary_operation(opname, arg):
     r = JSTop
     for f in unary_handlers:
@@ -54,6 +63,9 @@ def register_preexisting_object(obj):
     preexisting_objects.append((ref_id, obj))
     ref_id = ref_id + 1
     return ref_id - 1
+
+def register_update_handler(h):
+    update_handlers.append(h)
 
 def register_binary_handler(h):
     binary_handlers.append(h)
