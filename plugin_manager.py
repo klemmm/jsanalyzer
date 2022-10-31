@@ -35,26 +35,26 @@ def to_bool(v):
     else:
         raise ValueError("truth_value: unhandled abstract type" + str(type(v)) + "(value: " + str(v) + ")")
 
-def handle_binary_operation(opname, arg1, arg2):
+def handle_binary_operation(opname, state, arg1, arg2):
     r = JSTop
     for f in binary_handlers:
-        r = f(opname, arg1, arg2)
+        r = f(opname, state, arg1, arg2)
         if r is not JSTop:
             break
     return r
 
-def handle_update_operation(opname, arg):
+def handle_update_operation(opname, state, arg):
     r = JSTop
     for f in update_handlers:
-        r = f(opname, arg)
+        r = f(opname, state, arg)
         if r is not JSTop:
             break
     return r
 
-def handle_unary_operation(opname, arg):
+def handle_unary_operation(opname, state, arg):
     r = JSTop
     for f in unary_handlers:
-        r = f(opname, arg)
+        r = f(opname, state, arg)
         if r is not JSTop:
             break
     return r

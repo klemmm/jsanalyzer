@@ -3,7 +3,7 @@ import config
 
 from plugin_manager import register_preexisting_object, register_update_handler, register_unary_handler, register_binary_handler, register_global_symbol, register_method_hook, JSTop, JSUndefNaN, JSPrimitive, JSObject, JSRef, to_bool, State
 
-def update_handler(opname, abs_arg):
+def update_handler(opname, state, abs_arg):
     if isinstance(abs_arg, JSPrimitive) and type(abs_arg.val) is int:
         if opname == "++":
             return JSPrimitive(abs_arg.val + 1)
@@ -14,28 +14,52 @@ def update_handler(opname, abs_arg):
 
 register_update_handler(update_handler)
 
-def unary_handler(opname, abs_arg):
-    if abs_arg is JSUndefNaN:
-        return JSUndefNaN
+def unary_handler(opname, state, abs_arg):
+    if abs_arg is JSTop:
+        return JSTop
 
-    if opname == '!' and abs_arg is not JSTop:
+    if opname == "!":
         return JSPrimitive(not to_bool(abs_arg))
-
-    if isinstance(abs_arg, JSPrimitive):
-        arg = abs_arg.val
-
-        if opname == '-':
-            return JSPrimitive(-arg)
+    elif opname == "-":
+        if isinstance(abs_arg, JSPrimitive):
+            if type(abs_arg.val) is int or type(abs_arg.val) is float:
+                return JSPrimitive(-abs_arg.val)
+            else:
+                return JSUndefNaN
+        elif abs_arg is JSUndefNaN:
+            return JSUndefNaN
         else:
             return JSTop
-    return JSTop
+    elif opname == "typeof":
+        if abs_arg is JSUndefNaN:
+            return JSPrimitive("undefined") #TODO
+        elif isinstance(abs_arg, JSPrimitive):
+            if type(abs_arg.val) is str:
+                return JSPrimitive("string")
+            elif type(abs_arg.val) is int:
+                return JSPrimitive("number")
+            else:
+                return JSTop
+        elif isinstance(abs_arg, JSRef):
+            target = state.objs[abs_arg.target()]
+            if target.is_function() or target.is_simfct():
+                return JSPrimitive("function")
+            return JSPrimitive("object")
+    else:
+        return JSTop
 
 register_unary_handler(unary_handler)
 
-def binary_handler(opname, abs_arg1, abs_arg2):
-    if type(abs_arg1) != type(abs_arg2) and opname == "===":
-        return JSPrimitive(False)
-    if abs_arg1 is JSUndefNaN or abs_arg2 is JSUndefNaN:
+def binary_handler(opname, state, abs_arg1, abs_arg2):
+    if abs_arg1 is JSTop or abs_arg2 is JSTop:
+        return JSTop
+
+    if opname == "===":
+        if type(abs_arg1) != type(abs_arg2):
+            return JSPrimitive(False)
+        return JSPrimitive(abs_arg1 == abs_arg2) #TODO actually incorrect if test is undefined === NaN
+    
+    if abs_arg1 is JSUndefNaN or abs_arg2 is JSUndefNaN: #TODO incorrect if test is undefined == undefined
         return JSUndefNaN
     
     if isinstance(abs_arg1, JSPrimitive) and isinstance(abs_arg2, JSPrimitive):
@@ -80,8 +104,6 @@ def binary_handler(opname, abs_arg1, abs_arg2):
         elif opname == "<=":
             r = arg1 <= arg2
         elif opname == "==":
-            r = arg1 == arg2
-        elif opname == "===":
             r = arg1 == arg2
         else:
             return JSTop

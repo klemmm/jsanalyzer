@@ -134,7 +134,9 @@ class State(object):
             return
 
         assert self.gref == other.gref
-
+        if 15 in self.objs and 15 in other.objs and (len(self.objs[15].properties) == 0 != len(other.objs[15].properties) == 0):
+            print("ca merde ici")
+        
         #handle recursion
         if self.lref != other.lref or self.stack_frames != other.stack_frames:
             assert len(self.stack_frames) < len(other.stack_frames)

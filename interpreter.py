@@ -159,7 +159,7 @@ class Interpreter(object):
             self.return_state = saved_rstate
             if not state.is_bottom:
                 state.lref = state.stack_frames.pop()
-            self.stack_trace.pop()
+            self.last = self.stack_trace.pop()
             self.pure = saved_pure and self.pure
 
             if return_value is None:
@@ -174,8 +174,8 @@ class Interpreter(object):
         if state.is_bottom:
             return JSBot
         result = self.eval_expr_aux(state, expr)
+        expr.static_value = State.value_join(expr.static_value, result)
         if result is not JSTop:
-            expr.static_value = State.value_join(expr.static_value, result)
             Stats.computed_values += 1
         if isinstance(result, JSRef):
             state.pending.add(result.target())
@@ -252,6 +252,8 @@ class Interpreter(object):
             return JSPrimitive(expr.value)
 
         elif expr.type == "Identifier":
+            if expr.name == "undefined":
+                return JSUndefNaN
             scope = state.scope_lookup(expr.name)
             if expr.name in scope:
                 return scope[expr.name]
@@ -259,12 +261,10 @@ class Interpreter(object):
                 return JSTop #untracked identifier
 
         elif expr.type == "UpdateExpression":
-            return JSTop
             consumed_refs = set()
             argument = self.eval_expr(state, expr.argument)
             state.consume_expr(argument, consumed_refs)
-            result = plugin_manager.handle_update_operation(expr.operator, argument)
-            print(result)
+            result = plugin_manager.handle_update_operation(expr.operator, state, argument)
             state.consume_expr(result, consumed_refs)
 
             self.do_assignment(state, expr.argument, result, consumed_refs)
@@ -409,7 +409,7 @@ class Interpreter(object):
             consumed_refs = set()
             argument = self.eval_expr(state, expr.argument)
             state.consume_expr(argument, consumed_refs)
-            result = plugin_manager.handle_unary_operation(expr.operator, argument)
+            result = plugin_manager.handle_unary_operation(expr.operator, state, argument)
             state.consume_expr(result, consumed_refs)
             state.pending.difference_update(consumed_refs)
             return result
@@ -421,7 +421,7 @@ class Interpreter(object):
             state.consume_expr(left, consumed_refs)
             right = self.eval_expr(state, expr.right)
             state.consume_expr(right, consumed_refs)
-            result = plugin_manager.handle_binary_operation(expr.operator, left, right)
+            result = plugin_manager.handle_binary_operation(expr.operator, state, left, right)
             state.pending.difference_update(consumed_refs)
             return result
 
@@ -577,6 +577,8 @@ class Interpreter(object):
 
 
         state.join(self.loopexit_state)
+        if 15 in saved_loopexit.objs:
+            print("saved:" , len(saved_loopexit.objs[15].properties))
         self.loopexit_state = saved_loopexit
         state.pending.difference_update(consumed_refs)
 
@@ -589,7 +591,7 @@ class Interpreter(object):
         for case in cases:
             abs_test = self.eval_expr(state, case.test)
             state.consume_expr(abs_test, consumed_refs)
-            if isinstance(abs_test, JSPrimitive) and isinstance(abs_discr, JSPrimitive) and abs_test.val != abs_discr.val:
+            if (abs_test is not JSTop) and (abs_discr is not JSTop) and ((type(abs_test) != type(abs_discr)) or (abs_test != abs_discr)):
                 continue #No
             elif isinstance(abs_test, JSPrimitive) and isinstance(abs_discr, JSPrimitive) and abs_test.val == abs_discr.val:
                 has_true = True
