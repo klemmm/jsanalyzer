@@ -174,9 +174,9 @@ class Interpreter(object):
         if state.is_bottom:
             return JSBot
         result = self.eval_expr_aux(state, expr)
-        expr.static_value = State.value_join(expr.static_value, result)
         if result is not JSTop:
             Stats.computed_values += 1
+            expr.static_value = State.value_join(expr.static_value, result)
         if isinstance(result, JSRef):
             state.pending.add(result.target())
             #print("PEND: (target) add: ", result.target())

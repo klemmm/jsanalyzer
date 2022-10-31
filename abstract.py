@@ -311,7 +311,7 @@ class JSObject(JSValue):
             r = h(name)
             if r is not JSTop:
                 return r
-        return self.properties.get(name, JSUndefNaN) #TODO should be JSTop here (workaround until array bounds are handled)
+        return self.properties.get(name, JSUndefNaN)
 
 # Represents a reference to an object or array
 class JSRef(JSValue):
