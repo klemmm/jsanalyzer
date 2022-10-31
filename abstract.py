@@ -181,14 +181,14 @@ class State(object):
             if isinstance(expr, JSRef):
                 self.pending.discard(expr.target())
                 #print("PEND discard: ", expr.target())
-                if expr.is_bound():
+                if expr.is_bound() and type(expr.this()) is int:
                     self.pending.discard(expr.this())
                     #print("PEND discard: ", expr.this())
         else:
             if isinstance(expr, JSRef):
                 consumed_refs.add(expr.target())
                 #print("PEND consume: ", expr.target())
-                if expr.is_bound():
+                if expr.is_bound() and type(expr.this()) is int:
                     consumed_refs.add(expr.this())
                     #print("PEND consume: ", expr.this())
 
@@ -215,7 +215,7 @@ class JSPrimitive(JSValue):
     def __eq__(self, other):
         return self.val == other.val
     def __str__(self):
-        return str(self.val)
+        return repr(self.val)
     def __repr__(self):
         return self.__str__()
     def clone(self):
@@ -315,7 +315,7 @@ class JSObject(JSValue):
 class JSRef(JSValue):
     def __init__(self, ref_id):
         self.ref_id = ref_id
-        self.this_id = None
+        self._this = None
     def __str__(self):
         return "<ref: " + str(self.ref_id) + ">"
     def __repr__(self):
@@ -328,9 +328,9 @@ class JSRef(JSValue):
         c = JSRef(self.ref_id)
         return c
     def is_bound(self):
-        return self.this_id is not None
-    def bind(self, this_id):
-        self.this_id = this_id
+        return self._this is not None
+    def bind(self, this):
+        self._this = this
     def this(self):
-        return self.this_id
+        return self._this
 

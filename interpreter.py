@@ -70,7 +70,7 @@ class Interpreter(object):
     #state (mutable): takes abstract state used to perform the evaluation
     #callee (callable JSObject, or JSTop): represent callee object
     #expr (AST node, or None): represent arguments, if any
-    def eval_func_call(self, state, callee, expr, this_id=None, consumed_refs=None):
+    def eval_func_call(self, state, callee, expr, this=None, consumed_refs=None):
         if expr is None:
             arguments = []
         else:
@@ -94,10 +94,14 @@ class Interpreter(object):
             self.pure = False #TODO implement a way for plugins to tell the interpreter that a python function is pure.
 
             #TODO for now, only simfct can be bound
-            if this_id:
-                return callee.simfct(state.objs[this_id], *args_val) #call bound simfct
+            if this:
+                if type(this) is int: #bound to object
+                    return callee.simfct(state, state.objs[this], *args_val) #call bound simfct
+                else: #bound to string
+                    assert(isinstance(this, JSPrimitive) and type(this.val) is str)
+                    return callee.simfct(state, this, *args_val) #call bound simfct
             else:
-                return callee.simfct(*args_val) #call unbound simfct
+                return callee.simfct(state, *args_val) #call unbound simfct
 
         #Handle the case where callee is a non-simfct function
         if callee.is_function():
@@ -176,7 +180,7 @@ class Interpreter(object):
         if isinstance(result, JSRef):
             state.pending.add(result.target())
             #print("PEND: (target) add: ", result.target())
-            if result.is_bound():
+            if result.is_bound() and type(result.this()) is int:
                 state.pending.add(result.this())
                 #print("PEND: (this) add: ", result.this())
         return result
@@ -198,7 +202,6 @@ class Interpreter(object):
                 return
             target = r[0].properties
             prop = r[1]
-            target_id = r[2]
         else:
             raise ValueError("Invalid assignment left type")
 
@@ -211,14 +214,14 @@ class Interpreter(object):
     #Helper function to decompose member expression into object (dict) and property (string). Returns None if not found.
     def use_member(self, state, expr, consumed_refs=None):
         #Member expression type: first, try to find referenced object
-        abs_ref = self.eval_expr(state, expr.object)
-        state.consume_expr(abs_ref, consumed_refs)
+        abs_target = self.eval_expr(state, expr.object)
+        state.consume_expr(abs_target, consumed_refs)
 
         #If we cannot locate the referenced object, we will return JSTop later (but still evaluate computed property, if needed)
-        has_ref_obj = isinstance(abs_ref, JSRef)
-
-        if has_ref_obj:
-            target = state.objs[abs_ref.target()]
+        if isinstance(abs_target, JSRef):
+            target = state.objs[abs_target.target()]
+        elif isinstance(abs_target, JSPrimitive):
+            target = abs_target
 
         #Now, try to find the property name, it can be directly given, or computed.
         if expr.computed:
@@ -234,9 +237,12 @@ class Interpreter(object):
         else:
             #Property name is directly given (i.e. foo.bar)
             prop = expr.property.name
-        if not has_ref_obj:
+        if isinstance(abs_target, JSRef):
+            return target, prop, abs_target.target()
+        elif isinstance(abs_target, JSPrimitive):
+            return target, prop, None
+        else:
             return None
-        return target, prop, abs_ref.target()
 
     #Takes state, expression, and returns a JSValue
     def eval_expr_aux(self, state, expr):
@@ -366,16 +372,38 @@ class Interpreter(object):
             return JSRef(obj_id)
 
         elif expr.type == "MemberExpression":
-            r = self.use_member(state, expr)
+            consumed_refs = set()
+            r = self.use_member(state, expr, consumed_refs)
             if r is None:
+                state.pending.difference_update(consumed_refs)
                 return JSTop
             target, prop, target_id = r
-            member = target.member(prop)
-            if isinstance(member, JSRef) and not member.is_bound():
-                bound_member = member.clone()
-                bound_member.bind(target_id)
-                return bound_member
-            return member
+            if isinstance(target, JSObject):
+                member = target.member(prop)
+                if isinstance(member, JSRef) and not member.is_bound():
+                    bound_member = member.clone()
+                    bound_member.bind(target_id)
+                    state.pending.difference_update(consumed_refs)
+                    return bound_member
+                else:
+                    state.pending.difference_update(consumed_refs)
+                    return member
+            elif isinstance(target, JSPrimitive) and type(target.val) is str:
+                fct = JSTop
+                for h in JSObject.hooks:
+                    fct = h(prop)
+                    if fct is not JSTop:
+                        fct = fct.clone()
+                        fct.bind(target)
+                        break
+                if fct is JSTop:
+                    state.pending.difference_update(consumed_refs)
+                    return JSTop
+                state.pending.difference_update(consumed_refs)
+                return fct
+            else:
+                state.pending.difference_update(consumed_refs)
+                return JSTop
 
         elif expr.type == "UnaryExpression": #Unary expression computation delegated to plugins
             consumed_refs = set()

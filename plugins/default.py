@@ -1,7 +1,7 @@
 import re
 import config
 
-from plugin_manager import register_preexisting_object, register_update_handler, register_unary_handler, register_binary_handler, register_global_symbol, register_method_hook, JSTop, JSUndefNaN, JSPrimitive, JSObject, JSRef, to_bool
+from plugin_manager import register_preexisting_object, register_update_handler, register_unary_handler, register_binary_handler, register_global_symbol, register_method_hook, JSTop, JSUndefNaN, JSPrimitive, JSObject, JSRef, to_bool, State
 
 def update_handler(opname, abs_arg):
     if isinstance(abs_arg, JSPrimitive) and type(abs_arg.val) is int:
@@ -91,16 +91,27 @@ def binary_handler(opname, abs_arg1, abs_arg2):
 
 register_binary_handler(binary_handler)
 
-def console_log(this, *args):
+def console_log(state, this, *args):
     if config.console_enable:
-        print("console log:", list(args))
+        print("console log:")
+        i = 0
+        for a in args:
+            print("Arg", i, "type:", type(a), "value:", a, end="")
+            if isinstance(a, JSRef):
+                print(" target:", state.objs[a.target()])
+            elif isinstance(a, JSPrimitive):
+                print(" concrete type:", type(a.val))
+            else:
+                print("")
+            i += 1
+        print("")
     return JSUndefNaN
 
 console_log_ref = register_preexisting_object(JSObject.simfct(console_log));
 console_ref = register_preexisting_object(JSObject({"log": JSRef(console_log_ref)}))
 register_global_symbol('console', JSRef(console_ref))
 
-def parse_int(s):
+def parse_int(state, s):
     if s is JSUndefNaN:
         return JSUndefNaN
     if isinstance(s, JSPrimitive) and type(s.val) is str:
@@ -122,7 +133,7 @@ def analyzer_assert(b):
 analyzer_assert = register_preexisting_object(JSObject.simfct(analyzer_assert));
 register_global_symbol('analyzer_assert', JSRef(analyzer_assert))
     
-def array_pop(arr):
+def array_pop(state, arr):
     #FIXME array object should track its abstract size
     indexes = sorted([i for i in arr.properties if type(i) is int])
     if len(indexes) == 0:
@@ -131,7 +142,7 @@ def array_pop(arr):
     del arr.properties[indexes[-1]]
     return retval
 
-def array_push(arr, value):
+def array_push(state, arr, value):
     #FIXME array object should track its abstract size
     indexes = sorted([i for i in arr.properties if type(i) is int])
     if len(indexes) == 0:
@@ -140,7 +151,7 @@ def array_push(arr, value):
     arr.properties[indexes[-1] + 1] = value
     return retval
 
-def array_shift(arr):
+def array_shift(state, arr):
     #FIXME array object should track its abstract size
     indexes = sorted([i for i in arr.properties if type(i) is int])
     if len(indexes) == 0:
@@ -171,4 +182,19 @@ def array_hook(name):
     else:
         return JSTop
 
+def string_split(state, string, separator):
+    if isinstance(string, JSPrimitive) and isinstance(separator, JSPrimitive) and type(string.val) is str and type(separator.val) is str:
+        result = string.val.split(separator.val)
+        obj_id = State.new_id()
+        state.objs[obj_id] = JSObject(dict(enumerate([JSPrimitive(r) for r in result])))
+        return JSRef(obj_id)
+    return JSTop
+
+string_split_ref = register_preexisting_object(JSObject.simfct(string_split))
+def string_hook(name):
+    if name == "split":
+        return JSRef(string_split_ref)
+    return JSTop
+
 register_method_hook(array_hook)
+register_method_hook(string_hook)
