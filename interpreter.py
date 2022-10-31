@@ -291,24 +291,23 @@ class Interpreter(object):
             abs_test_result = self.eval_expr(state, expr.test)
             state.consume_expr(abs_test_result, consumed_refs)
 
+            state_then = state
+            state_else = state.clone()
+            expr_then = self.eval_expr(state_then, expr.consequent)
+            state.consume_expr(expr_then, consumed_refs)
+            expr_else = self.eval_expr(state_else, expr.alternate)
+            state.consume_expr(expr_else, consumed_refs)
+
             if abs_test_result is JSTop:
-                state_then = state
-                state_else = state.clone()
-                expr_then = self.eval_expr(state_then, expr.consequent)
-                state.consume_expr(expr_then, consumed_refs)
-                expr_else = self.eval_expr(state_else, expr.alternate)
-                state.consume_expr(expr_else, consumed_refs)
                 state_then.join(state_else)
                 if State.value_equal(expr_then, expr_else):
                     result = expr_then
                 else:
                     result = JSTop
             elif plugin_manager.to_bool(abs_test_result):
-                result = self.eval_expr(state, expr.consequent)
-                state.consume_expr(result, consumed_refs)
+                result = expr_then
             else:
-                result = self.eval_expr(state, expr.alternate)
-                state.consume_expr(result, consumed_refs)
+                result = expr_else
 
             state.pending.difference_update(consumed_refs)
             return result
