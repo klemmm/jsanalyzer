@@ -225,10 +225,41 @@ def string_split(state, string, separator):
         return JSRef(obj_id)
     return JSTop
 
+def interpret_as_number(state, value):
+    if isinstance(value, JSPrimitive):
+        if type(value.val) is int:
+            return value.val
+        elif type(value.val) is str:
+            try:
+                return int(value.val)
+            except ValueError:
+                return 0
+    elif isinstance(value, JSRef):
+        obj = state.objs[value.target()]
+        if len(obj.properties) == 1 and 0 in obj.properties:
+            return interpret_as_number(state, obj.properties[0])
+        else:
+            return 0
+    else:
+        raise ValueError("interpret_as_number: invalid value" + str(value))
+
+def string_charcodeat(state, string, position):
+    if not (isinstance(string, JSPrimitive) and type(string.val) is str):
+        return JSTop
+    if position is JSTop:
+        return JSTop
+    pos = interpret_as_number(state, position)
+    if pos < 0 or pos >= len(string.val):
+        return JSUndefNaN
+    return JSPrimitive(ord(string.val[pos]))
+
 string_split_ref = register_preexisting_object(JSObject.simfct(string_split))
+string_charcodeat_ref = register_preexisting_object(JSObject.simfct(string_charcodeat))
 def string_hook(name):
     if name == "split":
         return JSRef(string_split_ref)
+    if name == "charCodeAt":
+        return JSRef(string_charcodeat_ref)
     return JSTop
 
 def function_tostring(state, function):
