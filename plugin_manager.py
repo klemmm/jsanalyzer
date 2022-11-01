@@ -17,6 +17,13 @@ unary_handlers = []
 global_symbols = []
 preexisting_objects = []
 
+
+class Data(object):
+    source = "" 
+
+def set_source(_source):
+    Data.source = _source
+
 def to_bool(v):
     if v is JSUndefNaN:
         return False

@@ -311,7 +311,10 @@ class JSObject(JSValue):
             r = h(name)
             if r is not JSTop:
                 return r
-        return self.properties.get(name, JSUndefNaN)
+        r = self.properties.get(name, JSUndefNaN)
+        if r is JSUndefNaN:
+            print("Member not found:", name)
+        return r
 
 # Represents a reference to an object or array
 class JSRef(JSValue):

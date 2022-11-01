@@ -19,6 +19,7 @@ class Interpreter(object):
         self.ast = ast
         self.funcs = []
         self.data = data
+        plugin_manager.set_source(data)
         self.lines  = []
         self.stack_trace = []
         self.last = None
@@ -230,10 +231,12 @@ class Interpreter(object):
             state.consume_expr(abs_property, consumed_refs)
             if abs_property is JSTop:
                 return None
+            if abs_property is JSUndefNaN:
+                return None
             elif isinstance(abs_property, JSPrimitive):
                 prop = abs_property.val
             else:
-                raise ValueError("Invalid property type")
+                raise ValueError("Invalid property type: " + str(type(abs_property)))
         else:
             #Property name is directly given (i.e. foo.bar)
             prop = expr.property.name
@@ -284,6 +287,7 @@ class Interpreter(object):
                 arg_val = self.eval_expr(state, argument)
                 state.consume_expr(arg_val, consumed_refs)
             state.pending.difference_update(consumed_refs)
+            print("NewExpression return JSTop")
             return JSTop
       
         elif expr.type == "ConditionalExpression":
@@ -388,6 +392,9 @@ class Interpreter(object):
                     state.pending.difference_update(consumed_refs)
                     return member
             elif isinstance(target, JSPrimitive) and type(target.val) is str:
+                if prop == "length":
+                    state.pending.difference_update(consumed_refs)
+                    return JSPrimitive(len(target.val))
                 fct = JSTop
                 for h in JSObject.hooks:
                     fct = h(prop)
@@ -396,6 +403,7 @@ class Interpreter(object):
                         fct.bind(target)
                         break
                 if fct is JSTop:
+                    print("Unknown string member: ", prop)
                     state.pending.difference_update(consumed_refs)
                     return JSTop
                 state.pending.difference_update(consumed_refs)
@@ -427,8 +435,10 @@ class Interpreter(object):
         elif expr.type == "FunctionExpression" or expr.type == "ArrowFunctionExpression":
             if state.lref == state.gref: #if global scope, no closure
                 f = JSObject.function(expr.body, expr.params)
+                f.range = expr.range
             else: #otherwise, closure referencing local scope
                 f = JSObject.closure(expr.body, expr.params, state.lref)
+                f.range = expr.range
 
             if f.body.seen is not True:
                 f.body.seen = True
@@ -647,12 +657,17 @@ class Interpreter(object):
                 self.do_statement(state, alternate)
         state.pending.difference_update(consumed_refs)
 
-    def do_fundecl(self, state, name, params, body):
+    def do_fundecl(self, state, statement):
+        name = statement.id.name
+        params = statement.params
+        body = statement.body
         scope = state.objs[state.lref].properties
         if state.lref == state.gref:
             f = JSObject.function(body, params)
+            f.range = statement.range
         else:
             f = JSObject.closure(body, params, state.lref)
+            f.range = statement.range
 
         if f.body.seen is not True:
             f.body.seen = True
@@ -780,7 +795,7 @@ class Interpreter(object):
             self.do_if(state, statement.test, statement.consequent, statement.alternate)
 
         elif statement.type == "FunctionDeclaration":
-            self.do_fundecl(state, statement.id.name, statement.params, statement.body)
+            self.do_fundecl(state, statement)
        
         elif statement.type == "ReturnStatement":
             self.do_return(state, statement.argument)

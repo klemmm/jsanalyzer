@@ -1,7 +1,7 @@
 import re
 import config
 
-from plugin_manager import register_preexisting_object, register_update_handler, register_unary_handler, register_binary_handler, register_global_symbol, register_method_hook, JSTop, JSUndefNaN, JSPrimitive, JSObject, JSRef, to_bool, State
+from plugin_manager import register_preexisting_object, register_update_handler, register_unary_handler, register_binary_handler, register_global_symbol, register_method_hook, JSTop, JSUndefNaN, JSPrimitive, JSObject, JSRef, to_bool, State, Data
 
 def update_handler(opname, state, abs_arg):
     if isinstance(abs_arg, JSPrimitive) and type(abs_arg.val) is int:
@@ -9,6 +9,9 @@ def update_handler(opname, state, abs_arg):
             return JSPrimitive(abs_arg.val + 1)
         elif opname == "--":
             return JSPrimitive(abs_arg.val - 1)
+        else:
+            print("Unknown update operation: ", opname)
+            return JSTop
     else:
         return JSTop
 
@@ -46,6 +49,7 @@ def unary_handler(opname, state, abs_arg):
                 return JSPrimitive("function")
             return JSPrimitive("object")
     else:
+        print("Unknown unary operation:", opname)
         return JSTop
 
 register_unary_handler(unary_handler)
@@ -61,7 +65,14 @@ def binary_handler(opname, state, abs_arg1, abs_arg2):
     
     if abs_arg1 is JSUndefNaN or abs_arg2 is JSUndefNaN: #TODO incorrect if test is undefined == undefined
         return JSUndefNaN
-    
+
+    if opname == "+":
+        if isinstance(abs_arg1, JSRef) and state.objs[abs_arg1.target()].is_function and isinstance(abs_arg2, JSPrimitive) and type(abs_arg2.val) is str:
+            return JSPrimitive(Data.source[state.objs[abs_arg1.target()].range[0]:state.objs[abs_arg1.target()].range[1]] + abs_arg2.val)
+        
+        if isinstance(abs_arg2, JSRef) and state.objs[abs_arg2.target()].is_function() and isinstance(abs_arg1, JSPrimitive) and type(abs_arg1.val) is str:
+            return JSPrimitive(abs_arg1.val + Data.source[state.objs[abs_arg2.target()].range[0]:state.objs[abs_arg2.target()].range[1]])
+
     if isinstance(abs_arg1, JSPrimitive) and isinstance(abs_arg2, JSPrimitive):
         arg1 = abs_arg1.val
         arg2 = abs_arg2.val
@@ -106,9 +117,11 @@ def binary_handler(opname, state, abs_arg1, abs_arg2):
         elif opname == "==":
             r = arg1 == arg2
         else:
+            print("Unknown binary operation: ", opname)
             return JSTop
         return JSPrimitive(r)
     else:
+        print("Failed to handle binary operation: ", opname)
         return JSTop
 
 register_binary_handler(binary_handler)
@@ -218,5 +231,16 @@ def string_hook(name):
         return JSRef(string_split_ref)
     return JSTop
 
+def function_tostring(state, function):
+    retval = JSPrimitive(Data.source[function.range[0]:function.range[1]])
+    return retval
+
+function_tostring_ref = register_preexisting_object(JSObject.simfct(function_tostring))
+def function_hook(name):
+    if name == "toString":
+        return JSRef(function_tostring_ref)
+    return JSTop
+
 register_method_hook(array_hook)
 register_method_hook(string_hook)
+register_method_hook(function_hook)
