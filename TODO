@@ -1,0 +1,8 @@
+- prototypes
+- faire la difference entres les fields TOP et undef/NaN dans les tableaux et objets
+- differencier tableaux et objets
+- differencier NaN et undef
+- gerer correctement le length des tableaux
+- gerer New
+- gerer les méthodes dans les objets
+
