@@ -273,7 +273,7 @@ class JSObject(JSValue):
         self.env = env #if function, this is the ID of object representing closure-captured environment, if any
         self.simfct = simfct #Simulated function, if any
     def __str__(self):
-        props = "{" + (", ".join([(str(i) + ': ' + str(self.properties[i])) for i in self.properties])) + "} "
+        props = "{" + (", ".join([(str(i) + ': ' + str(self.properties[i])) for i in sorted(self.properties)])) + "} "
         if self.simfct is not None:
             return "<simfct " + props + ">"
         elif self.env is not None:

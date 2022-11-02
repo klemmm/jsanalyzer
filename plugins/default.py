@@ -146,6 +146,19 @@ def console_log(state, this, *args):
         print("")
     return JSUndefNaN
 
+
+def string_fromcharcode(state, obj, code):
+    if code is JSTop:
+        return JSTop
+    if isinstance(code, JSPrimitive) and type(code.val) is int:
+        return JSPrimitive(chr(code.val))
+    print("warning: fromCharCode: unhandled argument: ", code)
+    return JSTop
+
+string_fromcharcode_ref = register_preexisting_object(JSObject.simfct(string_fromcharcode))
+string_ref = register_preexisting_object(JSObject({"fromCharCode": JSRef(string_fromcharcode_ref)}))
+register_global_symbol('String', JSRef(string_ref))
+
 console_log_ref = register_preexisting_object(JSObject.simfct(console_log));
 console_ref = register_preexisting_object(JSObject({"log": JSRef(console_log_ref)}))
 register_global_symbol('console', JSRef(console_ref))
@@ -309,7 +322,7 @@ register_method_hook(function_hook)
 
 def atob(state, string):
     if isinstance(string, JSPrimitive) and type(string.val) is str:
-        return JSPrimitive(base64.b64decode(string.val).decode("utf-8"))
+        return JSPrimitive(base64.b64decode(string.val).decode("latin-1"))
     return JSTop
 
 atob_ref = register_preexisting_object(JSObject.simfct(atob))
