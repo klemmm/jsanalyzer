@@ -257,13 +257,24 @@ def string_charcodeat(state, string, position):
         return JSUndefNaN
     return JSPrimitive(ord(string.val[pos]))
 
+def string_slice(state, string, begin=JSPrimitive(0), end=JSPrimitive(None)):
+    if isinstance(string, JSPrimitive) and type(string.val) is str and isinstance(begin, JSPrimitive) and type(begin.val) is int and isinstance(end, JSPrimitive) and (type(end.val) is int or end.val is None):
+        return JSPrimitive(string.val[begin.val:end.val])
+    else:
+        print("slice: unhandled argument: ", string, " begin: ", begin, "end: ", end)
+        return JSTop
+
+
 string_split_ref = register_preexisting_object(JSObject.simfct(string_split))
 string_charcodeat_ref = register_preexisting_object(JSObject.simfct(string_charcodeat))
+string_slice_ref = register_preexisting_object(JSObject.simfct(string_slice))
 def string_hook(name):
     if name == "split":
         return JSRef(string_split_ref)
     if name == "charCodeAt":
         return JSRef(string_charcodeat_ref)
+    if name == "slice":
+        return JSRef(string_slice_ref)
     return JSTop
 
 def baseconv(n, b):
