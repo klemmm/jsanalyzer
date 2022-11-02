@@ -70,11 +70,9 @@ def binary_handler(opname, state, abs_arg1, abs_arg2):
 
     if opname == "+":
         if isinstance(abs_arg1, JSRef) and state.objs[abs_arg1.target()].is_function and isinstance(abs_arg2, JSPrimitive) and type(abs_arg2.val) is str:
-            print("ici")
             return JSPrimitive(Data.source[state.objs[abs_arg1.target()].range[0]:state.objs[abs_arg1.target()].range[1]] + abs_arg2.val)
         
         if isinstance(abs_arg2, JSRef) and state.objs[abs_arg2.target()].is_function() and isinstance(abs_arg1, JSPrimitive) and type(abs_arg1.val) is str:
-            print("ici")
             return JSPrimitive(abs_arg1.val + Data.source[state.objs[abs_arg2.target()].range[0]:state.objs[abs_arg2.target()].range[1]])
 
     if isinstance(abs_arg1, JSPrimitive) and isinstance(abs_arg2, JSPrimitive):
@@ -120,6 +118,8 @@ def binary_handler(opname, state, abs_arg1, abs_arg2):
             r = arg1 <= arg2
         elif opname == "==":
             r = arg1 == arg2
+        elif opname == "^":
+            r = arg1 ^ arg2
         else:
             print("Unknown binary operation: ", opname)
             return JSTop
