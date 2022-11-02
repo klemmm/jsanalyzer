@@ -16,3 +16,4 @@ inlining = True
 
 process_not_taken = True #workaround for probably incorrect boolean evaluation
 
+memoize = ['_0x4759', '_0x27b9']

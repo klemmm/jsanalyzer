@@ -3,7 +3,7 @@ import config
 import base64
 import urllib.parse
 
-from plugin_manager import register_preexisting_object, register_update_handler, register_unary_handler, register_binary_handler, register_global_symbol, register_method_hook, JSTop, JSUndefNaN, JSPrimitive, JSObject, JSRef, to_bool, State, Data
+from plugin_manager import register_preexisting_object, register_update_handler, register_unary_handler, register_binary_handler, register_global_symbol, register_method_hook, JSTop, JSUndefNaN, JSPrimitive, JSObject, JSRef, to_bool, State, Data, JSBot, JSSpecial
 
 def update_handler(opname, state, abs_arg):
     if isinstance(abs_arg, JSPrimitive) and type(abs_arg.val) is int:
@@ -60,6 +60,9 @@ def binary_handler(opname, state, abs_arg1, abs_arg2):
     if abs_arg1 is JSTop or abs_arg2 is JSTop:
         return JSTop
 
+    if abs_arg1 is JSBot or abs_arg2 is JSBot:
+        return JSBot
+
     if opname == "===":
         if type(abs_arg1) != type(abs_arg2):
             return JSPrimitive(False)
@@ -80,9 +83,9 @@ def binary_handler(opname, state, abs_arg1, abs_arg2):
         arg2 = abs_arg2.val
        
         if opname == "+":
-            if type(arg1) is int and type(arg2) is str:
+            if (type(arg1) is int or type(arg1) is float) and type(arg2) is str:
                 arg1 = str(arg1)
-            if type(arg1) is str and type(arg2) is int:
+            if type(arg1) is str and (type(arg2) is int or type(arg2) is float):
                 arg2 = str(arg2)
 
         if opname == "-" or opname == "/" or opname == "*":
@@ -105,6 +108,8 @@ def binary_handler(opname, state, abs_arg1, abs_arg2):
         elif opname == "*":
             r = arg1 * arg2
         elif opname == "/":
+            if arg2 == 0:
+                return JSUndefNaN
             r = arg1 / arg2
         elif opname == "%":
             r = arg1 % arg2
@@ -304,7 +309,7 @@ def function_or_int_tostring(state, fn_or_int, base=JSPrimitive(10)):
     if isinstance(fn_or_int, JSPrimitive) and type(fn_or_int.val) is int and isinstance(base, JSPrimitive) and type(base.val) is int:
         return JSPrimitive(baseconv(fn_or_int.val, base.val))
     elif fn_or_int.is_function():
-        return JSPrimitive(Data.source[function.range[0]:function.range[1]])
+        return JSPrimitive(Data.source[fn_or_int.range[0]:fn_or_int.range[1]])
     else:
         print("warning: .toString() unhandled argument: ", fn_or_int, "base:", base)
         return JSTop

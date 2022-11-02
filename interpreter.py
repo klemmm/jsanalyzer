@@ -23,6 +23,7 @@ class Interpreter(object):
         self.lines  = []
         self.stack_trace = []
         self.last = None
+        self.memo = {}
         i = 0
         while i < len(self.data):
             if self.data[i] == '\n':
@@ -60,12 +61,12 @@ class Interpreter(object):
                     raise ValueeError
                 args.append(reduced_arg)
 
-
             return esprima.nodes.CallExpression(Interpreter.beta_reduction(expression.callee, formal_args, effective_args), args)
         elif expression.type == "Literal":
             return expression
         else:
-            raise ValueError("beta_reduction: unhandled expression type " + str(expression.type))
+            print("beta_reduction: unhandled expression type " + str(expression.type))
+            return expression
 
     #Evaluate a function call
     #state (mutable): takes abstract state used to perform the evaluation
@@ -395,6 +396,13 @@ class Interpreter(object):
                     state.pending.difference_update(consumed_refs)
                     return member
             elif isinstance(target, JSPrimitive) and type(target.val) is str:
+                if type(prop) is int:
+                    if prop >= 0 and prop < len(target.val):
+                        ret = JSPrimitive(target.val[prop])
+                    else:
+                        ret = JSUndefNaN
+                    state.pending.difference_update(consumed_refs)
+                    return ret
                 if prop == "length":
                     state.pending.difference_update(consumed_refs)
                     return JSPrimitive(len(target.val))
@@ -406,7 +414,7 @@ class Interpreter(object):
                         fct.bind(target)
                         break
                 if fct is JSTop:
-                    print("Unknown string member: ", prop)
+                    print("Unknown string member: ", prop, type(prop))
                     state.pending.difference_update(consumed_refs)
                     return JSTop
                 state.pending.difference_update(consumed_refs)
@@ -495,11 +503,26 @@ class Interpreter(object):
                     return JSBot
                 expr.recursion_state = new_recursion_state.clone()
                 state.assign(new_recursion_state)
+            key = None
+            try:
+                if callee.body.name in config.memoize:
+                    key = ""
+                    for a in expr.arguments:
+                        key = key + a.value + "\x00"
+            except:
+                pass
+            if key in self.memo:
+                state.pending.difference_update(consumed_refs)
+                return JSPrimitive(self.memo[key])
+
+            #if callee.is_function() and callee.body.name in config.memoize:
+            #    raise ValueError
             expr.active += 1
             ret =  self.eval_func_call(state, callee, expr, this, consumed_refs)
             expr.active -= 1
+            if key is not None and isinstance(ret, JSPrimitive):
+                self.memo[key] = ret.val
             state.consume_expr(ret, consumed_refs)
-
             state.pending.difference_update(consumed_refs)
             return ret
 
@@ -604,8 +627,6 @@ class Interpreter(object):
 
 
         state.join(self.loopexit_state)
-        if 15 in saved_loopexit.objs:
-            print("saved:" , len(saved_loopexit.objs[15].properties))
         self.loopexit_state = saved_loopexit
         state.pending.difference_update(consumed_refs)
 
