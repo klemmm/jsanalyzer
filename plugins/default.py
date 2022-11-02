@@ -1,5 +1,7 @@
 import re
 import config
+import base64
+import urllib.parse
 
 from plugin_manager import register_preexisting_object, register_update_handler, register_unary_handler, register_binary_handler, register_global_symbol, register_method_hook, JSTop, JSUndefNaN, JSPrimitive, JSObject, JSRef, to_bool, State, Data
 
@@ -68,9 +70,11 @@ def binary_handler(opname, state, abs_arg1, abs_arg2):
 
     if opname == "+":
         if isinstance(abs_arg1, JSRef) and state.objs[abs_arg1.target()].is_function and isinstance(abs_arg2, JSPrimitive) and type(abs_arg2.val) is str:
+            print("ici")
             return JSPrimitive(Data.source[state.objs[abs_arg1.target()].range[0]:state.objs[abs_arg1.target()].range[1]] + abs_arg2.val)
         
         if isinstance(abs_arg2, JSRef) and state.objs[abs_arg2.target()].is_function() and isinstance(abs_arg1, JSPrimitive) and type(abs_arg1.val) is str:
+            print("ici")
             return JSPrimitive(abs_arg1.val + Data.source[state.objs[abs_arg2.target()].range[0]:state.objs[abs_arg2.target()].range[1]])
 
     if isinstance(abs_arg1, JSPrimitive) and isinstance(abs_arg2, JSPrimitive):
@@ -262,16 +266,48 @@ def string_hook(name):
         return JSRef(string_charcodeat_ref)
     return JSTop
 
-def function_tostring(state, function):
-    retval = JSPrimitive(Data.source[function.range[0]:function.range[1]])
-    return retval
+def baseconv(n, b):
+    alpha = "0123456789abcdefghijklmnopqrstuvwxyz"
+    ret = ""
+    if n < 0:
+        n = -n
+        ret = "-"
+    if n >= b:
+        ret += baseconv(n // b, b)
+    return ret + alpha[n % b]
 
-function_tostring_ref = register_preexisting_object(JSObject.simfct(function_tostring))
+def function_or_int_tostring(state, fn_or_int, base=JSPrimitive(10)):
+    if isinstance(fn_or_int, JSPrimitive) and type(fn_or_int.val) is int and isinstance(base, JSPrimitive) and type(base.val) is int:
+        return JSPrimitive(baseconv(fn_or_int.val, base.val))
+    elif fn_or_int.is_function():
+        return JSPrimitive(Data.source[function.range[0]:function.range[1]])
+    else:
+        print("warning: .toString() unhandled argument: ", fn_or_int, "base:", base)
+        return JSTop
+
+function_or_int_tostring_ref = register_preexisting_object(JSObject.simfct(function_or_int_tostring))
 def function_hook(name):
     if name == "toString":
-        return JSRef(function_tostring_ref)
+        return JSRef(function_or_int_tostring_ref)
     return JSTop
 
 register_method_hook(array_hook)
 register_method_hook(string_hook)
 register_method_hook(function_hook)
+
+
+def atob(state, string):
+    if isinstance(string, JSPrimitive) and type(string.val) is str:
+        return JSPrimitive(base64.b64decode(string.val).decode("utf-8"))
+    return JSTop
+
+atob_ref = register_preexisting_object(JSObject.simfct(atob))
+register_global_symbol('atob', JSRef(atob_ref))
+
+def decode_uri_component(state, string):
+    if isinstance(string, JSPrimitive) and type(string.val) is str:
+        return JSPrimitive(urllib.parse.unquote(string.val))
+    return JSTop
+
+decode_uri_component_ref = register_preexisting_object(JSObject.simfct(decode_uri_component))
+register_global_symbol('decodeURIComponent', JSRef(decode_uri_component_ref))

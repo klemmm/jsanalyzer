@@ -98,8 +98,8 @@ class Interpreter(object):
             if this:
                 if type(this) is int: #bound to object
                     return callee.simfct(state, state.objs[this], *args_val) #call bound simfct
-                else: #bound to string
-                    assert(isinstance(this, JSPrimitive) and type(this.val) is str)
+                else: #bound to primitive type (int or string)
+                    assert isinstance(this, JSPrimitive)
                     return callee.simfct(state, this, *args_val) #call bound simfct
             else:
                 return callee.simfct(state, *args_val) #call unbound simfct
@@ -382,6 +382,9 @@ class Interpreter(object):
                 return JSTop
             target, prop, target_id = r
             if isinstance(target, JSObject):
+                if prop == "length":
+                    state.pending.difference_update(consumed_refs)
+                    return JSPrimitive(len(target.properties))
                 member = target.member(prop)
                 if isinstance(member, JSRef) and not member.is_bound():
                     bound_member = member.clone()
@@ -408,6 +411,21 @@ class Interpreter(object):
                     return JSTop
                 state.pending.difference_update(consumed_refs)
                 return fct
+            elif isinstance(target, JSPrimitive) and type(target.val) is int:
+                fct = JSTop
+                for h in JSObject.hooks:
+                    fct = h(prop)
+                    if fct is not JSTop:
+                        fct = fct.clone()
+                        fct.bind(target)
+                        break
+                if fct is JSTop:
+                    print("Unknown int member: ", prop)
+                    state.pending.difference_update(consumed_refs)
+                    return JSTop
+                state.pending.difference_update(consumed_refs)
+                return fct
+
             else:
                 state.pending.difference_update(consumed_refs)
                 return JSTop
