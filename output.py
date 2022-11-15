@@ -78,7 +78,7 @@ class Output(object):
 
         elif expr.type == "AssignmentExpression":
             if expr.left.type == "Identifier":
-                self.out(expr.left.name + " = ", end="")
+                self.out(expr.left.name + " " + expr.operator + " ", end="")
             else: #MemberExpression
                 self.do_expr(expr.left.object)
                 if expr.left.computed:
@@ -90,7 +90,7 @@ class Output(object):
                         self.out("]", end="")
                 else:
                     self.out("." + expr.left.property.name, end="")
-                self.out(" = ", end="")
+                self.out(" " + expr.operator + " ", end="")
 
             self.do_expr(expr.right)
 

@@ -337,13 +337,23 @@ class Interpreter(object):
 
         elif expr.type == "AssignmentExpression":
             consumed_refs = set()
-            abs_rvalue = self.eval_expr(state, expr.right)
-            if state.is_bottom:
-                return JSBot
-            state.consume_expr(abs_rvalue, consumed_refs)
-            self.do_assignment(state, expr.left, abs_rvalue, consumed_refs)
-            state.pending.difference_update(consumed_refs)
-            return abs_rvalue
+            if expr.operator[0] == "=":
+                abs_rvalue = self.eval_expr(state, expr.right)
+                if state.is_bottom:
+                    return JSBot
+                state.consume_expr(abs_rvalue, consumed_refs)
+                self.do_assignment(state, expr.left, abs_rvalue, consumed_refs)
+                state.pending.difference_update(consumed_refs)
+                return abs_rvalue
+            else:
+                left = self.eval_expr(state, expr.left)
+                state.consume_expr(left, consumed_refs)
+                right = self.eval_expr(state, expr.right)
+                state.consume_expr(right, consumed_refs)
+                result = plugin_manager.handle_binary_operation(expr.operator[0], state, left, right)
+                self.do_assignment(state, expr.left, result, consumed_refs)
+                state.pending.difference_update(consumed_refs)
+                return result
 
         elif expr.type == "ObjectExpression":
             properties = {}
