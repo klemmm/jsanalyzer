@@ -286,9 +286,9 @@ def string_substr(state, string, start=JSPrimitive(0), length=JSPrimitive(None))
     if sta < 0 or sta >= len(string.val):
         return JSUndefNaN
     leng = interpret_as_number(state, length)
-    if sta < 0 or sta > len(string.val):
+    if leng < 0 or sta + leng > len(string.val):
         return JSUndefNaN
-    return JSPrimitive(string.val[sta:leng])
+    return JSPrimitive(string.val[sta:sta + leng])
 
 def string_slice(state, string, begin=JSPrimitive(0), end=JSPrimitive(None)):
     if isinstance(string, JSPrimitive) and type(string.val) is str and isinstance(begin, JSPrimitive) and type(begin.val) is int and isinstance(end, JSPrimitive) and (type(end.val) is int or end.val is None):
