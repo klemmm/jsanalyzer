@@ -57,6 +57,12 @@ def unary_handler(opname, state, abs_arg):
 register_unary_handler(unary_handler)
 
 def binary_handler(opname, state, abs_arg1, abs_arg2):
+    if opname == "instanceof":
+        if isinstance(abs_arg2, JSRef) and abs_arg2.target() == function_ref and isinstance(abs_arg1, JSRef) and state.objs[abs_arg1.target()].is_callable():
+            return JSPrimitive(True)
+        else:
+            return JSTop
+
     if abs_arg1 is JSTop or abs_arg2 is JSTop:
         return JSTop
 
@@ -362,7 +368,6 @@ register_method_hook(array_hook)
 register_method_hook(string_hook)
 register_method_hook(function_hook)
 
-
 def atob(state, string):
     if isinstance(string, JSPrimitive) and type(string.val) is str:
         return JSPrimitive(base64.b64decode(string.val).decode("latin-1"))
@@ -386,4 +391,7 @@ def decode_uri_component(state, string):
 
 decode_uri_component_ref = register_preexisting_object(JSObject.simfct(decode_uri_component))
 register_global_symbol('decodeURIComponent', JSRef(decode_uri_component_ref))
+
+function_ref = register_preexisting_object(JSObject({}))
+register_global_symbol('Function', JSRef(function_ref))
 
