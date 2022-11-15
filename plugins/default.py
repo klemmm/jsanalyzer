@@ -275,6 +275,21 @@ def string_charcodeat(state, string, position):
         return JSUndefNaN
     return JSPrimitive(ord(string.val[pos]))
 
+def string_substr(state, string, start=JSPrimitive(0), length=JSPrimitive(None)):
+    if not (isinstance(string, JSPrimitive) and type(string.val) is str):
+        return JSTop
+    if start is JSTop:
+        return JSTop
+    if length is JSTop:
+        return JSTop
+    sta = interpret_as_number(state, start)
+    if sta < 0 or sta >= len(string.val):
+        return JSUndefNaN
+    leng = interpret_as_number(state, length)
+    if sta < 0 or sta > len(string.val):
+        return JSUndefNaN
+    return JSPrimitive(string.val[sta:leng])
+
 def string_slice(state, string, begin=JSPrimitive(0), end=JSPrimitive(None)):
     if isinstance(string, JSPrimitive) and type(string.val) is str and isinstance(begin, JSPrimitive) and type(begin.val) is int and isinstance(end, JSPrimitive) and (type(end.val) is int or end.val is None):
         return JSPrimitive(string.val[begin.val:end.val])
@@ -286,6 +301,8 @@ def string_slice(state, string, begin=JSPrimitive(0), end=JSPrimitive(None)):
 string_split_ref = register_preexisting_object(JSObject.simfct(string_split))
 string_charcodeat_ref = register_preexisting_object(JSObject.simfct(string_charcodeat))
 string_slice_ref = register_preexisting_object(JSObject.simfct(string_slice))
+string_substr_ref = register_preexisting_object(JSObject.simfct(string_substr))
+
 def string_hook(name):
     if name == "split":
         return JSRef(string_split_ref)
@@ -293,6 +310,8 @@ def string_hook(name):
         return JSRef(string_charcodeat_ref)
     if name == "slice":
         return JSRef(string_slice_ref)
+    if name == "substr":
+        return JSRef(string_substr_ref)
     return JSTop
 
 def baseconv(n, b):
@@ -333,6 +352,14 @@ def atob(state, string):
 atob_ref = register_preexisting_object(JSObject.simfct(atob))
 register_global_symbol('atob', JSRef(atob_ref))
 
+def btoa(state, string):
+    if isinstance(string, JSPrimitive) and type(string.val) is str:
+        return JSPrimitive(base64.b64encode(str.encode(string.val)))
+    return JSTop
+
+btoa_ref = register_preexisting_object(JSObject.simfct(btoa))
+register_global_symbol('btoa', JSRef(btoa_ref))
+
 def decode_uri_component(state, string):
     if isinstance(string, JSPrimitive) and type(string.val) is str:
         return JSPrimitive(urllib.parse.unquote(string.val))
@@ -340,3 +367,4 @@ def decode_uri_component(state, string):
 
 decode_uri_component_ref = register_preexisting_object(JSObject.simfct(decode_uri_component))
 register_global_symbol('decodeURIComponent', JSRef(decode_uri_component_ref))
+
