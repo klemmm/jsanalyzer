@@ -189,7 +189,23 @@ def analyzer_assert(b):
 
 analyzer_assert = register_preexisting_object(JSObject.simfct(analyzer_assert));
 register_global_symbol('analyzer_assert', JSRef(analyzer_assert))
-    
+
+def array_indexof(state, arr, item, start=JSPrimitive(0)):
+    if hasattr(arr, 'properties'):
+        i = 0
+        for key,values in arr.properties.items():
+            if i < start.val:
+                i = i + 1
+                continue
+            if values == item:
+                return JSPrimitive(i)
+            i = i + 1
+        return JSPrimitive(-1)
+    elif hasattr(arr, 'val') and type(arr.val) is str:
+        return JSPrimitive(arr.val.find(item.val, start.val))
+    else:
+        raise NameError('Invalid Javascript')
+ 
 def array_pop(state, arr):
     #FIXME array object should track its abstract size
     indexes = sorted([i for i in arr.properties if type(i) is int])
@@ -228,6 +244,7 @@ def array_shift(state, arr):
 array_pop_ref = register_preexisting_object(JSObject.simfct(array_pop));
 array_push_ref = register_preexisting_object(JSObject.simfct(array_push));
 array_shift_ref = register_preexisting_object(JSObject.simfct(array_shift));
+array_indexof_ref = register_preexisting_object(JSObject.simfct(array_indexof));
 
 def array_hook(name):
     if name == "pop":
@@ -236,6 +253,8 @@ def array_hook(name):
         return JSRef(array_shift_ref)
     elif name == "push":
         return JSRef(array_push_ref)
+    elif name == "indexOf":
+        return JSRef(array_indexof_ref)
     else:
         return JSTop
 

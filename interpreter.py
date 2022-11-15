@@ -468,9 +468,39 @@ class Interpreter(object):
             consumed_refs = set()
             left = self.eval_expr(state, expr.left)
             state.consume_expr(left, consumed_refs)
-            right = self.eval_expr(state, expr.right)
-            state.consume_expr(right, consumed_refs)
-            result = plugin_manager.handle_binary_operation(expr.operator, state, left, right)
+            #special handling for && and || due to shortcircuit evaluation
+            if expr.operator == "&&":
+                if left is JSTop:
+                    state_right = state.clone()
+                    right = self.eval_expr(state_right, expr.right)
+                    state_right.consume_expr(right, consumed_refs)
+                    state.join(state_right)
+                    result = JSTop
+                else:
+                    if plugin_manager.to_bool(left):
+                        right = self.eval_expr(state, expr.right)
+                        state.consume_expr(right, consumed_refs)
+                        result = right
+                    else:
+                        result = left
+            elif expr.operator == "||":
+                if left is JSTop:
+                    state_right = state.clone()
+                    right = self.eval_expr(state_right, expr.right)
+                    state_right.consume_expr(right, consumed_refs)
+                    state.join(state_right)
+                    result = JSTop
+                else:
+                    if not plugin_manager.to_bool(left):
+                        right = self.eval_expr(state, expr.right)
+                        state.consume_expr(right, consumed_refs)
+                        result = right
+                    else:
+                        result = left
+            else:
+                right = self.eval_expr(state, expr.right)
+                state.consume_expr(right, consumed_refs)
+                result = plugin_manager.handle_binary_operation(expr.operator, state, left, right)
             state.pending.difference_update(consumed_refs)
             return result
 
