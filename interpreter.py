@@ -401,7 +401,7 @@ class Interpreter(object):
             if isinstance(target, JSObject):
                 if prop == "length":
                     state.pending.difference_update(consumed_refs)
-                    return JSPrimitive(len(target.properties))
+                    return JSPrimitive(len([x for x in target.properties.values() if x is not JSTop])) #TODO better array size handling
                 member = target.member(prop)
                 if isinstance(member, JSRef) and not member.is_bound():
                     bound_member = member.clone()
