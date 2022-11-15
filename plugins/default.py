@@ -75,7 +75,7 @@ def binary_handler(opname, state, abs_arg1, abs_arg2):
         return JSPrimitive(abs_arg1 == abs_arg2) #TODO actually incorrect if test is undefined === NaN
     
     if abs_arg1 is JSUndefNaN or abs_arg2 is JSUndefNaN: #TODO incorrect if test is undefined == undefined
-        return JSUndefNaN
+        return JSPrimitive(type(abs_arg1) == type(abs_arg2))
 
     if opname == "+":
         if isinstance(abs_arg1, JSRef) and state.objs[abs_arg1.target()].is_function and isinstance(abs_arg2, JSPrimitive) and type(abs_arg2.val) is str:
@@ -129,6 +129,8 @@ def binary_handler(opname, state, abs_arg1, abs_arg2):
             r = arg1 <= arg2
         elif opname == "==":
             r = arg1 == arg2
+        elif opname == "!=":
+            r = not (arg1 == arg2)
         elif opname == "^":
             r = arg1 ^ arg2
         else:
