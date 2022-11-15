@@ -170,7 +170,15 @@ class Output(object):
             self.do_statement(expr.body)
 
         elif expr.type == "ArrowFunctionExpression":
-            self.out(self.indent*" " + "function()")
+            first = True
+            params = ""
+            for a in expr.params:
+                if first:
+                    first = False
+                else:
+                    params += ", "
+                params += a.name
+            self.out(self.indent*" " + "function(" + params + ")")
             self.do_statement(expr.body)
 
         elif expr.type == "CallExpression":
