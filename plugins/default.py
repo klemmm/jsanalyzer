@@ -283,6 +283,10 @@ def interpret_as_number(state, value):
                 return int(value.val)
             except ValueError:
                 return 0
+        elif value.val is None:
+            return None
+        else:
+            raise ValueError("interpret_as_number: unhandled value " + repr(value))
     elif isinstance(value, JSRef):
         obj = state.objs[value.target()]
         if len(obj.properties) == 1 and 0 in obj.properties:
@@ -310,12 +314,16 @@ def string_substr(state, string, start=JSPrimitive(0), length=JSPrimitive(None))
     if length is JSTop:
         return JSTop
     sta = interpret_as_number(state, start)
-    if sta < 0 or sta >= len(string.val):
-        return JSUndefNaN
     leng = interpret_as_number(state, length)
-    if leng < 0 or sta + leng > len(string.val):
+    if sta < 0:
         return JSUndefNaN
-    return JSPrimitive(string.val[sta:sta + leng])
+    if leng is None:
+        return JSPrimitive(string.val[sta:])
+    else:
+        if sta + leng > len(string.val):
+            return JSUndefNaN
+        else:
+            return JSPrimitive(string.val[sta:sta + leng])
 
 def string_slice(state, string, begin=JSPrimitive(0), end=JSPrimitive(None)):
     if isinstance(string, JSPrimitive) and type(string.val) is str and isinstance(begin, JSPrimitive) and type(begin.val) is int and isinstance(end, JSPrimitive) and (type(end.val) is int or end.val is None):
