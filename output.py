@@ -1,4 +1,4 @@
-from abstract import JSPrimitive
+from abstract import JSPrimitive, JSRef
 EXPRESSIONS = ["BinaryExpression", "UnaryExpression", "Identifier", "CallExpression", "Literal", "NewExpression", "UpdateExpression", "ConditionalExpression", "NewExpression", "ThisExpression", "AssignmentExpression", "MemberExpression", "ObjectExpression", "ArrayExpression", "LogicalExpression", "FunctionExpression", "ArrowFunctionExpression"]
 
 class Output(object):
@@ -38,7 +38,7 @@ class Output(object):
     def do_expr(self, expr, simplify=True):
         if simplify and (expr.static_value is not None and isinstance(expr.static_value, JSPrimitive)):
             self.print_literal(expr.static_value.val)
-
+        
         elif expr.type == "Literal":
             self.print_literal(expr.value)
 
@@ -68,7 +68,7 @@ class Output(object):
             self.out(" ) ", end="")
 
         elif expr.type == "ThisExpression":
-            self.out("ThisExpression")
+            self.out("this", end="")
 
         elif expr.type == "SequenceExpression":
             first = True
@@ -82,16 +82,20 @@ class Output(object):
             if expr.left.type == "Identifier":
                 self.out(expr.left.name + " " + expr.operator + " ", end="")
             else: #MemberExpression
-                self.do_expr(expr.left.object)
+                glob = isinstance(expr.left.object.static_value, JSRef) and expr.left.object.static_value.target() == 0
+                prefix = ""
+                if not glob:
+                    self.do_expr(expr.left.object)
+                    prefix = "."
                 if expr.left.computed:
                     if isinstance(expr.left.property.static_value, JSPrimitive) and type(expr.left.property.static_value.val) is str:
-                        self.out("." + expr.left.property.static_value.val, end="")
+                        self.out(prefix + expr.left.property.static_value.val, end="")
                     else:
                         self.out("[", end="")
                         self.do_expr(expr.left.property)
                         self.out("]", end="")
                 else:
-                    self.out("." + expr.left.property.name, end="")
+                    self.out(prefix + expr.left.property.name, end="")
                 self.out(" " + expr.operator + " ", end="")
 
             self.do_expr(expr.right)
@@ -129,16 +133,20 @@ class Output(object):
             self.out("]", end="")
 
         elif expr.type == "MemberExpression":
-            self.do_expr(expr.object)
+            glob = isinstance(expr.object.static_value, JSRef) and expr.object.static_value.target() == 0
+            prefix = ""
+            if not glob:
+                self.do_expr(expr.object)
+                prefix = "."
             if expr.computed:
                 if isinstance(expr.property.static_value, JSPrimitive) and type(expr.property.static_value.val) is str:
-                    self.out("." + expr.property.static_value.val, end="")
+                    self.out(prefix + expr.property.static_value.val, end="")
                 else:
                     self.out("[", end="")
                     self.do_expr(expr.property)
                     self.out("]", end="")
             else:
-                self.out("." + expr.property.name, end="")
+                self.out(prefix + expr.property.name, end="")
 
         elif expr.type == "UnaryExpression":
             self.out(expr.operator, end="")

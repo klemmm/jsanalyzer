@@ -290,6 +290,8 @@ class Interpreter(object):
 
         elif expr.type == "NewExpression":
             consumed_refs = set()
+            callee_ref = self.eval_expr(state, expr.callee)
+            state.consume_expr(callee_ref, consumed_refs)
             for argument in expr.arguments:
                 arg_val = self.eval_expr(state, argument)
                 state.consume_expr(arg_val, consumed_refs)
@@ -333,7 +335,7 @@ class Interpreter(object):
 
         elif expr.type == "ThisExpression":
             print("ThisExpression")
-            return JSTop
+            return JSRef(0)
 
         elif expr.type == "AssignmentExpression":
             consumed_refs = set()
