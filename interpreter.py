@@ -182,9 +182,13 @@ class Interpreter(object):
         if state.is_bottom:
             return JSBot
         result = self.eval_expr_aux(state, expr)
-        if result is not JSTop:
+        previous_val = expr.static_value
+        expr.static_value = State.value_join(expr.static_value, result)
+        if previous_val is None and isinstance(expr.static_value, JSPrimitive):
             Stats.computed_values += 1
-            expr.static_value = State.value_join(expr.static_value, result)
+        if isinstance(previous_val, JSPrimitive) and expr.static_value is JSTop:
+            Stats.computed_values -= 1
+
         if isinstance(result, JSRef):
             state.pending.add(result.target())
             #print("PEND: (target) add: ", result.target())
