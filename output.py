@@ -1,5 +1,19 @@
 from abstract import JSPrimitive, JSRef
+from config import regexp_rename, rename_length
+import re
 EXPRESSIONS = ["BinaryExpression", "UnaryExpression", "Identifier", "CallExpression", "Literal", "NewExpression", "UpdateExpression", "ConditionalExpression", "NewExpression", "ThisExpression", "AssignmentExpression", "MemberExpression", "ObjectExpression", "ArrayExpression", "LogicalExpression", "FunctionExpression", "ArrowFunctionExpression"]
+
+import random
+random.seed(42)
+first=['b','ch','d','f','g','l','k', 'm','n','p','r','t','v','x','z']
+second=['a','e','o','u','i','au','ou']
+
+def generate(n):
+    name = ""
+    for i in range(n):
+        name += random.choice(first)
+        name += random.choice(second)
+    return name
 
 class Output(object):
     def __init__(self, ast, f):
@@ -7,6 +21,19 @@ class Output(object):
         self.indent = 0
         self.ast = ast
         self.f = f
+        self.renamed = {}
+
+    def rename(self, name):
+        if name is None:
+            return "NONE"
+        for r in regexp_rename:
+            if re.match(r, name) is not None:
+                if name in self.renamed.keys():
+                    return self.renamed[name]
+                newname = generate(rename_length)
+                self.renamed[name] = newname
+                return newname
+        return name
     
     def out(self, *args, **kwargs):
         kwargs['file'] = self.f
@@ -43,7 +70,7 @@ class Output(object):
             self.print_literal(expr.value)
 
         elif expr.type == "Identifier":
-            self.out(expr.name, end="")
+            self.out(self.rename(expr.name), end="")
             pass
 
         elif expr.type == "NewExpression":
@@ -80,7 +107,7 @@ class Output(object):
 
         elif expr.type == "AssignmentExpression":
             if expr.left.type == "Identifier":
-                self.out(expr.left.name + " " + expr.operator + " ", end="")
+                self.out(self.rename(expr.left.name) + " " + expr.operator + " ", end="")
             else: #MemberExpression
                 glob = isinstance(expr.left.object.static_value, JSRef) and expr.left.object.static_value.target() == 0
                 prefix = ""
@@ -150,6 +177,8 @@ class Output(object):
 
         elif expr.type == "UnaryExpression":
             self.out(expr.operator, end="")
+            if expr.operator.isalpha():
+                self.out(" ", end="")
             self.do_expr(expr.argument)
 
         elif expr.type == "BinaryExpression":
@@ -174,7 +203,7 @@ class Output(object):
                     first = False
                 else:
                     params += ", "
-                params += a.name
+                params += self.rename(a.name)
             self.out(self.indent*" " + "function(" + params + ")")
             #self.out("/* PURE: " + str(expr.body.pure) + " REDEX: " + str(expr.body.redex) + " */")
             self.do_statement(expr.body)
@@ -187,7 +216,7 @@ class Output(object):
                     first = False
                 else:
                     params += ", "
-                params += a.name
+                params += self.rename(a.name)
             self.out(self.indent*" " + "function(" + params + ")")
             self.do_statement(expr.body)
 
@@ -223,7 +252,7 @@ class Output(object):
             self.out((self.indent)*" " + "}");
         elif statement.type == "VariableDeclaration":
             for decl in statement.declarations:
-                self.out(self.indent*" " + "var " + str(decl.id.name), end="")
+                self.out(self.indent*" " + "var " + self.rename(decl.id.name), end="")
                 if decl.init is not None:
                     self.out(" = ", end="")
                     self.do_expr(decl.init)
@@ -251,8 +280,8 @@ class Output(object):
                     first = False
                 else:
                     params += ", "
-                params += a.name
-            self.out(self.indent*" " + "function " + statement.id.name + "(" + params + ")")
+                params += self.rename(a.name)
+            self.out(self.indent*" " + "function " + self.rename(statement.id.name) + "(" + params + ")")
             #self.out("/* PURE: " + str(statement.body.pure) + " REDEX: " + str(statement.body.redex) + " */")
             self.do_statement(statement.body)
        
