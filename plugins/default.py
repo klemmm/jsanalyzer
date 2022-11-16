@@ -265,9 +265,14 @@ def array_hook(name):
     else:
         return JSTop
 
-def string_split(state, string, separator):
+def string_split(state, string, separator=None):
+    if separator is None:
+        return string
     if isinstance(string, JSPrimitive) and isinstance(separator, JSPrimitive) and type(string.val) is str and type(separator.val) is str:
-        result = string.val.split(separator.val)
+        if separator.val == "":
+            result = [*separator.val]
+        else:
+            result = string.val.split(separator.val)
         obj_id = State.new_id()
         state.objs[obj_id] = JSObject(dict(enumerate([JSPrimitive(r) for r in result])))
         return JSRef(obj_id)
