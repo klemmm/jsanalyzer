@@ -212,6 +212,16 @@ def array_indexof(state, arr, item, start=JSPrimitive(0)):
         return JSPrimitive(arr.val.find(item.val, start.val))
     else:
         raise NameError('Invalid Javascript')
+
+def array_reverse(state, arr):
+    obj_id = State.new_id()
+    d = dict()
+    l = len(arr.properties)
+    for key,values in arr.properties.items():
+        d[l - key - 1] = values
+    state.objs[obj_id] = JSObject(d)
+    return JSRef(obj_id)
+
  
 def array_pop(state, arr):
     #FIXME array object should track its abstract size
@@ -252,6 +262,7 @@ array_pop_ref = register_preexisting_object(JSObject.simfct(array_pop));
 array_push_ref = register_preexisting_object(JSObject.simfct(array_push));
 array_shift_ref = register_preexisting_object(JSObject.simfct(array_shift));
 array_indexof_ref = register_preexisting_object(JSObject.simfct(array_indexof));
+array_reverse_ref = register_preexisting_object(JSObject.simfct(array_reverse));
 
 def array_hook(name):
     if name == "pop":
@@ -262,6 +273,8 @@ def array_hook(name):
         return JSRef(array_push_ref)
     elif name == "indexOf":
         return JSRef(array_indexof_ref)
+    elif name == "reverse":
+        return JSRef(array_reverse_ref)
     else:
         return JSTop
 
@@ -405,6 +418,7 @@ def decode_uri_component(state, string):
 
 decode_uri_component_ref = register_preexisting_object(JSObject.simfct(decode_uri_component))
 register_global_symbol('decodeURIComponent', JSRef(decode_uri_component_ref))
+register_global_symbol('unescape', JSRef(decode_uri_component_ref))
 
 function_ref = register_preexisting_object(JSObject({}))
 register_global_symbol('Function', JSRef(function_ref))
