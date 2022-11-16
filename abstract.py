@@ -216,6 +216,8 @@ class JSPrimitive(JSValue):
     def __init__(self, val):
         self.val = val
     def __eq__(self, other):
+        if type(self) != type(other):
+            return False
         return self.val == other.val
     def __str__(self):
         return repr(self.val)

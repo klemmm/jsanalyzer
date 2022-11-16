@@ -163,9 +163,8 @@ def console_log(state, this, *args):
 def string_fromcharcode(state, obj, code):
     if code is JSTop:
         return JSTop
-    if isinstance(code, JSPrimitive) and type(code.val) is int:
-        return JSPrimitive(chr(code.val))
-    print("warning: fromCharCode: unhandled argument: ", code)
+
+    return JSPrimitive(chr(interpret_as_number(state, code)))
     return JSTop
 
 string_fromcharcode_ref = register_preexisting_object(JSObject.simfct(string_fromcharcode))
@@ -294,7 +293,7 @@ def interpret_as_number(state, value):
         else:
             return 0
     else:
-        raise ValueError("interpret_as_number: invalid value" + str(value))
+        raise ValueError("interpret_as_number: invalid value: " + str(value))
 
 def string_charcodeat(state, string, position):
     if not (isinstance(string, JSPrimitive) and type(string.val) is str):
