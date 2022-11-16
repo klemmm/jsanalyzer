@@ -47,7 +47,9 @@ class Output(object):
             pass
 
         elif expr.type == "NewExpression":
-            self.out("new XXX(", end="")
+            self.out("new ", end="")
+            self.do_expr(expr.callee)
+            self.out("(", end="")
             first = True
             for argument in expr.arguments:
                 if not first:
