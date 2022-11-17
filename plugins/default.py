@@ -263,11 +263,19 @@ def array_shift(state, expr, arr):
 
     return retval
 
+def array_join(state, expr, arr, separator=JSPrimitive(",")):
+    if arr is JSTop:
+        return JSTop
+    if separator is JSTop:
+        return JSTop
+    return JSPrimitive(separator.val.join([arr.properties[i].val for i in sorted(arr.properties)]))
+
 array_pop_ref = register_preexisting_object(JSObject.simfct(array_pop));
 array_push_ref = register_preexisting_object(JSObject.simfct(array_push));
 array_shift_ref = register_preexisting_object(JSObject.simfct(array_shift));
 array_indexof_ref = register_preexisting_object(JSObject.simfct(array_indexof));
 array_reverse_ref = register_preexisting_object(JSObject.simfct(array_reverse));
+array_join_ref = register_preexisting_object(JSObject.simfct(array_join))
 
 def array_hook(name):
     if name == "pop":
@@ -280,6 +288,8 @@ def array_hook(name):
         return JSRef(array_indexof_ref)
     elif name == "reverse":
         return JSRef(array_reverse_ref)
+    elif name == "join":
+        return JSRef(array_join_ref)
     else:
         return JSTop
 
@@ -288,7 +298,7 @@ def string_split(state, expr, string, separator=None):
         return string
     if isinstance(string, JSPrimitive) and isinstance(separator, JSPrimitive) and type(string.val) is str and type(separator.val) is str:
         if separator.val == "":
-            result = [*separator.val]
+            result = [*string.val]
         else:
             result = string.val.split(separator.val)
         obj_id = State.new_id()
@@ -373,6 +383,7 @@ def string_slice(state, expr, string, begin=JSPrimitive(0), end=JSPrimitive(None
     else:
         print("slice: unhandled argument: ", string, " begin: ", begin, "end: ", end)
         return JSTop
+
 
 
 string_split_ref = register_preexisting_object(JSObject.simfct(string_split))
