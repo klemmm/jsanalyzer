@@ -387,7 +387,10 @@ class Interpreter(object):
                 if prop_val is JSTop:
                     continue
                 if not prop.computed:
-                    properties[prop.key.value] = prop_val
+                    if prop.key.name is not None:
+                        properties[prop.key.name] = prop_val
+                    else:
+                        properties[prop.key.value] = prop_val
 
                 else:
                     prop_key = self.eval_expr(state, prop.key)

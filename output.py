@@ -148,7 +148,10 @@ class Output(object):
                     self.do_expr(prop.key)
                 else:
                     if prop.type == "Property":
-                        self.out(prop.key.value, end="")
+                        if prop.key.name is not None:
+                            self.out(prop.key.name, end="")
+                        else:
+                            self.out(prop.key.value, end="")
                         self.out(": ", end="")
                         self.do_expr(prop.value)
                     else:
