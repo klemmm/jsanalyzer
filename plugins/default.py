@@ -179,7 +179,12 @@ def parse_int(state, s, base=JSPrimitive(10)):
     if s is JSUndefNaN:
         return JSUndefNaN
     if isinstance(s, JSPrimitive) and type(s.val) is str and isinstance(base, JSPrimitive) and type(base.val) is int:
-        prefix = re.sub('\D.*', '', s.val)
+        if base.val > 36:
+            return JSUndefNaN
+        alpha = ''
+        if base.val > 10:
+            alpha = 'a-' + chr(ord('a') + base.val - 11)
+        prefix = re.sub('[^0-9' + alpha + '].*', '', s.val.lower())
         if prefix == "":
             return JSUndefNaN
         else:
