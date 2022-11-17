@@ -1,5 +1,5 @@
+import esprima
 from abstract import State, JSObject, JSUndefNaN, JSTop, JSBot, JSRef, JSPrimitive, JSValue
-
 from debug import debug
 
 SITE = 0
@@ -19,6 +19,20 @@ class Stats:
     computed_values = 0
     beta_reductions = 0
     steps = 0
+
+
+def eval_fct(state, target):
+    if target is JSTop:
+        return JSTop #TODO should clear entire state here
+    if isinstance(target, JSPrimitive) and type(target.val) is str:
+        print("Launch sub-interpreter to manage eval()")
+        ast = esprima.parse(target.val, options={ 'range': True})
+        i = Interpreter(ast, target.val)
+        i.run(state)
+        print("Sub-interpreter finished")
+        return JSTop
+    else:
+        return target
 
 class Interpreter(object):
     def __init__(self, ast, data):
@@ -986,8 +1000,7 @@ class Interpreter(object):
                 self.do_statement(state, statement)
 
 
-    def run(self):
-        state = State(glob=True, bottom=False)
+    def run(self, entry_state=None):
         self.return_value = None
         self.closure = {}
         self.return_state = State.bottom()
@@ -995,13 +1008,18 @@ class Interpreter(object):
         self.loopcont_state = State.bottom()
         self.pure = True
 
-        for (ref_id, obj) in plugin_manager.preexisting_objects:
-            state.objs[ref_id] = obj
-        
-        for (name, value) in plugin_manager.global_symbols:
-            state.objs[state.gref].properties[name] = value
-        
-        State.set_next_id(plugin_manager.ref_id)
+        if entry_state is None:
+            state = State(glob=True, bottom=False)
+
+            for (ref_id, obj) in plugin_manager.preexisting_objects:
+                state.objs[ref_id] = obj
+            
+            for (name, value) in plugin_manager.global_symbols:
+                state.objs[state.gref].properties[name] = value
+            
+            State.set_next_id(plugin_manager.ref_id)
+        else:
+            entry_state = state
 
         debug("Dumping Abstract Syntax Tree:")
         debug(self.ast.body)
