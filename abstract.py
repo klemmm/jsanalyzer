@@ -12,6 +12,7 @@ class State(object):
             self.pending = set()
             self.is_bottom = True
             self.stack_frames = []
+            self.value = JSBot
         else:
             self.is_bottom = False
             self.objs = {} 
@@ -24,6 +25,7 @@ class State(object):
             else:
                 self.lref = State.new_id()
                 self.objs[self.lref] = JSObject({})
+            self.value = JSTop
 
     # Class attributes
     next_id = 0
@@ -91,6 +93,7 @@ class State(object):
         self.is_bottom = True
         self.stack_frames = []
         self.pending = set()
+        self.value = JSBot
 
     def clone(self):
         c = State()
@@ -100,6 +103,7 @@ class State(object):
         c.gref = self.gref
         c.pending = self.pending.copy()
         c.stack_frames = self.stack_frames.copy()
+        c.value = self.value.clone()
         return c 
 
     def __eq__(self, other):
@@ -124,6 +128,7 @@ class State(object):
         State.dict_assign(self.objs, other.objs)
         self.pending = other.pending.copy()
         self.stack_frames = other.stack_frames.copy()
+        self.value = other.value.clone()
 
     #In case of join on recursion state, other is the state of the greater recursion depth, self is the state of lesser recursion depth
     def join(self, other):
@@ -157,6 +162,11 @@ class State(object):
                 bye.append(k)
         for b in bye:
             del self.objs[b]
+
+        if self.value is JSBot:
+            self.value = other.value.clone()
+        elif not State.value_equal(self.value, other.value):
+            self.value = JSTop
 
     def scope_lookup(self, name):
         if name in self.objs[self.lref].properties:
