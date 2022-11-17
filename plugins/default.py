@@ -203,6 +203,8 @@ analyzer_assert = register_preexisting_object(JSObject.simfct(analyzer_assert));
 register_global_symbol('analyzer_assert', JSRef(analyzer_assert))
 
 def array_indexof(state, expr, arr, item, start=JSPrimitive(0)):
+    if arr is JSTop or item is JSTop or start is JSTop:
+        return JSTop
     if hasattr(arr, 'properties'):
         i = 0
         for key,values in arr.properties.items():
@@ -376,6 +378,13 @@ def string_substring(state, expr, string, start=JSPrimitive(0), end=JSPrimitive(
         else:
             return JSPrimitive(string.val[sta:end])
 
+def string_replace(state, expr, string, pattern, replacement):
+    if string is JSTop or pattern is JSTop or replacement is JSTop:
+        return JSTop
+    if type(pattern.val) is re.Pattern:
+        return JSPrimitive(re.sub(pattern.val, replacement.val, string.val))
+    else:
+        return JSPrimitive(string.val.replace(pattern.val, replacement.val, 1))
 
 def string_slice(state, expr, string, begin=JSPrimitive(0), end=JSPrimitive(None)):
     if isinstance(string, JSPrimitive) and type(string.val) is str and isinstance(begin, JSPrimitive) and type(begin.val) is int and isinstance(end, JSPrimitive) and (type(end.val) is int or end.val is None):
@@ -391,6 +400,7 @@ string_charcodeat_ref = register_preexisting_object(JSObject.simfct(string_charc
 string_slice_ref = register_preexisting_object(JSObject.simfct(string_slice))
 string_substr_ref = register_preexisting_object(JSObject.simfct(string_substr))
 string_substring_ref = register_preexisting_object(JSObject.simfct(string_substring))
+string_replace_ref = register_preexisting_object(JSObject.simfct(string_replace))
 
 def string_hook(name):
     if name == "split":
@@ -403,6 +413,8 @@ def string_hook(name):
         return JSRef(string_substr_ref)
     if name == "substring":
         return JSRef(string_substring_ref)
+    if name == "replace":
+        return JSRef(string_replace_ref)
     return JSTop
 
 def baseconv(n, b):

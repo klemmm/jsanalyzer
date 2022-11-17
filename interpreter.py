@@ -1,7 +1,7 @@
 import esprima
 from abstract import State, JSObject, JSUndefNaN, JSTop, JSBot, JSRef, JSPrimitive, JSValue
 from debug import debug
-
+import re
 SITE = 0
 
 import esprima
@@ -129,7 +129,7 @@ class Interpreter(object):
         #Handle the case where callee is a non-simfct function
         if callee.is_function():
             callee.body.used = True
-           
+
             #enable inlining if the function consists of only one return statement
             if callee.body.type is "ReturnStatement":
                 callee.body.redex = True
@@ -156,6 +156,8 @@ class Interpreter(object):
             self.stack_trace.append(self.last)
             state.lref = State.new_id()
             state.objs[state.lref] = JSObject({})
+            if this and type(this) is int:
+                state.objs[state.lref].properties["__this"] = JSRef(this)
             self.pure = True
 
             #Store the argument values in callee local scope
@@ -353,8 +355,10 @@ class Interpreter(object):
             return r
 
         elif expr.type == "ThisExpression":
-            print("ThisExpression")
-            return JSRef(0)
+            if "__this" in state.objs[state.lref].properties:
+                return state.objs[state.lref].properties["__this"]
+            else:
+                return JSRef(0)
 
         elif expr.type == "AssignmentExpression":
             consumed_refs = set()
@@ -379,6 +383,7 @@ class Interpreter(object):
         elif expr.type == "ObjectExpression":
             properties = {}
             consumed_refs = set()
+            prop_val = None
             for prop in expr.properties:
                 if prop.type != "Property":
                     continue
@@ -399,6 +404,8 @@ class Interpreter(object):
                         properties[prop_key.val] = prop_val
             obj_id = State.new_id()
             state.objs[obj_id] = JSObject(properties)
+            if isinstance(prop_val, JSRef):
+                prop_val.bind(obj_id)
             state.pending.difference_update(consumed_refs)
             return JSRef(obj_id)
 
