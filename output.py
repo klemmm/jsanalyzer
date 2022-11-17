@@ -63,7 +63,15 @@ class Output(object):
             self.do_statement(exprstat, end)
 
     def do_expr(self, expr, simplify=True):
-        if simplify and (expr.static_value is not None and isinstance(expr.static_value, JSPrimitive)):
+        if expr.eval is not None:
+            self.out("eval('\n", end="")
+            self.indent += self.INDENT
+            for statement in expr.eval:
+                self.do_statement(statement)
+            self.indent -= self.INDENT
+            self.out("')", end="")
+
+        elif simplify and (expr.static_value is not None and isinstance(expr.static_value, JSPrimitive)) and not (expr.type == "CallExpression" and expr.callee.name == "eval"): 
             self.print_literal(expr.static_value.val)
         
         elif expr.type == "Literal":
@@ -256,12 +264,12 @@ class Output(object):
                 if decl.init is not None:
                     self.out(" = ", end="")
                     self.do_expr(decl.init)
-                self.out("", end=end)
+                self.out(";", end=end)
 
         elif statement.type == "ExpressionStatement":
             self.out(" "*self.indent, end="")
             self.do_expr(statement.expression, simplify=False)
-            self.out("", end=end)
+            self.out(";", end=end)
 
         elif statement.type == "IfStatement":
             self.out(self.indent*" " + "if (", end="")

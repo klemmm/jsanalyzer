@@ -21,7 +21,7 @@ class Stats:
     steps = 0
 
 
-def eval_fct(state, target):
+def eval_fct(state, expr, target):
     if target is JSTop:
         return JSTop #TODO should clear entire state here
     if isinstance(target, JSPrimitive) and type(target.val) is str:
@@ -29,8 +29,9 @@ def eval_fct(state, target):
         ast = esprima.parse(target.val, options={ 'range': True})
         i = Interpreter(ast, target.val)
         i.run(state)
+        expr.eval = ast.body
         print("Sub-interpreter finished")
-        return JSTop
+        return state.value
     else:
         return target
 
@@ -91,7 +92,7 @@ class Interpreter(object):
     #Evaluate a function call
     #state (mutable): takes abstract state used to perform the evaluation
     #callee (callable JSObject, or JSTop): represent callee object
-    #expr (AST node, or None): represent arguments, if any
+    #expr (AST node, or None): represent call expression, if any
     def eval_func_call(self, state, callee, expr, this=None, consumed_refs=None):
         if expr is None:
             arguments = []
@@ -118,12 +119,12 @@ class Interpreter(object):
             #TODO for now, only simfct can be bound
             if this:
                 if type(this) is int: #bound to object
-                    return callee.simfct(state, state.objs[this], *args_val) #call bound simfct
+                    return callee.simfct(state, expr, state.objs[this], *args_val) #call bound simfct
                 else: #bound to primitive type (int or string)
                     assert isinstance(this, JSPrimitive)
-                    return callee.simfct(state, this, *args_val) #call bound simfct
+                    return callee.simfct(state, expr, this, *args_val) #call bound simfct
             else:
-                return callee.simfct(state, *args_val) #call unbound simfct
+                return callee.simfct(state, expr, *args_val) #call unbound simfct
 
         #Handle the case where callee is a non-simfct function
         if callee.is_function():
@@ -681,8 +682,8 @@ class Interpreter(object):
             self.do_statement(state, exprstat)
 
     def do_exprstat(self, state, expr):
-        discarded = self.eval_expr(state, expr)
-        state.consume_expr(discarded)
+        state.value = self.eval_expr(state, expr)
+        state.consume_expr(state.value)
     
     def do_while(self, state, test, body):
         self.do_for(state, None, test, None, body)
@@ -895,6 +896,9 @@ class Interpreter(object):
         visit(state.lref) #local context gc root
         visit(state.gref) #global context gc root
 
+        if isinstance(state.value, JSRef): #end-value is a gc root
+            reachable.add(state.value.target())
+
         #callstack local contexts gc root
         for ref in state.stack_frames:
             if ref is None:
@@ -1011,6 +1015,9 @@ class Interpreter(object):
         if entry_state is None:
             state = State(glob=True, bottom=False)
 
+            eval_obj = plugin_manager.register_preexisting_object(JSObject.simfct(eval_fct))
+            plugin_manager.register_global_symbol("eval", JSRef(eval_obj))
+
             for (ref_id, obj) in plugin_manager.preexisting_objects:
                 state.objs[ref_id] = obj
             
@@ -1019,7 +1026,7 @@ class Interpreter(object):
             
             State.set_next_id(plugin_manager.ref_id)
         else:
-            entry_state = state
+            state = entry_state
 
         debug("Dumping Abstract Syntax Tree:")
         debug(self.ast.body)
@@ -1040,6 +1047,10 @@ class Interpreter(object):
             raise
         print("\nAbstract state stabilized after", Stats.steps, "steps")
         debug("Abstract state at end: ", state)
+        print("End value:", state.value, end="")
+        if isinstance(state.value, JSRef):
+            print("", state.objs[state.value.target()])
+        print("")
         dead_funcs = 0
         funcs = 0
         for f in self.funcs:

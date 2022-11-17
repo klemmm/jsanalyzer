@@ -143,7 +143,7 @@ def binary_handler(opname, state, abs_arg1, abs_arg2):
 
 register_binary_handler(binary_handler)
 
-def console_log(state, this, *args):
+def console_log(state, expr, this, *args):
     if config.console_enable:
         print("console log:")
         i = 0
@@ -160,7 +160,7 @@ def console_log(state, this, *args):
     return JSUndefNaN
 
 
-def string_fromcharcode(state, obj, code):
+def string_fromcharcode(state, expr, obj, code):
     if code is JSTop:
         return JSTop
 
@@ -175,7 +175,7 @@ console_log_ref = register_preexisting_object(JSObject.simfct(console_log));
 console_ref = register_preexisting_object(JSObject({"log": JSRef(console_log_ref)}))
 register_global_symbol('console', JSRef(console_ref))
 
-def parse_int(state, s, base=JSPrimitive(10)):
+def parse_int(state, expr, s, base=JSPrimitive(10)):
     if s is JSUndefNaN:
         return JSUndefNaN
     if isinstance(s, JSPrimitive) and type(s.val) is str and isinstance(base, JSPrimitive) and type(base.val) is int:
@@ -202,7 +202,7 @@ def analyzer_assert(b):
 analyzer_assert = register_preexisting_object(JSObject.simfct(analyzer_assert));
 register_global_symbol('analyzer_assert', JSRef(analyzer_assert))
 
-def array_indexof(state, arr, item, start=JSPrimitive(0)):
+def array_indexof(state, expr, arr, item, start=JSPrimitive(0)):
     if hasattr(arr, 'properties'):
         i = 0
         for key,values in arr.properties.items():
@@ -218,7 +218,7 @@ def array_indexof(state, arr, item, start=JSPrimitive(0)):
     else:
         raise NameError('Invalid Javascript')
 
-def array_reverse(state, arr):
+def array_reverse(state, expr, arr):
     obj_id = State.new_id()
     d = dict()
     l = len(arr.properties)
@@ -228,7 +228,7 @@ def array_reverse(state, arr):
     return JSRef(obj_id)
 
  
-def array_pop(state, arr):
+def array_pop(state, expr, arr):
     #FIXME array object should track its abstract size
     indexes = sorted([i for i in arr.properties if type(i) is int])
     if len(indexes) == 0:
@@ -237,7 +237,7 @@ def array_pop(state, arr):
     del arr.properties[indexes[-1]]
     return retval
 
-def array_push(state, arr, value):
+def array_push(state, expr, arr, value):
     #FIXME array object should track its abstract size
     indexes = sorted([i for i in arr.properties if type(i) is int])
     if len(indexes) == 0:
@@ -246,7 +246,7 @@ def array_push(state, arr, value):
     arr.properties[indexes[-1] + 1] = value
     return retval
 
-def array_shift(state, arr):
+def array_shift(state, expr, arr):
     #FIXME array object should track its abstract size
     indexes = sorted([i for i in arr.properties if type(i) is int])
     if len(indexes) == 0:
@@ -283,7 +283,7 @@ def array_hook(name):
     else:
         return JSTop
 
-def string_split(state, string, separator=None):
+def string_split(state, expr, string, separator=None):
     if separator is None:
         return string
     if isinstance(string, JSPrimitive) and isinstance(separator, JSPrimitive) and type(string.val) is str and type(separator.val) is str:
@@ -318,7 +318,7 @@ def interpret_as_number(state, value):
     else:
         raise ValueError("interpret_as_number: invalid value: " + str(value))
 
-def string_charcodeat(state, string, position):
+def string_charcodeat(state, expr, string, position):
     if not (isinstance(string, JSPrimitive) and type(string.val) is str):
         return JSTop
     if position is JSTop:
@@ -328,7 +328,7 @@ def string_charcodeat(state, string, position):
         return JSUndefNaN
     return JSPrimitive(ord(string.val[pos]))
 
-def string_substr(state, string, start=JSPrimitive(0), length=JSPrimitive(None)):
+def string_substr(state, expr, string, start=JSPrimitive(0), length=JSPrimitive(None)):
     if not (isinstance(string, JSPrimitive) and type(string.val) is str):
         return JSTop
     if start is JSTop:
@@ -347,7 +347,7 @@ def string_substr(state, string, start=JSPrimitive(0), length=JSPrimitive(None))
         else:
             return JSPrimitive(string.val[sta:sta + leng])
 
-def string_substring(state, string, start=JSPrimitive(0), end=JSPrimitive(None)):
+def string_substring(state, expr, string, start=JSPrimitive(0), end=JSPrimitive(None)):
     if not (isinstance(string, JSPrimitive) and type(string.val) is str):
         return JSTop
     if start is JSTop:
@@ -367,7 +367,7 @@ def string_substring(state, string, start=JSPrimitive(0), end=JSPrimitive(None))
             return JSPrimitive(string.val[sta:end])
 
 
-def string_slice(state, string, begin=JSPrimitive(0), end=JSPrimitive(None)):
+def string_slice(state, expr, string, begin=JSPrimitive(0), end=JSPrimitive(None)):
     if isinstance(string, JSPrimitive) and type(string.val) is str and isinstance(begin, JSPrimitive) and type(begin.val) is int and isinstance(end, JSPrimitive) and (type(end.val) is int or end.val is None):
         return JSPrimitive(string.val[begin.val:end.val])
     else:
@@ -404,7 +404,7 @@ def baseconv(n, b):
         ret += baseconv(n // b, b)
     return ret + alpha[n % b]
 
-def function_or_int_tostring(state, fn_or_int, base=JSPrimitive(10)):
+def function_or_int_tostring(state, expr, fn_or_int, base=JSPrimitive(10)):
     if isinstance(fn_or_int, JSPrimitive) and type(fn_or_int.val) is int and isinstance(base, JSPrimitive) and type(base.val) is int:
         return JSPrimitive(baseconv(fn_or_int.val, base.val))
     elif fn_or_int.is_function():
@@ -423,7 +423,7 @@ register_method_hook(array_hook)
 register_method_hook(string_hook)
 register_method_hook(function_hook)
 
-def atob(state, string):
+def atob(state, expr, string):
     if isinstance(string, JSPrimitive) and type(string.val) is str:
         return JSPrimitive(base64.b64decode(string.val).decode("latin-1"))
     return JSTop
@@ -431,7 +431,7 @@ def atob(state, string):
 atob_ref = register_preexisting_object(JSObject.simfct(atob))
 register_global_symbol('atob', JSRef(atob_ref))
 
-def btoa(state, string):
+def btoa(state, expr, string):
     if isinstance(string, JSPrimitive) and type(string.val) is str:
         return JSPrimitive(base64.b64encode(str.encode(string.val)))
     return JSTop
@@ -439,7 +439,7 @@ def btoa(state, string):
 btoa_ref = register_preexisting_object(JSObject.simfct(btoa))
 register_global_symbol('btoa', JSRef(btoa_ref))
 
-def decode_uri_component(state, string):
+def decode_uri_component(state, expr, string):
     if isinstance(string, JSPrimitive) and type(string.val) is str:
         return JSPrimitive(urllib.parse.unquote(string.val))
     return JSTop
