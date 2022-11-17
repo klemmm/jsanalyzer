@@ -175,15 +175,15 @@ console_log_ref = register_preexisting_object(JSObject.simfct(console_log));
 console_ref = register_preexisting_object(JSObject({"log": JSRef(console_log_ref)}))
 register_global_symbol('console', JSRef(console_ref))
 
-def parse_int(state, s, base=10):
+def parse_int(state, s, base=JSPrimitive(10)):
     if s is JSUndefNaN:
         return JSUndefNaN
-    if isinstance(s, JSPrimitive) and type(s.val) is str:
+    if isinstance(s, JSPrimitive) and type(s.val) is str and isinstance(base, JSPrimitive) and type(base.val) is int:
         prefix = re.sub('\D.*', '', s.val)
         if prefix == "":
             return JSUndefNaN
         else:
-            return JSPrimitive(int(prefix, base))
+            return JSPrimitive(int(prefix, base.val))
     return JSTop
 
 parse_int_ref = register_preexisting_object(JSObject.simfct(parse_int));
@@ -342,6 +342,26 @@ def string_substr(state, string, start=JSPrimitive(0), length=JSPrimitive(None))
         else:
             return JSPrimitive(string.val[sta:sta + leng])
 
+def string_substring(state, string, start=JSPrimitive(0), end=JSPrimitive(None)):
+    if not (isinstance(string, JSPrimitive) and type(string.val) is str):
+        return JSTop
+    if start is JSTop:
+        return JSTop
+    if end is JSTop:
+        return JSTop
+    sta = interpret_as_number(state, start)
+    end = interpret_as_number(state, end)
+    if sta < 0:
+        return JSUndefNaN
+    if end is None:
+        return JSPrimitive(string.val[sta:])
+    else:
+        if end > len(string.val):
+            return JSUndefNaN
+        else:
+            return JSPrimitive(string.val[sta:end])
+
+
 def string_slice(state, string, begin=JSPrimitive(0), end=JSPrimitive(None)):
     if isinstance(string, JSPrimitive) and type(string.val) is str and isinstance(begin, JSPrimitive) and type(begin.val) is int and isinstance(end, JSPrimitive) and (type(end.val) is int or end.val is None):
         return JSPrimitive(string.val[begin.val:end.val])
@@ -354,6 +374,7 @@ string_split_ref = register_preexisting_object(JSObject.simfct(string_split))
 string_charcodeat_ref = register_preexisting_object(JSObject.simfct(string_charcodeat))
 string_slice_ref = register_preexisting_object(JSObject.simfct(string_slice))
 string_substr_ref = register_preexisting_object(JSObject.simfct(string_substr))
+string_substring_ref = register_preexisting_object(JSObject.simfct(string_substring))
 
 def string_hook(name):
     if name == "split":
@@ -364,6 +385,8 @@ def string_hook(name):
         return JSRef(string_slice_ref)
     if name == "substr":
         return JSRef(string_substr_ref)
+    if name == "substring":
+        return JSRef(string_substring_ref)
     return JSTop
 
 def baseconv(n, b):
