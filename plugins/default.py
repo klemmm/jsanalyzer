@@ -175,7 +175,7 @@ console_log_ref = register_preexisting_object(JSObject.simfct(console_log));
 console_ref = register_preexisting_object(JSObject({"log": JSRef(console_log_ref)}))
 register_global_symbol('console', JSRef(console_ref))
 
-def parse_int(state, s):
+def parse_int(state, s, base=10):
     if s is JSUndefNaN:
         return JSUndefNaN
     if isinstance(s, JSPrimitive) and type(s.val) is str:
@@ -183,7 +183,7 @@ def parse_int(state, s):
         if prefix == "":
             return JSUndefNaN
         else:
-            return JSPrimitive(int(prefix))
+            return JSPrimitive(int(prefix, base))
     return JSTop
 
 parse_int_ref = register_preexisting_object(JSObject.simfct(parse_int));
