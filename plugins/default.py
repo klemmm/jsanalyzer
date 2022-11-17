@@ -340,6 +340,16 @@ def string_charcodeat(state, expr, string, position):
         return JSUndefNaN
     return JSPrimitive(ord(string.val[pos]))
 
+def string_charat(state, expr, string, position):
+    if not (isinstance(string, JSPrimitive) and type(string.val) is str):
+        return JSTop
+    if position is JSTop:
+        return JSTop
+    pos = interpret_as_number(state, position)
+    if pos < 0 or pos >= len(string.val):
+        return JSUndefNaN
+    return JSPrimitive(string.val[pos])
+
 def string_substr(state, expr, string, start=JSPrimitive(0), length=JSPrimitive(None)):
     if not (isinstance(string, JSPrimitive) and type(string.val) is str):
         return JSTop
@@ -397,6 +407,7 @@ def string_slice(state, expr, string, begin=JSPrimitive(0), end=JSPrimitive(None
 
 string_split_ref = register_preexisting_object(JSObject.simfct(string_split))
 string_charcodeat_ref = register_preexisting_object(JSObject.simfct(string_charcodeat))
+string_charat_ref = register_preexisting_object(JSObject.simfct(string_charat))
 string_slice_ref = register_preexisting_object(JSObject.simfct(string_slice))
 string_substr_ref = register_preexisting_object(JSObject.simfct(string_substr))
 string_substring_ref = register_preexisting_object(JSObject.simfct(string_substring))
@@ -407,6 +418,8 @@ def string_hook(name):
         return JSRef(string_split_ref)
     if name == "charCodeAt":
         return JSRef(string_charcodeat_ref)
+    if name == "charAt":
+        return JSRef(string_charat_ref)
     if name == "slice":
         return JSRef(string_slice_ref)
     if name == "substr":
