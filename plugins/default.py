@@ -94,7 +94,7 @@ def binary_handler(opname, state, abs_arg1, abs_arg2):
             if type(arg1) is str and (type(arg2) is int or type(arg2) is float):
                 arg2 = str(arg2)
 
-        if opname == "-" or opname == "/" or opname == "*":
+        if opname == "-" or opname == "/" or opname == "*" or opname == "&" or opname == "|" or opname == ">>" or opname == "<" :
             if type(arg1) is str:
                 try:
                     arg1 = eval(arg1)
@@ -133,6 +133,14 @@ def binary_handler(opname, state, abs_arg1, abs_arg2):
             r = not (arg1 == arg2)
         elif opname == "^":
             r = arg1 ^ arg2
+        elif opname == "&":
+            r = arg1 & arg2
+        elif opname == "|":
+            r = arg1 | arg2
+        elif opname == "<<":
+            r = arg1 << arg2
+        elif opname == ">>":
+            r = arg1 >> arg2
         else:
             print("Unknown binary operation: ", opname)
             return JSTop
