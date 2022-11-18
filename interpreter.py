@@ -143,6 +143,7 @@ class Interpreter(object):
         except:
             pass
         if key in self.memo:
+            print("memo hit")
             return JSPrimitive(self.memo[key])
 
         #if callee.is_function() and callee.body.name in config.memoize:
@@ -188,6 +189,7 @@ class Interpreter(object):
         expr.active -= 1
         expr.recursion_state = None
         if key is not None and isinstance(ret, JSPrimitive):
+            print("memo miss")
             self.memo[key] = ret.val
         state.consume_expr(ret, consumed_refs)
         return ret
@@ -417,6 +419,7 @@ class Interpreter(object):
             consumed_refs = set()
             obj_id = State.new_id()
             state.objs[obj_id] = JSObject({})
+            state.pending.add(obj_id)
             ret = self.eval_func_helper(state, expr, consumed_refs, obj_id)
             state.consume_expr(ret, consumed_refs)
             state.pending.difference_update(consumed_refs)

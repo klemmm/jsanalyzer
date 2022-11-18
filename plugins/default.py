@@ -118,6 +118,8 @@ def binary_handler(opname, state, abs_arg1, abs_arg2):
                 return JSUndefNaN
             r = arg1 / arg2
         elif opname == "%":
+            if arg2 == 0:
+                return JSUndefNaN
             r = arg1 % arg2
         elif opname == ">":
             r = arg1 > arg2
@@ -335,6 +337,8 @@ def interpret_as_number(state, value):
             return interpret_as_number(state, obj.properties[0])
         else:
             return 0
+    elif value is JSUndefNaN:
+        return 0
     else:
         raise ValueError("interpret_as_number: invalid value: " + str(value))
 
@@ -503,7 +507,7 @@ def regexp(state, expr, this, string):
     test_id = State.new_id()
     state.objs[test_id] = JSObject.simfct(regexp_match)
     this.properties["test"] = JSRef(test_id)
-    return this
+    return JSUndefNaN
 
 regexp_ref = register_preexisting_object(JSObject.simfct(regexp))
 register_global_symbol("RegExp", JSRef(regexp_ref))
