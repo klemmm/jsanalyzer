@@ -337,7 +337,10 @@ class JSRef(JSValue):
         self.ref_id = ref_id
         self._this = None
     def __str__(self):
-        return "<ref: " + str(self.ref_id) + ">"
+        if type(self._this) is int:
+            return "<ref: " + str(self.ref_id) + " bound:" + str(self._this) + ">"
+        else:
+            return "<ref: " + str(self.ref_id) + ">"
     def __repr__(self):
         return self.__str__() 
     def __eq__(self, other):

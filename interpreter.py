@@ -89,6 +89,110 @@ class Interpreter(object):
             print("beta_reduction: unhandled expression type " + str(expression.type))
             return expression
 
+    def eval_func_helper(self, state, expr, consumed_refs, this=None):
+        if expr.skip:
+            print("skipped for site=", expr.site)
+            return JSBot
+        callee_ref = self.eval_expr(state, expr.callee)
+        state.consume_expr(callee_ref, consumed_refs)
+
+        if callee_ref.is_bound() and this is None:
+            #print("callee ref is bound:", callee_ref, state.objs[callee_ref.this()], expr)
+            this = callee_ref.this()
+
+        callee = JSTop
+        if isinstance(callee_ref, JSRef):
+            callee = state.objs[callee_ref.target()]
+
+        if expr.active is None:
+            expr.active = 0
+            #print("\nHandling function: ", callee.body.name, "site=", expr.site)
+            #print("active count: ", expr.active)
+
+        if expr.site is None:
+            expr.site = State.new_id()
+        site = expr.site
+
+        if expr.active == config.max_recursion:
+            assert expr.recursion_state is None
+            if callee is not JSTop:
+                print("[warning] Recursion inlining stopped at depth=", expr.active, "function=", callee.body.name, site)
+            expr.recursion_state = state.clone()
+
+        if expr.active == config.max_recursion + 1:
+            if callee is not JSTop:
+                print("current state stack frames: ",  state.stack_frames, state.lref, "function=", callee.body.name, site)
+
+            if expr.recursion_state.is_bottom:
+                if callee is not JSTop:
+                    print("recursion state stack frames: BOT",  "function=", callee.body.name, site)
+            else:
+                if callee is not JSTop:
+                    print("recursion state stack frames: ",  expr.recursion_state.stack_frames, expr.recursion_state.lref, "function=", callee.body.name, site)
+            expr.recursion_state.join(state)
+            if callee is not JSTop:
+                print("   joined state stack frames: ",  expr.recursion_state.stack_frames, expr.recursion_state.lref, "function=", callee.body.name, site)
+            raise StackUnwind(site)
+
+        key = None
+        try:
+            if callee.body.name in config.memoize:
+                key = ""
+                for a in expr.arguments:
+                    key = key + a.value + "\x00"
+        except:
+            pass
+        if key in self.memo:
+            return JSPrimitive(self.memo[key])
+
+        #if callee.is_function() and callee.body.name in config.memoize:
+        #    raise ValueError
+        expr.active += 1
+        stable = False
+        while not stable:
+            try:
+                #print("start eval, site", expr.site, "skip=", expr.skip)
+                if expr.recursion_state is not None:
+                    old_recursion_state = expr.recursion_state.clone()
+                if self.return_state is not None:
+                    saved_return_state = self.return_state.clone()
+                else:
+                    saved_return_state = None
+                if self.return_value is not None:
+                    saved_return_value = self.return_value.clone()
+                else:
+                    saved_return_value = None
+                ret =  self.eval_func_call(state, callee, expr, this, consumed_refs)
+                #print("stop eval, site", expr.site, "skip=", expr.skip)
+                stable = True
+            except StackUnwind as e:
+                #print("at site: ", expr.site)
+                if e.site != expr.site:
+                    #print("not my function")
+                    expr.active -= 1
+                    expr.recursion_state = None
+                    raise e
+                #print("Unwinded: ", e.site)
+                state.assign(old_recursion_state)
+                self.return_state = saved_return_state
+                self.return_value = saved_return_value
+                if state == expr.recursion_state:
+                    expr.skip = True
+                    #print("Recursion state stabilized, function=", callee.body.name, site)
+#                    else:
+#                       print("not stable yet")
+                    state.assign(expr.recursion_state)
+        #if expr.recursion_state is not None:
+        #    print("Finished site=", expr.site, expr.range)
+        expr.skip = None
+        expr.active -= 1
+        expr.recursion_state = None
+        if key is not None and isinstance(ret, JSPrimitive):
+            self.memo[key] = ret.val
+        state.consume_expr(ret, consumed_refs)
+        return ret
+
+
     #Evaluate a function call
     #state (mutable): takes abstract state used to perform the evaluation
     #callee (callable JSObject, or JSTop): represent callee object
@@ -311,14 +415,12 @@ class Interpreter(object):
 
         elif expr.type == "NewExpression":
             consumed_refs = set()
-            callee_ref = self.eval_expr(state, expr.callee)
-            state.consume_expr(callee_ref, consumed_refs)
-            for argument in expr.arguments:
-                arg_val = self.eval_expr(state, argument)
-                state.consume_expr(arg_val, consumed_refs)
+            obj_id = State.new_id()
+            state.objs[obj_id] = JSObject({})
+            ret = self.eval_func_helper(state, expr, consumed_refs, obj_id)
+            state.consume_expr(ret, consumed_refs)
             state.pending.difference_update(consumed_refs)
-            print("NewExpression return JSTop")
-            return JSTop
+            return JSRef(obj_id)
       
         elif expr.type == "ConditionalExpression":
             consumed_refs = set()
@@ -404,8 +506,8 @@ class Interpreter(object):
                         properties[prop_key.val] = prop_val
             obj_id = State.new_id()
             state.objs[obj_id] = JSObject(properties)
-            if isinstance(prop_val, JSRef):
-                prop_val.bind(obj_id)
+            #if isinstance(prop_val, JSRef):
+            #    prop_val.bind(obj_id)
             state.pending.difference_update(consumed_refs)
             return JSRef(obj_id)
 
@@ -552,111 +654,10 @@ class Interpreter(object):
             return JSRef(obj_id)
 
         elif expr.type == "CallExpression":
-            if expr.skip:
-                print("skipped for site=", expr.site)
-                return JSBot
             consumed_refs = set()
-            callee_ref = self.eval_expr(state, expr.callee)
-            state.consume_expr(callee_ref, consumed_refs)
-
-            this = None
-            if callee_ref.is_bound():
-                this = callee_ref.this()
-
-            callee = JSTop
-            if isinstance(callee_ref, JSRef):
-                callee = state.objs[callee_ref.target()]
-
-            if expr.active is None:
-                expr.active = 0
-                #print("\nHandling function: ", callee.body.name, "site=", expr.site)
-                #print("active count: ", expr.active)
-
-            if expr.site is None:
-                expr.site = State.new_id()
-            site = expr.site
-
-            if expr.active == config.max_recursion:
-                assert expr.recursion_state is None
-                if callee is not JSTop:
-                    print("[warning] Recursion inlining stopped at depth=", expr.active, "function=", callee.body.name, site)
-                expr.recursion_state = state.clone()
-
-            if expr.active == config.max_recursion + 1:
-                if callee is not JSTop:
-                    print("current state stack frames: ",  state.stack_frames, state.lref, "function=", callee.body.name, site)
-
-                if expr.recursion_state.is_bottom:
-                    if callee is not JSTop:
-                        print("recursion state stack frames: BOT",  "function=", callee.body.name, site)
-                else:
-                    if callee is not JSTop:
-                        print("recursion state stack frames: ",  expr.recursion_state.stack_frames, expr.recursion_state.lref, "function=", callee.body.name, site)
-                expr.recursion_state.join(state)
-                if callee is not JSTop:
-                    print("   joined state stack frames: ",  expr.recursion_state.stack_frames, expr.recursion_state.lref, "function=", callee.body.name, site)
-                raise StackUnwind(site)
-
-            key = None
-            try:
-                if callee.body.name in config.memoize:
-                    key = ""
-                    for a in expr.arguments:
-                        key = key + a.value + "\x00"
-            except:
-                pass
-            if key in self.memo:
-                state.pending.difference_update(consumed_refs)
-                return JSPrimitive(self.memo[key])
-
-            #if callee.is_function() and callee.body.name in config.memoize:
-            #    raise ValueError
-            expr.active += 1
-            stable = False
-            while not stable:
-                try:
-                    #print("start eval, site", expr.site, "skip=", expr.skip)
-                    if expr.recursion_state is not None:
-                        old_recursion_state = expr.recursion_state.clone()
-                    if self.return_state is not None:
-                        saved_return_state = self.return_state.clone()
-                    else:
-                        saved_return_state = None
-                    if self.return_value is not None:
-                        saved_return_value = self.return_value.clone()
-                    else:
-                        saved_return_value = None
-                    ret =  self.eval_func_call(state, callee, expr, this, consumed_refs)
-                    #print("stop eval, site", expr.site, "skip=", expr.skip)
-                    stable = True
-                except StackUnwind as e:
-                    #print("at site: ", expr.site)
-                    if e.site != expr.site:
-                        #print("not my function")
-                        expr.active -= 1
-                        expr.recursion_state = None
-                        raise e
-                    #print("Unwinded: ", e.site)
-                    state.assign(old_recursion_state)
-                    self.return_state = saved_return_state
-                    self.return_value = saved_return_value
-                    if state == expr.recursion_state:
-                        expr.skip = True
-                        #print("Recursion state stabilized, function=", callee.body.name, site)
-#                    else:
-#                       print("not stable yet")
-                        state.assign(expr.recursion_state)
-            #if expr.recursion_state is not None:
-            #    print("Finished site=", expr.site, expr.range)
-            expr.skip = None
-            expr.active -= 1
-            expr.recursion_state = None
-            if key is not None and isinstance(ret, JSPrimitive):
-                self.memo[key] = ret.val
-            state.consume_expr(ret, consumed_refs)
+            ret = self.eval_func_helper(state, expr, consumed_refs)
             state.pending.difference_update(consumed_refs)
             return ret
-
         else:
             raise ValueError("Expr type not handled:" + expr.type)
         return

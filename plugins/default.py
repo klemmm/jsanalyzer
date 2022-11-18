@@ -495,3 +495,15 @@ register_global_symbol('unescape', JSRef(decode_uri_component_ref))
 function_ref = register_preexisting_object(JSObject({}))
 register_global_symbol('Function', JSRef(function_ref))
 
+def regexp_match(state, expr, this, target):
+    return JSPrimitive(this.properties["regexp"].val.match(target.val) is not None)
+
+def regexp(state, expr, this, string):
+    this.properties["regexp"] = JSPrimitive(re.compile(string.val))
+    test_id = State.new_id()
+    state.objs[test_id] = JSObject.simfct(regexp_match)
+    this.properties["test"] = JSRef(test_id)
+    return this
+
+regexp_ref = register_preexisting_object(JSObject.simfct(regexp))
+register_global_symbol("RegExp", JSRef(regexp_ref))
