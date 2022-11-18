@@ -89,9 +89,9 @@ def binary_handler(opname, state, abs_arg1, abs_arg2):
         arg2 = abs_arg2.val
        
         if opname == "+":
-            if (type(arg1) is int or type(arg1) is float) and type(arg2) is str:
+            if (type(arg1) is int or type(arg1) is float or type(arg1) is bool) and type(arg2) is str:
                 arg1 = str(arg1)
-            if type(arg1) is str and (type(arg2) is int or type(arg2) is float):
+            if type(arg1) is str and (type(arg2) is int or type(arg2) is float or type(arg2) is bool):
                 arg2 = str(arg2)
 
         if opname == "-" or opname == "/" or opname == "*" or opname == "&" or opname == "|" or opname == ">>" or opname == "<" :
