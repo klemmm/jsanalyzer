@@ -70,13 +70,10 @@ class State(object):
         else:
             topify = []
             for k in d1:
-                d2_val = JSUndefNaN
-                if k in d2:
-                    d2_val = d2[k]
-                if not State.value_equal(d1[k], d2_val):
+                if not k in d2 or not State.value_equal(d1[k], d2[k]):
                     topify.append(k)
             for k in d2:
-                if (not k in d1) and (d2[k] is not JSUndefNaN):
+                if not k in d1:
                     topify.append(k)
             for k in topify:
                 d1[k] = JSTop
@@ -391,6 +388,7 @@ class JSObject(JSValue):
         r = self.properties.get(name, None)
         if r is None:
             print("Member not found:", name, "mode:", self.missing_mode)
+            #raise ValueError
             if self.missing_mode == MissingMode.MISSING_IS_TOP:
                 return JSTop
             else:

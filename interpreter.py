@@ -735,8 +735,7 @@ class Interpreter(object):
         # - the header state is stable
         # - the loop condition is proven false
         header_state = State.bottom()
-        while state != header_state:
-            lastcond_is_true = False
+        while True:
 
             if unrolling: #If we are unrolling, header_state saves current state
                 header_state = state.clone()
@@ -744,9 +743,19 @@ class Interpreter(object):
                 #print("merge header state because we are not unrolling")
                 #print("current:", state)
                 #print("header:", header_state)
+                if i > config.max_iter + 10:
+                    print("BUG: loop failed to stabilize after " + str(i) + " iterations")
+                    print("cur: ", state)
+                    print("hdr: ", header_state)
+                    raise ValueError
+                previous_header_state = header_state.clone()
                 header_state.join(state)
                 state.assign(header_state)
+                if previous_header_state == header_state:
+                    break
                 #print("joined:", state)
+            
+            lastcond_is_true = False
 
             saved_loopcont = self.loopcont_state
             self.loopcont_state = State.bottom()
@@ -761,6 +770,7 @@ class Interpreter(object):
             if config.max_iter is not None and i > config.max_iter:
                 if not warned:
                     print("[warning] Loop unrolling stopped after " + str(config.max_iter) + " iterations")
+                    #raise ValueError
                     warned = True
                 unrolling = False
 

@@ -14,9 +14,9 @@ console_enable = True #Show expressions passed to console.log
 
 inlining = True
 
-process_not_taken = True #workaround for probably incorrect boolean evaluation
+process_not_taken = False #workaround for probably incorrect boolean evaluation
 
-memoize = [] #['_0x4759', '_0x27b9']
+memoize = [] # ['_0x4759', '_0x27b9']
 
 regexp_rename = ['_0x', '............................']
 rename_length = 3
