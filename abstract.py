@@ -2,6 +2,11 @@
 import sys
 import traceback
 import config
+from enum import Enum
+
+class MissingMode(Enum):
+    MISSING_IS_UNDEF = 0
+    MISSING_IS_TOP = 1
 
 class State(object):
     def __init__(self, glob=False, bottom=False):
@@ -25,6 +30,8 @@ class State(object):
             else:
                 self.lref = State.new_id()
                 self.objs[self.lref] = JSObject({})
+            self.objs[self.gref].set_missing_mode(MissingMode.MISSING_IS_TOP)
+            self.objs[self.lref].set_missing_mode(MissingMode.MISSING_IS_TOP)
             self.value = JSTop
 
     # Class attributes
@@ -51,14 +58,39 @@ class State(object):
         State.next_id = next_id
 
     @staticmethod
-    def dict_join(d1, d2):
-        bye = []
-        for k in d1:
-            if not k in d2 or not State.value_equal(d1[k], d2[k]):
-                bye.append(k)
-        for b in bye:
-            del d1[b]
-        return d1
+    def dict_join(d1, d2, missing_mode):
+        if missing_mode == MissingMode.MISSING_IS_TOP:
+            bye = []
+            for k in d1:
+                if not k in d2 or not State.value_equal(d1[k], d2[k]):
+                    bye.append(k)
+            for k in bye:
+                del d1[k]
+            return d1
+        else:
+            topify = []
+            for k in d1:
+                d2_val = JSUndefNaN
+                if k in d2:
+                    d2_val = d2[k]
+                if not State.value_equal(d1[k], d2_val):
+                    topify.append(k)
+            for k in d2:
+                if (not k in d1) and (d2[k] is not JSUndefNaN):
+                    topify.append(k)
+            for k in topify:
+                d1[k] = JSTop
+            return d1
+
+    @staticmethod
+    def object_join(obj1, obj2):
+        if obj1.missing_mode == obj2.missing_mode:
+            return State.dict_join(obj1.properties, obj2.properties, obj1.missing_mode)
+        else:
+            obj1.set_missing_mode(MissingMode.MISSING_IS_TOP)
+            obj2_copy = obj2.clone()
+            obj2_copy.set_missing_mode(MissingMode.MISSING_IS_TOP)
+            return State.dict_join(obj1.properties, obj2_copy.properties, MissingMode.MISSING_IS_TOP)
 
     @staticmethod
     def dict_assign(d1, d2):
@@ -150,14 +182,14 @@ class State(object):
             assert(self.lref in other.stack_frames)
             lref_idx = other.stack_frames.index(self.lref)
             assert(self.stack_frames == other.stack_frames[0:lref_idx])
-            State.dict_join(self.objs[self.lref].properties, other.objs[other.lref].properties)
+            State.object_join(self.objs[self.lref], other.objs[other.lref])
 
         self.pending.intersection_update(other.pending)
 
         bye = []
         for k in self.objs:
             if k in other.objs:
-                State.dict_join(self.objs[k].properties, other.objs[k].properties)
+                State.object_join(self.objs[k], other.objs[k])
             else:
                 bye.append(k)
         for b in bye:
@@ -170,16 +202,16 @@ class State(object):
 
     def scope_lookup(self, name):
         if name in self.objs[self.lref].properties:
-            return self.objs[self.lref].properties
+            return self.objs[self.lref]
 
-        current_scope = self.objs[self.lref].properties
+        current_scope = self.objs[self.lref]
         found = False
-        while '__closure' in current_scope and not found:
-            current_scope = self.objs[current_scope['__closure'].ref_id].properties
-            found = name in current_scope
+        while '__closure' in current_scope.properties and not found:
+            current_scope = self.objs[current_scope.properties['__closure'].ref_id]
+            found = name in current_scope.properties
         if found:
             return current_scope
-        return self.objs[self.gref].properties
+        return self.objs[self.gref]
 
     def __str__(self):
         if self.is_bottom:
@@ -219,6 +251,8 @@ class JSValue(object):
         return False
     def is_bound(self):
         return False
+    def contains_top(self):
+        return False
     pass
 
 # Represents any simple type (for example: a number)
@@ -251,6 +285,8 @@ class JSSpecial(JSValue):
         if type(self) != type(other):
             return False
         return self.name == other.name
+    def contains_top(self):
+        return self.name == "Top"
 
 JSUndefNaN = JSSpecial("Undef/NaN") #represents NaN or undefined
 JSTop = JSSpecial("Top")
@@ -287,8 +323,14 @@ class JSObject(JSValue):
         self.params = params #if function, represents the arguments ASTs
         self.env = env #if function, this is the ID of object representing closure-captured environment, if any
         self.simfct = simfct #Simulated function, if any
+        self.missing_mode = MissingMode.MISSING_IS_UNDEF
     def __str__(self):
-        props = "{" + (", ".join([(str(i) + ': ' + str(self.properties[i])) for i in sorted(self.properties)])) + "} "
+        missing_mode = ""
+        if self.missing_mode == MissingMode.MISSING_IS_UNDEF:
+            missing_mode = " ...undefined"
+        elif self.missing_mode == MissingMode.MISSING_IS_TOP:
+            missing_mode = " ...Top"
+        props = "{" + (", ".join([(str(i) + ': ' + str(self.properties[i])) for i in sorted(self.properties)])) + missing_mode + "} "
         if self.simfct is not None:
             return "<simfct " + props + ">"
         elif self.env is not None:
@@ -301,7 +343,10 @@ class JSObject(JSValue):
     def __repr__(self):
         return self.__str__()
     def __eq__(self, other):
-        return self.properties == other.properties and self.body == other.body and self.params == other.params and self.env == other.env and self.simfct == other.simfct
+        return self.properties == other.properties and self.body == other.body and self.params == other.params and self.env == other.env and self.simfct == other.simfct and self.missing_mode == other.missing_mode
+
+    def contains_top(self):
+        return self.missing_mode == MissingMode.MISSING_IS_TOP or JSTop in self.properties.values()
     def is_callable(self):
         return not (self.body is None and self.simfct is None)
     def is_simfct(self):
@@ -319,16 +364,37 @@ class JSObject(JSValue):
         c.params = self.params
         c.env = self.env
         c.simfct = self.simfct
+        c.missing_mode = self.missing_mode
         return c
+
+    def set_missing_mode(self, missing_mode):
+        self.missing_mode = missing_mode 
+        if missing_mode == MissingMode.MISSING_IS_TOP:
+            self.properties = {k: v for k,v in self.properties.items() if v is not JSTop}
+
+    def set_member(self, name, value):
+        if name is None:
+            self.missing_mode = MissingMode.MISSING_IS_TOP
+            self.properties.clear()
+        else:
+            if self.missing_mode == MissingMode.MISSING_IS_TOP:
+                if value is not JSTop:
+                    self.properties[name] = value
+            else:
+                self.properties[name] = value
 
     def member(self, name):
         for h in JSObject.hooks:
             r = h(name)
             if r is not JSTop:
                 return r
-        r = self.properties.get(name, JSUndefNaN)
-        if r is JSUndefNaN:
-            print("Member not found:", name)
+        r = self.properties.get(name, None)
+        if r is None:
+            print("Member not found:", name, "mode:", self.missing_mode)
+            if self.missing_mode == MissingMode.MISSING_IS_TOP:
+                return JSTop
+            else:
+                return JSUndefNaN
         return r
 
 # Represents a reference to an object or array

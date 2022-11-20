@@ -156,6 +156,7 @@ register_binary_handler(binary_handler)
 def console_log(state, expr, this, *args):
     if config.console_enable:
         print("console log:")
+        #print("state=", state)
         i = 0
         for a in args:
             print("Arg", i, "type:", type(a), "value:", a, end="")
@@ -221,6 +222,8 @@ def array_indexof(state, expr, arr, item, start=JSPrimitive(0)):
             if i < start.val:
                 i = i + 1
                 continue
+            if item is JSTop:
+                return JSTop
             if values == item:
                 return JSPrimitive(i)
             i = i + 1
@@ -231,6 +234,8 @@ def array_indexof(state, expr, arr, item, start=JSPrimitive(0)):
         raise NameError('Invalid Javascript')
 
 def array_reverse(state, expr, arr):
+    if arr is JSTop:
+        return JSTop
     obj_id = State.new_id()
     d = dict()
     l = len(arr.properties)
@@ -241,6 +246,8 @@ def array_reverse(state, expr, arr):
 
  
 def array_pop(state, expr, arr):
+    if arr.contains_top():
+        return JSTop
     #FIXME array object should track its abstract size
     indexes = sorted([i for i in arr.properties if type(i) is int])
     if len(indexes) == 0:
@@ -250,6 +257,8 @@ def array_pop(state, expr, arr):
     return retval
 
 def array_push(state, expr, arr, value):
+    if arr.contains_top():
+        return JSTop
     #FIXME array object should track its abstract size
     indexes = sorted([i for i in arr.properties if type(i) is int])
     if len(indexes) == 0:
@@ -259,6 +268,8 @@ def array_push(state, expr, arr, value):
     return retval
 
 def array_shift(state, expr, arr):
+    if arr.contains_top():
+        return JSTop
     #FIXME array object should track its abstract size
     indexes = sorted([i for i in arr.properties if type(i) is int])
     if len(indexes) == 0:
@@ -276,7 +287,7 @@ def array_shift(state, expr, arr):
     return retval
 
 def array_join(state, expr, arr, separator=JSPrimitive(",")):
-    if arr is JSTop:
+    if arr.contains_top():
         return JSTop
     if separator is JSTop:
         return JSTop

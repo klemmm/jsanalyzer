@@ -1,5 +1,5 @@
 import esprima
-from abstract import State, JSObject, JSUndefNaN, JSTop, JSBot, JSRef, JSPrimitive, JSValue
+from abstract import State, JSObject, JSUndefNaN, JSTop, JSBot, JSRef, JSPrimitive, JSValue, MissingMode
 from debug import debug
 import re
 SITE = 0
@@ -91,7 +91,7 @@ class Interpreter(object):
 
     def eval_func_helper(self, state, expr, consumed_refs, this=None):
         if expr.skip:
-            print("skipped for site=", expr.site)
+            #print("skipped for site=", expr.site)
             return JSBot
         callee_ref = self.eval_expr(state, expr.callee)
         state.consume_expr(callee_ref, consumed_refs)
@@ -143,7 +143,7 @@ class Interpreter(object):
         except:
             pass
         if key in self.memo:
-            print("memo hit")
+            #print("memo hit")
             return JSPrimitive(self.memo[key])
 
         #if callee.is_function() and callee.body.name in config.memoize:
@@ -189,7 +189,7 @@ class Interpreter(object):
         expr.active -= 1
         expr.recursion_state = None
         if key is not None and isinstance(ret, JSPrimitive):
-            print("memo miss")
+            #print("memo miss")
             self.memo[key] = ret.val
         state.consume_expr(ret, consumed_refs)
         return ret
@@ -233,7 +233,7 @@ class Interpreter(object):
                 return callee.simfct(state, expr, *args_val) #call unbound simfct
 
         #Handle the case where callee is a non-simfct function
-        if callee.is_function():
+        elif callee.is_function():
             callee.body.used = True
 
             #enable inlining if the function consists of only one return statement
@@ -297,6 +297,11 @@ class Interpreter(object):
                 return JSUndefNaN
 
             return return_value
+        else:
+            #function is unknown, if it is a bound method, set this to top
+            if this is not None:
+                state.objs[this].properties.clear()
+                state.objs[this].set_missing_mode(MissingMode.MISSING_IS_TOP)
         self.pure = False
         return JSTop
        
@@ -326,25 +331,22 @@ class Interpreter(object):
             #Identifier type: the simple case.
             target = state.scope_lookup(lvalue_expr.name)
             prop = lvalue_expr.name
-            if target is not state.objs[state.lref].properties:
+            if target.properties is not state.objs[state.lref].properties:
                 self.pure = False
 
         elif lvalue_expr.type == "MemberExpression": #member as lvalue
             self.pure = False
             #Member expression: identify target object (dict), and property name (string)
-            r = self.use_member(state, lvalue_expr, consumed_refs)
-            if r is None:
+            target, prop, target_id = self.use_member(state, lvalue_expr, consumed_refs)
+            if target is None:
                 return
-            target = r[0].properties
-            prop = r[1]
         else:
             raise ValueError("Invalid assignment left type")
 
         #Delete old value (if any)
-        old = target.pop(prop, None)
-
-        if abs_rvalue is not JSTop:
-            target[prop] = abs_rvalue
+        old = target.properties.pop(prop, None)
+        
+        target.set_member(prop, abs_rvalue)
 
     #Helper function to decompose member expression into object (dict) and property (string). Returns None if not found.
     def use_member(self, state, expr, consumed_refs=None):
@@ -364,9 +366,9 @@ class Interpreter(object):
             abs_property = self.eval_expr(state, expr.property)
             state.consume_expr(abs_property, consumed_refs)
             if abs_property is JSTop:
-                return None
-            if abs_property is JSUndefNaN:
-                return None
+                prop = None
+            elif abs_property == JSUndefNaN:
+                prop = "__undefined"
             elif isinstance(abs_property, JSPrimitive):
                 prop = abs_property.val
             else:
@@ -374,12 +376,13 @@ class Interpreter(object):
         else:
             #Property name is directly given (i.e. foo.bar)
             prop = expr.property.name
+
         if isinstance(abs_target, JSRef):
             return target, prop, abs_target.target()
         elif isinstance(abs_target, JSPrimitive):
             return target, prop, None
         else:
-            return None
+            return None, None, None
 
     #Takes state, expression, and returns a JSValue
     def eval_expr_aux(self, state, expr):
@@ -392,10 +395,11 @@ class Interpreter(object):
             if expr.name == "undefined":
                 return JSUndefNaN
             scope = state.scope_lookup(expr.name)
-            if expr.name in scope:
-                return scope[expr.name]
+            if expr.name in scope.properties:
+                return scope.properties[expr.name]
             else:
-                return JSTop #untracked identifier
+                #print("[warn] Unknown identifier: " + str(expr.name))
+                return JSTop
 
         elif expr.type == "UpdateExpression":
             consumed_refs = set()
@@ -529,15 +533,24 @@ class Interpreter(object):
 
         elif expr.type == "MemberExpression":
             consumed_refs = set()
-            r = self.use_member(state, expr, consumed_refs)
-            if r is None:
+            target, prop, target_id = self.use_member(state, expr, consumed_refs)
+            if target is None or prop is None:
                 state.pending.difference_update(consumed_refs)
                 return JSTop
-            target, prop, target_id = r
             if isinstance(target, JSObject):
                 if prop == "length":
                     state.pending.difference_update(consumed_refs)
-                    return JSPrimitive(len([x for x in target.properties.values() if x is not JSTop])) #TODO better array size handling
+                    if target.missing_mode == MissingMode.MISSING_IS_TOP:
+                        return JSTop
+                    else:
+                        if len(target.properties) == 0:
+                            return JSPrimitive(0)
+                        with_top = max(target.properties.keys()) + 1
+                        without_top = max({k: v for k, v in target.properties.items() if v is not JSTop}.keys()) + 1
+                        if with_top == without_top:
+                            return JSPrimitive(with_top)
+                        else:
+                            return JSTop
                 member = target.member(prop)
                 if isinstance(member, JSRef) and not member.is_bound():
                     bound_member = member.clone()
@@ -703,7 +716,8 @@ class Interpreter(object):
         self.do_for(state, None, test, None, body)
 
     def do_for(self, state, init, test, update, body):
-        state_is_bottom = False
+        if state.is_bottom:
+            return
         consumed_refs = set()
         prev_state = None
         i = 0
@@ -713,8 +727,27 @@ class Interpreter(object):
         exit = False
         if init is not None:
             self.do_expr_or_statement(state, init)
-        while not exit:
-            #print("loop", i)
+
+        #Unrolling is performed as long as the test condition is true, and the maximum iteration count has not been reached
+        unrolling = True
+
+        #Loop analysis may terminate if one of the following conditions is met:
+        # - the header state is stable
+        # - the loop condition is proven false
+        header_state = State.bottom()
+        while state != header_state:
+            lastcond_is_true = False
+
+            if unrolling: #If we are unrolling, header_state saves current state
+                header_state = state.clone()
+            else: #Otherwise, merge current state with header state and perform widening
+                #print("merge header state because we are not unrolling")
+                #print("current:", state)
+                #print("header:", header_state)
+                header_state.join(state)
+                state.assign(header_state)
+                #print("joined:", state)
+
             saved_loopcont = self.loopcont_state
             self.loopcont_state = State.bottom()
             i = i + 1
@@ -723,45 +756,40 @@ class Interpreter(object):
                 break
             state.consume_expr(abs_test_result, consumed_refs)
             self.bring_out_your_dead(state)
+
+            #stop unrolling because max iter reached
             if config.max_iter is not None and i > config.max_iter:
                 if not warned:
                     print("[warning] Loop unrolling stopped after " + str(config.max_iter) + " iterations")
                     warned = True
-                abs_test_result = JSTop
-            if abs_test_result is JSTop:
-                prev_state = state.clone()
-                header_state = state.clone()
+                unrolling = False
+
+            #print("condi: ", abs_test_result)
+            if abs_test_result is JSTop or plugin_manager.to_bool(abs_test_result):
                 self.do_sequence(state, body)
                 if update:
                     self.do_expr_or_statement(state, update)
-                state.join(header_state)
                 state.join(self.loopcont_state)
                 self.loopcont_state = saved_loopcont
-                if state == prev_state:
-                    exit = True 
-                else:
-                    if config.max_iter is not None and i > config.max_iter + 10:
-                        print(i)
-                        print("BUG: loop state failed to stabilize")
-                        print("state:", state)
-                        print("prev_state:", prev_state)
-                        raise ValueError
-            
-            elif plugin_manager.to_bool(abs_test_result):
-                prev_state = state.clone()
-                self.do_sequence(state, body)
-                if update:
-                    self.do_exprstat(state, update)
-                state.join(self.loopcont_state)
-                self.loopcont_state = saved_loopcont
-                if state == prev_state:
-                    state.set_to_bottom()
-                    exit = True
-            else:
-                exit = True
 
+                if abs_test_result is JSTop:
+#                    if unrolling:
+#                        print("stop unroll because cond is top")
+                    unrolling = False
+                else:
+                    lastcond_is_true = True
+                #print("before exit:", state)
+                #print("before exit:", header_state)
+            
+            else:
+                break #stop because loop condition is proven false
+
+        if lastcond_is_true: #Loop state stabilized and last test condition is true: this is an infinite loop
+            state.set_to_bottom()
 
         state.join(self.loopexit_state)
+        #print("loop exit:", header_state)
+        #print("loop exit:", state)
         self.loopexit_state = saved_loopexit
         state.pending.difference_update(consumed_refs)
 

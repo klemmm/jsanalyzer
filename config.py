@@ -5,7 +5,7 @@ enabled_plugins = [
     "default",
 ]
 
-max_iter = 100000 #Stop loop unrolling after that much iterations
+max_iter = 1000 #Stop loop unrolling after that much iterations
 max_recursion = 10 #Stop inlining after that amount of recursion depth
 
 delete_unused = True #Delete unused data from states (Performance will be really bad if you set this to False)
