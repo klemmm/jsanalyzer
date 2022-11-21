@@ -1008,7 +1008,8 @@ class Interpreter(object):
         #avoid deleting context of deferred functions
         for f in self.deferred:
             if f.is_closure():
-                visit(f.closure_env())
+                if f.closure_env() in state.objs.keys():
+                    visit(f.closure_env())
 
         debug("GC: Reachable nodes: ", reachable)
         bye = set()

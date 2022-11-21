@@ -71,7 +71,7 @@ class Output(object):
             self.indent -= self.INDENT
             self.out("')", end="")
 
-        elif simplify and (expr.static_value is not None and isinstance(expr.static_value, JSPrimitive) and expr.static_value.val is not None and expr.static_value.val != "" and expr.static_value.val != 0) and not (expr.type == "CallExpression" and expr.callee.name == "eval"): 
+        elif simplify and (expr.static_value is not None and isinstance(expr.static_value, JSPrimitive) and expr.static_value.val is not None) and not (expr.type == "CallExpression" and expr.callee.name == "eval"): 
             self.print_literal(expr.static_value.val)
         
         elif expr.type == "Literal":
