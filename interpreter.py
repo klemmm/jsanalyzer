@@ -45,6 +45,7 @@ class Interpreter(object):
         self.stack_trace = []
         self.last = None
         self.memo = {}
+        self.deferred = []
         i = 0
         while i < len(self.data):
             if self.data[i] == '\n':
@@ -86,7 +87,7 @@ class Interpreter(object):
         elif expression.type == "Literal":
             return expression
         else:
-            print("beta_reduction: unhandled expression type " + str(expression.type))
+            #print("beta_reduction: unhandled expression type " + str(expression.type))
             return expression
 
     def eval_func_helper(self, state, expr, consumed_refs, this=None):
@@ -340,9 +341,8 @@ class Interpreter(object):
             self.pure = False
             #Member expression: identify target object (dict), and property name (string)
             target, prop, target_id = self.use_member(state, lvalue_expr, consumed_refs)
-            if rvalue_expr is not None and not rvalue_expr.evaluated and (target is None or (target_id is not None and "__probable_api" in target.properties.keys())) and isinstance(abs_rvalue, JSRef) and state.objs[abs_rvalue.target()].is_function():
-                rvalue_expr.evaluated = True
-                self.eval_func_call(state, state.objs[abs_rvalue.target()], None)
+            if rvalue_expr is not None and (target is None or (target_id is not None and "__probable_api" in target.properties.keys())) and isinstance(abs_rvalue, JSRef) and state.objs[abs_rvalue.target()].is_function():
+                self.deferred.append(state.objs[abs_rvalue.target()])
             if target is None:
                 return
         else:
@@ -1005,6 +1005,11 @@ class Interpreter(object):
             visit(ref)
 
 
+        #avoid deleting context of deferred functions
+        for f in self.deferred:
+            if f.is_closure():
+                visit(f.closure_env())
+
         debug("GC: Reachable nodes: ", reachable)
         bye = set()
         for o,v in state.objs.items():
@@ -1144,11 +1149,23 @@ class Interpreter(object):
         print("")
         dead_funcs = 0
         funcs = 0
+        print("\n\nProcessing deferred functions...")
+        header_state = State.bottom()
+        while True:
+            print("Iteration")
+            prev_header_state = header_state.clone()
+            header_state.join(state)
+            if header_state == prev_header_state:
+                break
+            state = header_state.clone()
+            for f in self.deferred:
+                self.eval_func_call(state, f, None)
         for f in self.funcs:
             funcs += 1
             if not f.body.used:
                 f.body.dead_code = True
                 dead_funcs += 1
+        print("End of deferred function processing.")
         print("Functions analyzed: ", funcs)
         print("Dead-code functions: ", dead_funcs)
         print("Static values computed: ", Stats.computed_values)
