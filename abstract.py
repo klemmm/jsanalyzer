@@ -82,6 +82,8 @@ class State(object):
     @staticmethod
     def object_join(obj1, obj2):
         if obj1.missing_mode == obj2.missing_mode:
+            if obj1.tablength != obj2.tablength:
+                obj1.tablength = None
             return State.dict_join(obj1.properties, obj2.properties, obj1.missing_mode)
         else:
             obj1.set_missing_mode(MissingMode.MISSING_IS_TOP)
@@ -186,6 +188,13 @@ class State(object):
         bye = []
         for k in self.objs:
             if k in other.objs:
+                if k == 11151749:
+                    if 55 in self.objs[k].properties and 55 not in other.objs[k].properties:
+                        raise ValueError
+                    if 55 not in self.objs[k].properties and 55 in other.objs[k].properties:
+                        raise ValueError
+                    if 55 in self.objs[k].properties and (self.objs[k].properties[55] != other.objs[k].properties[55]):
+                        raise ValueError
                 State.object_join(self.objs[k], other.objs[k])
             else:
                 bye.append(k)
@@ -321,13 +330,17 @@ class JSObject(JSValue):
         self.env = env #if function, this is the ID of object representing closure-captured environment, if any
         self.simfct = simfct #Simulated function, if any
         self.missing_mode = MissingMode.MISSING_IS_UNDEF
+        self.tablength = 0
     def __str__(self):
         missing_mode = ""
         if self.missing_mode == MissingMode.MISSING_IS_UNDEF:
             missing_mode = " ...undefined"
         elif self.missing_mode == MissingMode.MISSING_IS_TOP:
             missing_mode = " ...Top"
-        props = "{" + (", ".join([(str(i) + ': ' + str(self.properties[i])) for i in sorted(self.properties)])) + missing_mode + "} "
+        l = ""
+        if self.tablength is not None:
+            l = "len=" + str(self.tablength) + ", "
+        props = "{" + l + (", ".join([(str(i) + ': ' + str(self.properties[i])) for i in sorted(self.properties)])) + missing_mode + "} "
         if self.simfct is not None:
             return "<simfct " + props + ">"
         elif self.env is not None:
@@ -340,7 +353,7 @@ class JSObject(JSValue):
     def __repr__(self):
         return self.__str__()
     def __eq__(self, other):
-        return self.properties == other.properties and self.body == other.body and self.params == other.params and self.env == other.env and self.simfct == other.simfct and self.missing_mode == other.missing_mode
+        return self.properties == other.properties and self.body == other.body and self.params == other.params and self.env == other.env and self.simfct == other.simfct and self.missing_mode == other.missing_mode and self.tablength == other.tablength
 
     def contains_top(self):
         return self.missing_mode == MissingMode.MISSING_IS_TOP or JSTop in self.properties.values()
@@ -362,12 +375,14 @@ class JSObject(JSValue):
         c.env = self.env
         c.simfct = self.simfct
         c.missing_mode = self.missing_mode
+        c.tablength = self.tablength
         return c
 
     def set_missing_mode(self, missing_mode):
-        self.missing_mode = missing_mode 
-        if missing_mode == MissingMode.MISSING_IS_TOP:
+        if self.missing_mode == MissingMode.MISSING_IS_UNDEF and missing_mode == MissingMode.MISSING_IS_TOP:
             self.properties = {k: v for k,v in self.properties.items() if v is not JSTop}
+            self.tablength = None
+        self.missing_mode = missing_mode 
 
     def set_member(self, name, value):
         if name is None:
@@ -379,6 +394,8 @@ class JSObject(JSValue):
                     self.properties[name] = value
             else:
                 self.properties[name] = value
+                if type(name) is int and self.tablength is not None:
+                    self.tablength = max(self.tablength, name + 1)
 
     def member(self, name):
         for h in JSObject.hooks:

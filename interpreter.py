@@ -327,6 +327,7 @@ class Interpreter(object):
             
     def do_assignment(self, state, lvalue_expr, abs_rvalue, consumed_refs=None):
         #try to find the dict holding the identifier or property that is being written to, and the property/identifier name
+        target_id = None
         if lvalue_expr.type == "Identifier":
             #Identifier type: the simple case.
             target = state.scope_lookup(lvalue_expr.name)
@@ -345,7 +346,9 @@ class Interpreter(object):
 
         #Delete old value (if any)
         old = target.properties.pop(prop, None)
-        
+
+#        if target_id == 51749 and prop == 55:
+#            print("ICI ON UPDATE:", abs_rvalue)
         target.set_member(prop, abs_rvalue)
 
     #Helper function to decompose member expression into object (dict) and property (string). Returns None if not found.
@@ -513,6 +516,7 @@ class Interpreter(object):
                         properties[prop_key.val] = prop_val
             obj_id = State.new_id()
             state.objs[obj_id] = JSObject(properties)
+            state.objs[obj_id].tablength = None
             #if isinstance(prop_val, JSRef):
             #    prop_val.bind(obj_id)
             state.pending.difference_update(consumed_refs)
@@ -528,6 +532,7 @@ class Interpreter(object):
                 i = i + 1
             obj_id = State.new_id()
             state.objs[obj_id] = JSObject(elements)
+            state.objs[obj_id].tablength = i
             state.pending.difference_update(consumed_refs)
             return JSRef(obj_id)
 
@@ -543,14 +548,10 @@ class Interpreter(object):
                     if target.missing_mode == MissingMode.MISSING_IS_TOP:
                         return JSTop
                     else:
-                        if len(target.properties) == 0:
-                            return JSPrimitive(0)
-                        with_top = max(target.properties.keys()) + 1
-                        without_top = max({k: v for k, v in target.properties.items() if v is not JSTop}.keys()) + 1
-                        if with_top == without_top:
-                            return JSPrimitive(with_top)
-                        else:
+                        if target.tablength is None:
                             return JSTop
+                        else:
+                            return JSPrimitive(target.tablength)
                 member = target.member(prop)
                 if isinstance(member, JSRef) and not member.is_bound():
                     bound_member = member.clone()
@@ -722,8 +723,8 @@ class Interpreter(object):
         prev_state = None
         i = 0
         warned = False
-        saved_loopexit = self.loopexit_state
-        self.loopexit_state = State.bottom()
+        saved_loopexit = self.break_state
+        self.break_state = State.bottom()
         exit = False
         if init is not None:
             self.do_expr_or_statement(state, init)
@@ -757,8 +758,8 @@ class Interpreter(object):
             
             lastcond_is_true = False
 
-            saved_loopcont = self.loopcont_state
-            self.loopcont_state = State.bottom()
+            saved_loopcont = self.continue_state
+            self.continue_state = State.bottom()
             i = i + 1
             abs_test_result = self.eval_expr(state, test)
             if state.is_bottom:
@@ -779,9 +780,13 @@ class Interpreter(object):
                 self.do_sequence(state, body)
                 if update:
                     self.do_expr_or_statement(state, update)
-                state.join(self.loopcont_state)
-                self.loopcont_state = saved_loopcont
+                state.join(self.continue_state)
+                self.continue_state = saved_loopcont
 
+                if not self.break_state.is_bottom:
+                    if unrolling:
+                        print("stop unrolling because of break")
+                    unrolling = False
                 if abs_test_result is JSTop:
 #                    if unrolling:
 #                        print("stop unroll because cond is top")
@@ -797,33 +802,48 @@ class Interpreter(object):
         if lastcond_is_true: #Loop state stabilized and last test condition is true: this is an infinite loop
             state.set_to_bottom()
 
-        state.join(self.loopexit_state)
+        state.join(self.break_state)
         #print("loop exit:", header_state)
         #print("loop exit:", state)
-        self.loopexit_state = saved_loopexit
+        self.break_state = saved_loopexit
         state.pending.difference_update(consumed_refs)
 
     def do_switch(self, state, discriminant, cases):
         consumed_refs = set()
         abs_discr = self.eval_expr(state, discriminant)
         state.consume_expr(abs_discr, consumed_refs)
+        if config.merge_switch:
+            abs_discr = JSTop
         has_true = False
         states_after = []
+        ncase = 0
         for case in cases:
             abs_test = self.eval_expr(state, case.test)
             state.consume_expr(abs_test, consumed_refs)
             if (abs_test is not JSTop) and (abs_discr is not JSTop) and ((type(abs_test) != type(abs_discr)) or (abs_test != abs_discr)):
-                continue #No
+                pass #No
             elif isinstance(abs_test, JSPrimitive) and isinstance(abs_discr, JSPrimitive) and abs_test.val == abs_discr.val:
                 has_true = True
                 state_clone = state.clone()
-                self.do_sequence(state_clone, case.consequent) #Yes
+                saved_state = self.break_state
+                self.break_state = State.bottom()
+                for i in range(ncase, ncase+1):
+                    self.do_sequence(state_clone, cases[i].consequent) #Yes
+                    if state_clone.is_bottom:
+                        break
+                state_clone.join(self.break_state)
+                self.break_state = saved_state
                 states_after.append(state_clone)
                 break
             else:
                 state_clone = state.clone()
+                saved_state = self.break_state
+                self.break_state = State.bottom()
                 self.do_sequence(state_clone, case.consequent) #Maybe
+                state_clone.join(self.break_state)
+                self.break_state = saved_state
                 states_after.append(state_clone)
+            ncase += 1
         if has_true:
             state.set_to_bottom()
         for s in states_after:
@@ -852,18 +872,18 @@ class Interpreter(object):
             if config.process_not_taken:
                 a = self.return_state
                 b = self.return_value
-                c = self.loopexit_state
-                d = self.loopcont_state
+                c = self.break_state
+                d = self.continue_state
                 self.return_state = State.bottom()
                 self.return_value = None
-                self.loopexit_state = State.bottom()
-                self.loopcont_state = State.bottom()
+                self.break_state = State.bottom()
+                self.continue_state = State.bottom()
                 cl = state.clone()
                 self.do_statement(cl, consequent)
                 self.return_state = a
                 self.return_value = b
-                self.loopexit_state = c
-                self.loopcont_state = d
+                self.break_state = c
+                self.continue_state = d
             #TODO end of temporary workaround
             if alternate is not None:
                 self.do_statement(state, alternate)
@@ -890,15 +910,15 @@ class Interpreter(object):
         scope[name] = JSRef(obj_id)
 
     def do_break(self, state):
-        #do_break works by merging loopexit_state with current state
-        #loopexit_state will be merged with the state after the loop
-        self.loopexit_state.join(state)
+        #do_break works by merging break_state with current state
+        #break_state will be merged with the state after the loop
+        self.break_state.join(state)
         state.set_to_bottom()
     
     def do_continue(self, state):
-        #do_continue works by merging loopcont_state with current state
-        #loopexit_state will be merged with the state after the current iteration
-        self.loopcont_state.join(state)
+        #do_continue works by merging continue_state with current state
+        #break_state will be merged with the state after the current iteration
+        self.continue_state.join(state)
         state.set_to_bottom()
 
     def do_return(self, state, argument):
@@ -931,6 +951,25 @@ class Interpreter(object):
         if state.is_bottom:
             debug("GC: Not doing anything\n")
             return
+
+        #first, unlink top objects
+        changes = config.clean_top_objects
+        while changes:
+            changes = False
+            for obj_id in state.objs:
+                bye = []
+                for p in state.objs[obj_id].properties:
+                    if isinstance(state.objs[obj_id].properties[p], JSRef):
+                        i = state.objs[obj_id].properties[p].target()
+                        if state.objs[i].missing_mode == MissingMode.MISSING_IS_TOP and len([v for v in state.objs[i].properties.values() if v is not JSTop]) == 0:
+                            bye.append(p)
+                if len(bye) > 0:
+                    changes = True
+                for b in bye:
+                    if state.objs[obj_id].missing_mode == MissingMode.MISSING_IS_TOP:
+                        del state.objs[obj_id].properties[b]
+                    else:
+                        state.objs[obj_id].properties[b] = JSTop
 
         reachable = set()
         def visit(ref_id):
@@ -1060,8 +1099,8 @@ class Interpreter(object):
         self.return_value = None
         self.closure = {}
         self.return_state = State.bottom()
-        self.loopexit_state = State.bottom()
-        self.loopcont_state = State.bottom()
+        self.break_state = State.bottom()
+        self.continue_state = State.bottom()
         self.pure = True
 
         if entry_state is None:

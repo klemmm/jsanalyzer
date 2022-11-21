@@ -10,6 +10,7 @@ JSObject = abstract.JSObject
 JSRef = abstract.JSRef
 State = abstract.State
 JSSpecial = abstract.JSSpecial
+MissingMode = abstract.MissingMode
 
 ref_id = 1 # id 0 is reserved for global scope
 binary_handlers = []

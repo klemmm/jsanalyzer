@@ -53,7 +53,7 @@ class Output(object):
         elif type(literal) == int:
             self.out(str(literal), end="")
         else:
-            self.out("undefined", end="")
+            self.out("[[TODO: litteral type not handled, type="+str(type(literal)) + ", val=" +str(literal) + "]]", end="")
         return
 
     def do_expr_or_statement(self, exprstat, simplify=True, end="\n"):
@@ -71,11 +71,14 @@ class Output(object):
             self.indent -= self.INDENT
             self.out("')", end="")
 
-        elif simplify and (expr.static_value is not None and isinstance(expr.static_value, JSPrimitive)) and not (expr.type == "CallExpression" and expr.callee.name == "eval"): 
+        elif simplify and (expr.static_value is not None and isinstance(expr.static_value, JSPrimitive) and expr.static_value.val is not None and expr.static_value.val != "" and expr.static_value.val != 0) and not (expr.type == "CallExpression" and expr.callee.name == "eval"): 
             self.print_literal(expr.static_value.val)
         
         elif expr.type == "Literal":
-            self.print_literal(expr.value)
+            if expr.raw == "null":
+                self.out("null", end="")
+            else:
+                self.print_literal(expr.value)
 
         elif expr.type == "Identifier":
             self.out(self.rename(expr.name), end="")

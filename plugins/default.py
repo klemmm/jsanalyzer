@@ -3,7 +3,7 @@ import config
 import base64
 import urllib.parse
 
-from plugin_manager import register_preexisting_object, register_update_handler, register_unary_handler, register_binary_handler, register_global_symbol, register_method_hook, JSTop, JSUndefNaN, JSPrimitive, JSObject, JSRef, to_bool, State, Data, JSBot, JSSpecial
+from plugin_manager import register_preexisting_object, register_update_handler, register_unary_handler, register_binary_handler, register_global_symbol, register_method_hook, JSTop, JSUndefNaN, JSPrimitive, JSObject, JSRef, to_bool, State, Data, JSBot, JSSpecial, MissingMode
 
 def update_handler(opname, state, abs_arg):
     if isinstance(abs_arg, JSPrimitive) and type(abs_arg.val) is int:
@@ -62,6 +62,9 @@ def binary_handler(opname, state, abs_arg1, abs_arg2):
             return JSPrimitive(True)
         else:
             return JSTop
+    
+    if opname == "===" and abs_arg1 is JSTop and abs_arg2 is JSUndefNaN or abs_arg1 is JSUndefNaN and abs_arg2 is JSTop:
+        return JSPrimitive(True) #hack pour faire marcher le truc d'incapsula
 
     if abs_arg1 is JSTop or abs_arg2 is JSTop:
         return JSTop
@@ -70,6 +73,7 @@ def binary_handler(opname, state, abs_arg1, abs_arg2):
         return JSBot
 
     if opname == "===":
+
         if type(abs_arg1) != type(abs_arg2):
             return JSPrimitive(False)
         return JSPrimitive(abs_arg1 == abs_arg2) #TODO actually incorrect if test is undefined === NaN
@@ -153,21 +157,21 @@ def binary_handler(opname, state, abs_arg1, abs_arg2):
 
 register_binary_handler(binary_handler)
 
-def console_log(state, expr, this, *args):
-    if config.console_enable:
-        print("console log:")
-        #print("state=", state)
-        i = 0
-        for a in args:
-            print("Arg", i, "type:", type(a), "value:", a, end="")
-            if isinstance(a, JSRef):
-                print(" target:", state.objs[a.target()])
-            elif isinstance(a, JSPrimitive):
-                print(" concrete type:", type(a.val))
-            else:
-                print("")
-            i += 1
-        print("")
+def ___display(state, expr, *args):
+    print("displaying args:")
+    #print("state=", state)
+    i = 0
+    for a in args:
+        print("Arg", i, "type:", type(a), "value:", a, end="")
+        if isinstance(a, JSRef):
+            print(" target:", state.objs[a.target()])
+        elif isinstance(a, JSPrimitive):
+            print(" concrete type:", type(a.val))
+        else:
+            print("")
+        print(expr.arguments[i])
+        i += 1
+    print("")
     return JSUndefNaN
 
 
@@ -182,9 +186,8 @@ string_fromcharcode_ref = register_preexisting_object(JSObject.simfct(string_fro
 string_ref = register_preexisting_object(JSObject({"fromCharCode": JSRef(string_fromcharcode_ref)}))
 register_global_symbol('String', JSRef(string_ref))
 
-console_log_ref = register_preexisting_object(JSObject.simfct(console_log));
-console_ref = register_preexisting_object(JSObject({"log": JSRef(console_log_ref)}))
-register_global_symbol('console', JSRef(console_ref))
+___display_ref = register_preexisting_object(JSObject.simfct(___display));
+register_global_symbol('___display', JSRef(___display_ref))
 
 def parse_int(state, expr, s, base=JSPrimitive(10)):
     if s is JSUndefNaN:
@@ -205,13 +208,19 @@ def parse_int(state, expr, s, base=JSPrimitive(10)):
 parse_int_ref = register_preexisting_object(JSObject.simfct(parse_int));
 register_global_symbol('parseInt', JSRef(parse_int_ref))
 
-def analyzer_assert(b):
+def ___assert(state, expr, b):
     if (isinstance(b, JSPrimitive) or isinstance(b, JSRef)) and to_bool(b):
         return
     raise AssertionError("Analyzer assertion failed: " + str(b))
 
-analyzer_assert = register_preexisting_object(JSObject.simfct(analyzer_assert));
-register_global_symbol('analyzer_assert', JSRef(analyzer_assert))
+___assert_ref = register_preexisting_object(JSObject.simfct(___assert));
+register_global_symbol('___assert', JSRef(___assert_ref))
+
+def ___is_concretizable(state, expr, b):
+    return JSPrimitive(b is not JSTop)
+
+___is_concretizable_ref = register_preexisting_object(JSObject.simfct(___is_concretizable));
+register_global_symbol('___is_concretizable', JSRef(___is_concretizable_ref))
 
 def array_indexof(state, expr, arr, item, start=JSPrimitive(0)):
     if arr is JSTop or item is JSTop or start is JSTop:
@@ -246,40 +255,45 @@ def array_reverse(state, expr, arr):
 
  
 def array_pop(state, expr, arr):
-    if arr.contains_top():
+    if arr is JSTop:
         return JSTop
-    #FIXME array object should track its abstract size
-    indexes = sorted([i for i in arr.properties if type(i) is int])
-    if len(indexes) == 0:
+    if arr.tablength is None:
+        arr.properties.clear()
+        arr.set_missing_mode(MissingMode.MISSING_IS_TOP) #TODO could improve precision
         return JSTop
-    retval = arr.properties[indexes[-1]]
-    del arr.properties[indexes[-1]]
-    return retval
+    if arr.tablength == 0:
+        return JSUndefNaN
+    value = arr.properties[arr.tablength - 1]
+    del arr.properties[arr.tablength - 1]
+    arr.tablength -= 1
+    return value
 
 def array_push(state, expr, arr, value):
-    if arr.contains_top():
+    if arr is JSTop:
         return JSTop
-    #FIXME array object should track its abstract size
-    indexes = sorted([i for i in arr.properties if type(i) is int])
-    if len(indexes) == 0:
+    if arr.tablength is None:
+        arr.set_missing_mode(MissingMode.MISSING_IS_TOP) #TODO could improve precision
         return JSTop
-    retval = arr.properties[indexes[-1]]
-    arr.properties[indexes[-1] + 1] = value
-    return retval
+    arr.properties[arr.tablength] = value
+    arr.tablength += 1
+    return JSPrimitive(arr.tablength)
 
 def array_shift(state, expr, arr):
-    if arr.contains_top():
+    if arr is JSTop:
         return JSTop
-    #FIXME array object should track its abstract size
+    if arr.tablength is None:
+        arr.properties.clear()
+        arr.set_missing_mode(MissingMode.MISSING_IS_TOP) #TODO could improve precision
+    if arr.tablength == 0:
+        return JSUndefNaN
     indexes = sorted([i for i in arr.properties if type(i) is int])
-    if len(indexes) == 0:
-        return JSTop
-    retval = JSTop
     if 0 in indexes:
         retval = arr.properties[0]
         del arr.properties[0]
         del indexes[0]
-
+        arr.tablength -= 1
+    else:
+        retval = JSUndefNaN
     for i in indexes:
         arr.properties[i - 1] = arr.properties[i]
         del arr.properties[i]
