@@ -302,6 +302,7 @@ class Interpreter(object):
             if this is not None:
                 state.objs[this].properties.clear()
                 state.objs[this].set_missing_mode(MissingMode.MISSING_IS_TOP)
+                state.objs[this].properties["__probable_api"] = JSPrimitive(True)
         self.pure = False
         return JSTop
        
@@ -325,7 +326,7 @@ class Interpreter(object):
                 #print("PEND: (this) add: ", result.this())
         return result
             
-    def do_assignment(self, state, lvalue_expr, abs_rvalue, consumed_refs=None):
+    def do_assignment(self, state, lvalue_expr, rvalue_expr, abs_rvalue, consumed_refs=None):
         #try to find the dict holding the identifier or property that is being written to, and the property/identifier name
         target_id = None
         if lvalue_expr.type == "Identifier":
@@ -339,6 +340,9 @@ class Interpreter(object):
             self.pure = False
             #Member expression: identify target object (dict), and property name (string)
             target, prop, target_id = self.use_member(state, lvalue_expr, consumed_refs)
+            if rvalue_expr is not None and not rvalue_expr.evaluated and (target is None or (target_id is not None and "__probable_api" in target.properties.keys())) and isinstance(abs_rvalue, JSRef) and state.objs[abs_rvalue.target()].is_function():
+                rvalue_expr.evaluated = True
+                self.eval_func_call(state, state.objs[abs_rvalue.target()], None)
             if target is None:
                 return
         else:
@@ -411,7 +415,7 @@ class Interpreter(object):
             result = plugin_manager.handle_update_operation(expr.operator, state, argument)
             state.consume_expr(result, consumed_refs)
 
-            self.do_assignment(state, expr.argument, result, consumed_refs)
+            self.do_assignment(state, expr.argument, None, result, consumed_refs)
             state.pending.difference_update(consumed_refs)
             
             if expr.prefix:
@@ -479,7 +483,7 @@ class Interpreter(object):
                 if state.is_bottom:
                     return JSBot
                 state.consume_expr(abs_rvalue, consumed_refs)
-                self.do_assignment(state, expr.left, abs_rvalue, consumed_refs)
+                self.do_assignment(state, expr.left, expr.right, abs_rvalue, consumed_refs)
                 state.pending.difference_update(consumed_refs)
                 return abs_rvalue
             else:
@@ -488,7 +492,7 @@ class Interpreter(object):
                 right = self.eval_expr(state, expr.right)
                 state.consume_expr(right, consumed_refs)
                 result = plugin_manager.handle_binary_operation(expr.operator[0], state, left, right)
-                self.do_assignment(state, expr.left, result, consumed_refs)
+                self.do_assignment(state, expr.left, None, result, consumed_refs)
                 state.pending.difference_update(consumed_refs)
                 return result
 
@@ -784,12 +788,8 @@ class Interpreter(object):
                 self.continue_state = saved_loopcont
 
                 if not self.break_state.is_bottom:
-                    if unrolling:
-                        print("stop unrolling because of break")
                     unrolling = False
                 if abs_test_result is JSTop:
-#                    if unrolling:
-#                        print("stop unroll because cond is top")
                     unrolling = False
                 else:
                     lastcond_is_true = True

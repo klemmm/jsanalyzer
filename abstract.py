@@ -404,7 +404,7 @@ class JSObject(JSValue):
                 return r
         r = self.properties.get(name, None)
         if r is None:
-            print("Member not found:", name, "mode:", self.missing_mode)
+            #print("Member not found:", name, "mode:", self.missing_mode)
             #raise ValueError
             if self.missing_mode == MissingMode.MISSING_IS_TOP:
                 return JSTop

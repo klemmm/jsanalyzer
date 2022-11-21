@@ -528,10 +528,14 @@ def regexp_match(state, expr, this, target):
     return JSPrimitive(this.properties["regexp"].val.match(target.val) is not None)
 
 def regexp(state, expr, this, string):
-    this.properties["regexp"] = JSPrimitive(re.compile(string.val))
-    test_id = State.new_id()
-    state.objs[test_id] = JSObject.simfct(regexp_match)
-    this.properties["test"] = JSRef(test_id)
+    if isinstance(string, JSPrimitive) and type(string.val) is str:
+        this.properties["regexp"] = JSPrimitive(re.compile(string.val))
+        test_id = State.new_id()
+        state.objs[test_id] = JSObject.simfct(regexp_match)
+        this.properties["test"] = JSRef(test_id)
+    else:
+        this.set_missing_mode(MissingMode.MISSING_IS_TOP)
+        this.properties.clear()
     return JSUndefNaN
 
 regexp_ref = register_preexisting_object(JSObject.simfct(regexp))
