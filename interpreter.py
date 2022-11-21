@@ -342,7 +342,8 @@ class Interpreter(object):
             #Member expression: identify target object (dict), and property name (string)
             target, prop, target_id = self.use_member(state, lvalue_expr, consumed_refs)
             if rvalue_expr is not None and (target is None or (target_id is not None and "__probable_api" in target.properties.keys())) and isinstance(abs_rvalue, JSRef) and state.objs[abs_rvalue.target()].is_function():
-                self.deferred.append(state.objs[abs_rvalue.target()])
+                #self.deferred.append(state.objs[abs_rvalue.target()])
+                self.eval_func_call(state, state.objs[abs_rvalue.target()], None)
             if target is None:
                 return
         else:
