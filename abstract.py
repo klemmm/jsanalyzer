@@ -410,9 +410,9 @@ class JSObject(JSValue):
 
 # Represents a reference to an object or array
 class JSRef(JSValue):
-    def __init__(self, ref_id):
+    def __init__(self, ref_id, this=None):
         self.ref_id = ref_id
-        self._this = None
+        self._this = this
     def __str__(self):
         if type(self._this) is int:
             return "<ref: " + str(self.ref_id) + " bound:" + str(self._this) + ">"
@@ -428,8 +428,6 @@ class JSRef(JSValue):
         return self
     def is_bound(self):
         return self._this is not None
-    def bind(self, this):
-        self._this = this
     def this(self):
         return self._this
 

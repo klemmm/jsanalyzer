@@ -522,8 +522,6 @@ class Interpreter(object):
             obj_id = State.new_id()
             state.objs[obj_id] = JSObject(properties)
             state.objs[obj_id].tablength = None
-            #if isinstance(prop_val, JSRef):
-            #    prop_val.bind(obj_id)
             state.pending.difference_update(consumed_refs)
             return JSRef(obj_id)
 
@@ -559,8 +557,7 @@ class Interpreter(object):
                             return JSPrimitive(target.tablength)
                 member = target.member(prop)
                 if isinstance(member, JSRef) and not member.is_bound():
-                    bound_member = member.clone()
-                    bound_member.bind(target_id)
+                    bound_member = JSRef(member.target(), target_id)
                     state.pending.difference_update(consumed_refs)
                     return bound_member
                 else:
@@ -581,8 +578,7 @@ class Interpreter(object):
                 for h in JSObject.hooks:
                     fct = h(prop)
                     if fct is not JSTop:
-                        fct = fct.clone()
-                        fct.bind(target)
+                        fct = JSRef(fct.target(), target)
                         break
                 if fct is JSTop:
                     print("Unknown string member: ", prop, type(prop))
@@ -595,8 +591,7 @@ class Interpreter(object):
                 for h in JSObject.hooks:
                     fct = h(prop)
                     if fct is not JSTop:
-                        fct = fct.clone()
-                        fct.bind(target)
+                        fct = JSRef(fct.target(), target)
                         break
                 if fct is JSTop:
                     print("Unknown int member: ", prop)
