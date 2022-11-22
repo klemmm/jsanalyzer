@@ -46,6 +46,7 @@ class Interpreter(object):
         self.last = None
         self.memo = {}
         self.deferred = []
+        self.need_clean = False
         i = 0
         while i < len(self.data):
             if self.data[i] == '\n':
@@ -280,6 +281,7 @@ class Interpreter(object):
            
             #evaluate function, join any return states
             self.do_statement(state, callee.body)
+            self.need_clean = True
             callee.body.pure = self.pure
             state.join(self.return_state)
            
@@ -325,6 +327,8 @@ class Interpreter(object):
             if result.is_bound() and type(result.this()) is int:
                 state.pending.add(result.this())
                 #print("PEND: (this) add: ", result.this())
+        if expr.type == "CallExpression" and self.need_clean:
+            self.bring_out_your_dead(state)
         return result
             
     def do_assignment(self, state, lvalue_expr, rvalue_expr, abs_rvalue, consumed_refs=None):
@@ -937,6 +941,7 @@ class Interpreter(object):
         state.set_to_bottom()
 
     def bring_out_your_dead(self, state):
+        self.need_clean = False
 
         #Delete unreachable objects that are in cycles
         if not config.delete_unused:
@@ -1080,7 +1085,7 @@ class Interpreter(object):
         else:
             raise ValueError("Statement type not handled: " + statement.type)
 
-        self.bring_out_your_dead(state)
+
 
     def do_sequence(self, state, sequence):
         for statement in sequence:
@@ -1139,6 +1144,7 @@ class Interpreter(object):
                 print("\nException: ")
             raise
         print("\nAbstract state stabilized after", Stats.steps, "steps")
+        self.bring_out_your_dead(state)
         debug("Abstract state at end: ", state)
         print("End value:", state.value, end="")
         if isinstance(state.value, JSRef):
