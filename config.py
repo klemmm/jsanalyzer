@@ -20,8 +20,6 @@ process_not_taken = False #workaround for probably incorrect boolean evaluation
 
 merge_switch = False #force switch discriminant to be JSTop
 
-memoize = [] #['_0x4759', '_0x27b9']
-
 regexp_rename = ['_0x', '............................']
 rename_length = 3
 

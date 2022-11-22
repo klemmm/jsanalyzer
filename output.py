@@ -260,7 +260,7 @@ class Output(object):
             raise ValueError("Expr type not handled: " + expr.type)
 
     def do_statement(self, statement, end="\n"):
-        if statement.dead_code is True:
+        if statement.dead_code:
             self.out((self.indent)*" " + "{");
             self.out((self.indent+self.INDENT)*" " + "/* Dead Code */")
             self.out((self.indent)*" " + "}");

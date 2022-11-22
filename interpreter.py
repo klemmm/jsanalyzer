@@ -44,7 +44,6 @@ class Interpreter(object):
         self.lines  = []
         self.stack_trace = []
         self.last = None
-        self.memo = {}
         self.deferred = []
         self.need_clean = False
         i = 0
@@ -122,34 +121,20 @@ class Interpreter(object):
             expr.recursion_state = state.clone()
 
         if expr.active == config.max_recursion + 1:
-            if callee is not JSTop:
-                print("current state stack frames: ",  state.stack_frames, state.lref, "function=", callee.body.name, site)
-
-            if expr.recursion_state.is_bottom:
-                if callee is not JSTop:
-                    print("recursion state stack frames: BOT",  "function=", callee.body.name, site)
-            else:
-                if callee is not JSTop:
-                    print("recursion state stack frames: ",  expr.recursion_state.stack_frames, expr.recursion_state.lref, "function=", callee.body.name, site)
+#            if callee is not JSTop:
+#                print("current state stack frames: ",  state.stack_frames, state.lref, "function=", callee.body.name, site)
+#
+#            if expr.recursion_state.is_bottom:
+#                if callee is not JSTop:
+#                    print("recursion state stack frames: BOT",  "function=", callee.body.name, site)
+#            else:
+#                if callee is not JSTop:
+#                    print("recursion state stack frames: ",  expr.recursion_state.stack_frames, expr.recursion_state.lref, "function=", callee.body.name, site)
             expr.recursion_state.join(state)
-            if callee is not JSTop:
-                print("   joined state stack frames: ",  expr.recursion_state.stack_frames, expr.recursion_state.lref, "function=", callee.body.name, site)
+#            if callee is not JSTop:
+#                print("   joined state stack frames: ",  expr.recursion_state.stack_frames, expr.recursion_state.lref, "function=", callee.body.name, site)
             raise StackUnwind(site)
 
-        key = None
-        try:
-            if callee.body.name in config.memoize:
-                key = ""
-                for a in expr.arguments:
-                    key = key + a.value + "\x00"
-        except:
-            pass
-        if key in self.memo:
-            #print("memo hit")
-            return JSPrimitive(self.memo[key])
-
-        #if callee.is_function() and callee.body.name in config.memoize:
-        #    raise ValueError
         expr.active += 1
         stable = False
         while not stable:
@@ -190,9 +175,6 @@ class Interpreter(object):
         expr.skip = None
         expr.active -= 1
         expr.recursion_state = None
-        if key is not None and isinstance(ret, JSPrimitive):
-            #print("memo miss")
-            self.memo[key] = ret.val
         state.consume_expr(ret, consumed_refs)
         return ret
 
@@ -338,9 +320,10 @@ class Interpreter(object):
             self.pure = False
             #Member expression: identify target object (dict), and property name (string)
             target, prop, target_id = self.use_member(state, lvalue_expr, consumed_refs)
-            if rvalue_expr is not None and (target is None or (target_id is not None and "__probable_api" in target.properties.keys())) and isinstance(abs_rvalue, JSRef) and state.objs[abs_rvalue.target()].is_function():
-                #self.deferred.append(state.objs[abs_rvalue.target()])
-                self.eval_func_call(state, state.objs[abs_rvalue.target()], None)
+            if rvalue_expr is not None and not rvalue_expr.processed and (target is None or (target_id is not None and "__probable_api" in target.properties.keys())) and isinstance(abs_rvalue, JSRef) and state.objs[abs_rvalue.target()].is_function():
+                self.deferred.append((state.clone(), state.objs[abs_rvalue.target()]))
+                rvalue_expr.processed = True
+                #self.eval_func_call(state.clone(), state.objs[abs_rvalue.target()], None)
             if target is None:
                 return
         else:
@@ -1002,10 +985,10 @@ class Interpreter(object):
             visit(ref)
 
         #avoid deleting context of deferred functions
-        for f in self.deferred:
-            if f.is_closure():
-                if f.closure_env() in state.objs.keys():
-                    visit(f.closure_env())
+#        for f in self.deferred:
+#            if f.is_closure():
+#                if f.closure_env() in state.objs.keys():
+#                    visit(f.closure_env())
 
         debug("GC: Reachable nodes: ", reachable)
         bye = set()
@@ -1156,8 +1139,9 @@ class Interpreter(object):
             if header_state == prev_header_state:
                 break
             state = header_state.clone()
-            for f in self.deferred:
-                self.eval_func_call(state, f, None)
+            for s,f in self.deferred:
+                f.env = None
+                self.eval_func_call(s, f, None)
         for f in self.funcs:
             funcs += 1
             if not f.body.used:
