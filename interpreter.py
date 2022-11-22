@@ -158,7 +158,7 @@ class Interpreter(object):
                 if expr.recursion_state is not None:
                     old_recursion_state = expr.recursion_state.clone()
                 if self.return_state is not None:
-                    saved_return_state = self.return_state.clone()
+                    saved_return_state = self.return_state
                 else:
                     saved_return_state = None
                 if self.return_value is not None:
@@ -736,7 +736,10 @@ class Interpreter(object):
         while True:
 
             if unrolling: #If we are unrolling, header_state saves current state
-                header_state = state.clone()
+                if i & 31 == 0:
+                    if header_state == state:
+                        break
+                    header_state = state.clone()
             else: #Otherwise, merge current state with header state and perform widening
                 #print("merge header state because we are not unrolling")
                 #print("current:", state)
