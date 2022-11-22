@@ -315,8 +315,8 @@ class Interpreter(object):
             target, prop, target_id = self.use_member(state, lvalue_expr, consumed_refs)
             if rvalue_expr is not None and not rvalue_expr.processed and (target is None or (target_id is not None and "__probable_api" in target.properties.keys())) and isinstance(abs_rvalue, JSRef) and state.objs[abs_rvalue.target()].is_function():
                 self.deferred.append((state.clone(), state.objs[abs_rvalue.target()]))
+                print("Deferred callback handler:", prop)
                 rvalue_expr.processed = True
-                #self.eval_func_call(state.clone(), state.objs[abs_rvalue.target()], None)
             if target is None:
                 return
         else:
@@ -363,7 +363,7 @@ class Interpreter(object):
         elif isinstance(abs_target, JSPrimitive):
             return target, prop, None
         else:
-            return None, None, None
+            return None, prop, None
 
     #Takes state, expression, and returns a JSValue
     def eval_expr_aux(self, state, expr):
@@ -1123,16 +1123,22 @@ class Interpreter(object):
         funcs = 0
         print("\n\nProcessing deferred functions...")
         header_state = State.bottom()
+        for s, f in self.deferred:
+            for obj_id, obj in s.objs.items():
+                if obj_id in state.objs.keys():
+                    State.object_permissive_join(state.objs[obj_id], obj)
+                    pass
+                else:
+                    state.objs[obj_id] = obj.clone()
+                    state.pending.add(obj_id)
         while True:
-            print("Iteration")
             prev_header_state = header_state.clone()
             header_state.join(state)
             if header_state == prev_header_state:
                 break
             state = header_state.clone()
             for s,f in self.deferred:
-                f.env = None
-                self.eval_func_call(s, f, None)
+                self.eval_func_call(state, f, None)
         for f in self.funcs:
             funcs += 1
             if not f.body.used:

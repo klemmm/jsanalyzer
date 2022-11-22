@@ -91,6 +91,31 @@ class State(object):
             obj2_copy = obj2.clone()
             obj2_copy.set_missing_mode(MissingMode.MISSING_IS_TOP)
             return State.dict_join(obj1.properties, obj2_copy.properties, MissingMode.MISSING_IS_TOP)
+    
+    @staticmethod
+    def dict_permissive_join(d1, d2):
+        topify = []
+        adds = []
+        for k in d1:
+            if k in d2 and not State.value_equal(d1[k], d2[k]):
+                topify.append(k)
+        for k in d2:
+            if not k in d1:
+                adds.append((k, d2[k]))
+        for k in topify:
+            d1[k] = JSTop
+        for k, v in adds:
+            d1[k] = v
+        return d1
+    
+    @staticmethod
+    def object_permissive_join(obj1, obj2):
+        if obj1.missing_mode != MissingMode.MISSING_IS_UNDEF or obj2.missing_mode != MissingMode.MISSING_IS_UNDEF:
+            State.object_join(obj1, obj2)
+
+        if obj1.tablength != obj2.tablength:
+            obj1.tablength = None
+        return State.dict_permissive_join(obj1.properties, obj2.properties)
 
     @staticmethod
     def dict_assign(d1, d2):

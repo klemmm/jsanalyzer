@@ -148,7 +148,7 @@ def binary_handler(opname, state, abs_arg1, abs_arg2):
         elif opname == ">>":
             r = arg1 >> arg2
         else:
-            print("Unknown binary operation: ", opname)
+            #print("Unknown binary operation: ", opname)
             return JSTop
         return JSPrimitive(r)
     else:
