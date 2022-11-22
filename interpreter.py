@@ -51,6 +51,9 @@ class Interpreter(object):
        
     @staticmethod
     def beta_reduction(expression, formal_args, effective_args):
+        if expression.reduced is not None:
+            return Interpreter.beta_reduction(expression.reduced, formal_args, effective_args)
+
         if expression.type == "BinaryExpression":
             l = Interpreter.beta_reduction(expression.left, formal_args, effective_args)
             r = Interpreter.beta_reduction(expression.right, formal_args, effective_args)
@@ -224,9 +227,6 @@ class Interpreter(object):
                 callee.body.redex = True
                 return_statement = callee.body.body[0]
 
-            #Attempt to compute an inlined version of the expression
-            if config.inlining and callee.body.redex and expr is not None:
-                expr.reduced = Interpreter.beta_reduction(return_statement.argument, callee.params, arguments)
         
             #Enter callee context 
             saved_return = self.return_value
@@ -270,6 +270,10 @@ class Interpreter(object):
                 state.lref = state.stack_frames.pop()
             self.last = self.stack_trace.pop()
             self.pure = saved_pure and self.pure
+            
+            #Attempt to compute an inlined version of the expression
+            if config.inlining and callee.body.redex and expr is not None:
+                expr.reduced = Interpreter.beta_reduction(return_statement.argument, callee.params, arguments)
 
             if return_value is None:
                 return JSUndefNaN
