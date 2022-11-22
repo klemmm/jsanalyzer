@@ -2,6 +2,7 @@
 import sys
 import traceback
 import config
+import copy
 from enum import Enum
 
 class MissingMode(Enum):
@@ -95,11 +96,7 @@ class State(object):
     def dict_assign(d1, d2):
         d1.clear()
         for k in d2:
-            if isinstance(d2[k], dict):
-                d1[k] = {}
-                State.dict_assign(d1[k], d2[k])
-            else:
-                d1[k] = d2[k].clone()
+            d1[k] = d2[k].clone()
 
     @staticmethod
     def value_equal(v1, v2):
@@ -274,8 +271,7 @@ class JSPrimitive(JSValue):
     def __repr__(self):
         return self.__str__()
     def clone(self):
-        c = JSPrimitive(self.val)
-        return c
+        return self
 
 #Represents any special value (like undefined or NaN or Top)
 class JSSpecial(JSValue):
@@ -369,7 +365,7 @@ class JSObject(JSValue):
         return self.env
     def clone(self):
         c = JSObject({})
-        State.dict_assign(c.properties, self.properties)
+        c.properties = self.properties.copy()
         c.body = self.body
         c.params = self.params
         c.env = self.env
@@ -429,8 +425,7 @@ class JSRef(JSValue):
     def target(self):
         return self.ref_id
     def clone(self):
-        c = JSRef(self.ref_id)
-        return c
+        return self
     def is_bound(self):
         return self._this is not None
     def bind(self, this):
