@@ -256,7 +256,8 @@ class JSValue(object):
         return False
     def contains_top(self):
         return False
-    pass
+    def target(self):
+        return None
 
 # Represents any simple type (for example: a number)
 class JSPrimitive(JSValue):

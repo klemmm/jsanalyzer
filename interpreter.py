@@ -314,19 +314,12 @@ class Interpreter(object):
         if state.is_bottom:
             return JSBot
         result = self.eval_expr_aux(state, expr)
-        previous_val = expr.static_value
         expr.static_value = State.value_join(expr.static_value, result)
-        if previous_val is None and isinstance(expr.static_value, JSPrimitive):
-            Stats.computed_values += 1
-        if isinstance(previous_val, JSPrimitive) and expr.static_value is JSTop:
-            Stats.computed_values -= 1
 
         if isinstance(result, JSRef):
             state.pending.add(result.target())
-            #print("PEND: (target) add: ", result.target())
             if result.is_bound() and type(result.this()) is int:
                 state.pending.add(result.this())
-                #print("PEND: (this) add: ", result.this())
         if expr.type == "CallExpression" and self.need_clean:
             self.bring_out_your_dead(state)
         return result
@@ -977,13 +970,15 @@ class Interpreter(object):
             if ref_id in reachable:
                 return
             reachable.add(ref_id)
-            for k,v in state.objs[ref_id].properties.items():
-                if isinstance(v, JSRef):
-                    visit(v.target())
-                    if v.is_bound():
-                        visit(v.this())
-            if state.objs[ref_id].is_closure():
-                visit(state.objs[ref_id].closure_env())
+            obj = state.objs[ref_id]
+            for k,v in obj.properties.items():
+                if v.target() is None:
+                    continue
+                visit(v.target())
+                if v.is_bound():
+                    visit(v.this())
+            if obj.is_closure():
+                visit(obj.closure_env())
 
         visit(state.lref) #local context gc root
         visit(state.gref) #global context gc root
@@ -993,8 +988,6 @@ class Interpreter(object):
 
         #callstack local contexts gc root
         for ref in state.stack_frames:
-            if ref is None:
-                raise ValueError
             visit(ref)
 
         #pending expressions gc root
@@ -1004,7 +997,6 @@ class Interpreter(object):
         #preexisting objects gc root
         for ref, obj in plugin_manager.preexisting_objects:
             visit(ref)
-
 
         #avoid deleting context of deferred functions
         for f in self.deferred:
