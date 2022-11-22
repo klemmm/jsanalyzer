@@ -746,6 +746,7 @@ class Interpreter(object):
                     print("cur: ", state)
                     print("hdr: ", header_state)
                     raise ValueError
+                self.bring_out_your_dead(state)
                 previous_header_state = header_state.clone()
                 header_state.join(state)
                 state.assign(header_state)
@@ -762,7 +763,6 @@ class Interpreter(object):
             if state.is_bottom:
                 break
             state.consume_expr(abs_test_result, consumed_refs)
-            self.bring_out_your_dead(state)
 
             #stop unrolling because max iter reached
             if config.max_iter is not None and i > config.max_iter:
