@@ -15,12 +15,6 @@ class StackUnwind(Exception):
     def __init__(self, site):
         self.site = site
 
-class Stats:
-    computed_values = 0
-    beta_reductions = 0
-    steps = 0
-
-
 def eval_fct(state, expr, target):
     if target is JSTop:
         return JSTop #TODO should clear entire state here
@@ -116,8 +110,8 @@ class Interpreter(object):
 
         if expr.active == config.max_recursion:
             assert expr.recursion_state is None
-            if callee is not JSTop:
-                print("[warning] Recursion inlining stopped at depth=", expr.active, "function=", callee.body.name, site)
+#            if callee is not JSTop:
+#                print("[warning] Recursion inlining stopped at depth=", expr.active, "function=", callee.body.name, site)
             expr.recursion_state = state.clone()
 
         if expr.active == config.max_recursion + 1:
@@ -232,7 +226,6 @@ class Interpreter(object):
 
             #Attempt to compute an inlined version of the expression
             if config.inlining and callee.body.redex and expr is not None:
-                Stats.beta_reductions += 1
                 expr.reduced = Interpreter.beta_reduction(return_statement.argument, callee.params, arguments)
         
             #Enter callee context 
@@ -1004,8 +997,6 @@ class Interpreter(object):
             debug("Ignoring dead code: ", statement.type)
             return
 
-        Stats.steps += 1
-
         debug("Current state: ", state)
 
         line1 = self.offset2line(statement.range[0])
@@ -1121,7 +1112,7 @@ class Interpreter(object):
                     print("Called from: \n" + t + "\n")
                 print("\nException: ")
             raise
-        print("\nAbstract state stabilized after", Stats.steps, "steps")
+        print("\nAbstract state stabilized.")
         self.bring_out_your_dead(state)
         debug("Abstract state at end: ", state)
         print("End value:", state.value, end="")
@@ -1150,5 +1141,3 @@ class Interpreter(object):
         print("End of deferred function processing.")
         print("Functions analyzed: ", funcs)
         print("Dead-code functions: ", dead_funcs)
-        print("Static values computed: ", Stats.computed_values)
-        print("Beta-reductions: ", Stats.beta_reductions)
