@@ -1,5 +1,5 @@
 from abstract import JSPrimitive, JSRef
-from config import regexp_rename, rename_length
+from config import regexp_rename, rename_length, simplify_expressions, simplify_function_calls, simplify_control_flow, max_unroll_ratio
 import re
 EXPRESSIONS = ["BinaryExpression", "UnaryExpression", "Identifier", "CallExpression", "Literal", "NewExpression", "UpdateExpression", "ConditionalExpression", "NewExpression", "ThisExpression", "AssignmentExpression", "MemberExpression", "ObjectExpression", "ArrayExpression", "LogicalExpression", "FunctionExpression", "ArrowFunctionExpression"]
 
@@ -56,7 +56,25 @@ class Output(object):
             self.out("[[TODO: litteral type not handled, type="+str(type(literal)) + ", val=" +str(literal) + "]]", end="")
         return
 
-    def do_expr_or_statement(self, exprstat, simplify=True, end="\n"):
+    def try_unroll(self, statement):
+        if type(statement.unrolled) is list:
+            unrolled_size = 0
+            for st in statement.unrolled:
+                unrolled_size += st.range[1] - st.range[0]
+            if unrolled_size / (statement.range[1] - statement.range[0]) < max_unroll_ratio:
+                self.out(self.indent*" " + " /* Start of unrolled loop */ ")
+                for st in statement.unrolled:
+                    self.do_statement(st)
+                self.out(self.indent*" " + " /* End of unrolled loop */ ")
+                return True
+            else:
+                self.out(self.indent*" " + " /* Could unroll, but decided not to */ ")
+                return False
+        else:
+                self.out(self.indent*" " + " /* not unrollable: " + str(statement.reason) + " */ ")
+
+
+    def do_expr_or_statement(self, exprstat, simplify=simplify_expressions, end="\n"):
         if exprstat.type in EXPRESSIONS:
             self.do_expr(exprstat, simplify)
         else:
@@ -235,9 +253,7 @@ class Output(object):
             self.do_statement(expr.body)
 
         elif expr.type == "CallExpression":
-            if expr.reduced is not None:
-                #print("reduced2:")
-                #print(expr.reduced)
+            if expr.reduced is not None and simplify_function_calls:
                 self.do_expr(expr.reduced)
                 return
             self.do_expr(expr.callee)
@@ -305,10 +321,11 @@ class Output(object):
                 self.do_expr(statement.argument)
 
         elif statement.type == "WhileStatement":
-            self.out(self.indent*" " + "while (", end="")
-            self.do_expr(statement.test)
-            self.out(")")
-            self.do_statement(statement.body)
+            if not self.try_unroll(statement):
+                self.out(self.indent*" " + "while (", end="")
+                self.do_expr(statement.test)
+                self.out(")")
+                self.do_statement(statement.body)
         
         elif statement.type == "BreakStatement":
             self.out(self.indent*" " + "break")
@@ -333,15 +350,16 @@ class Output(object):
             pass
         
         elif statement.type == "ForStatement":
-            self.out(self.indent*" " + "for(", end="")
-            self.do_expr_or_statement(statement.init, simplify=False, end="")
-            self.out("; ", end="")
-            self.do_expr(statement.test)
-            self.out("; ", end="")
-            self.do_expr_or_statement(statement.update, simplify=False, end="")
-            self.out("; ", end="")
-            self.out(")")
-            self.do_statement(statement.body)
+            if not self.try_unroll(statement):
+                self.out(self.indent*" " + "for(", end="")
+                self.do_expr_or_statement(statement.init, simplify=False, end="")
+                self.out("; ", end="")
+                self.do_expr(statement.test)
+                self.out("; ", end="")
+                self.do_expr_or_statement(statement.update, simplify=False, end="")
+                self.out("; ", end="")
+                self.out(")")
+                self.do_statement(statement.body)
         
         elif statement.type == "ForOfStatement":
             self.out(self.indent*" " + "ForOfStatement;")
@@ -363,7 +381,8 @@ class Output(object):
             self.out(self.indent*" " + "}")
 
         else:
-            raise ValueError("Statement type not handled: " + statement.type)
+            pass
+            #raise ValueError("Statement type not handled: " + statement.type)
     def do_prog(self, prog):
         for statement in prog:
             self.do_statement(statement)

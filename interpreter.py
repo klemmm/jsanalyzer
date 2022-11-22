@@ -40,6 +40,7 @@ class Interpreter(object):
         self.last = None
         self.deferred = []
         self.need_clean = False
+        self.unroll_trace = None
         i = 0
         while i < len(self.data):
             if self.data[i] == '\n':
@@ -80,7 +81,9 @@ class Interpreter(object):
                     raise ValueeError
                 args.append(reduced_arg)
 
-            return esprima.nodes.CallExpression(Interpreter.beta_reduction(expression.callee, formal_args, effective_args), args)
+            ret = esprima.nodes.CallExpression(Interpreter.beta_reduction(expression.callee, formal_args, effective_args), args)
+            ret.created_by_beta_reduction = True
+            return ret
         elif expression.type == "Literal":
             return expression
         else:
@@ -272,7 +275,7 @@ class Interpreter(object):
             self.pure = saved_pure and self.pure
             
             #Attempt to compute an inlined version of the expression
-            if config.inlining and callee.body.redex and expr is not None:
+            if config.simplify_function_calls and callee.body.redex and expr is not None:
                 expr.reduced = Interpreter.beta_reduction(return_statement.argument, callee.params, arguments)
 
             if return_value is None:
@@ -666,7 +669,10 @@ class Interpreter(object):
                 scope = state.objs[state.lref].properties
                 scope[decl.id.name] = JSUndefNaN
             else:
+                saved_unroll_trace = self.unroll_trace
+                self.unroll_trace = None
                 val = self.eval_expr(state, decl.init)
+                self.unroll_trace = saved_unroll_trace
                 state.consume_expr(val, consumed_refs)
                 scope = state.objs[state.lref].properties
                 #remove old variable
@@ -690,17 +696,22 @@ class Interpreter(object):
         state.value = self.eval_expr(state, expr)
         state.consume_expr(state.value)
     
-    def do_while(self, state, test, body):
-        self.do_for(state, None, test, None, body)
+    def do_while(self, state, statement):
+        self.do_for(state, statement)
 
-    def do_for(self, state, init, test, update, body):
+    def do_for(self, state, statement):
         if state.is_bottom:
             return
+        (init, test, update, body) = (statement.init, statement.test, statement.update, statement.body.body)
         consumed_refs = set()
+        saved_unroll_trace = self.unroll_trace
+        self.unroll_trace = []
         prev_state = None
         i = 0
         warned = False
         saved_loopexit = self.break_state
+        saved_return_state = self.return_state
+        self.return_state = State.bottom()
         self.break_state = State.bottom()
         exit = False
         if init is not None:
@@ -714,7 +725,6 @@ class Interpreter(object):
         # - the loop condition is proven false
         header_state = State.bottom()
         while True:
-
             if unrolling: #If we are unrolling, header_state saves current state
                 if i & 31 == 0:
                     if header_state == state:
@@ -763,8 +773,11 @@ class Interpreter(object):
                 state.join(self.continue_state)
                 self.continue_state = saved_loopcont
 
-                if not self.break_state.is_bottom:
-                    unrolling = False
+                if not self.break_state.is_bottom: #a break was encountered
+                    if state.is_bottom: #all paths go through the break
+                        break
+                    else:
+                        unrolling = False #maybe some paths don't go through the break
                 if abs_test_result is JSTop:
                     unrolling = False
                 else:
@@ -779,26 +792,52 @@ class Interpreter(object):
             state.set_to_bottom()
 
         state.join(self.break_state)
+        if unrolling and not (state.is_bottom and self.return_state.is_bottom):
+            if statement.unrolled is None:
+                statement.unrolled = self.unroll_trace
+            elif statement.unrolled != self.unroll_trace:
+                statement.unrolled = False
+                statement.reason = "not stable"
+        else:
+            statement.unrolled = False
+            if not unrolling:
+                statement.reason = "abstract test"
+            else:
+                statement.reason = "infinite loop"
         #print("loop exit:", header_state)
         #print("loop exit:", state)
         self.break_state = saved_loopexit
+
+        self.return_state.join(saved_return_state)
+      
+        self.unroll_trace = saved_unroll_trace
         state.pending.difference_update(consumed_refs)
 
-    def do_switch(self, state, discriminant, cases):
+    def do_switch(self, state, statement):
         consumed_refs = set()
+        (discriminant, cases) = (statement.discriminant, statement.cases)
+        saved_unroll_trace = self.unroll_trace
+        self.unroll_trace = None
         abs_discr = self.eval_expr(state, discriminant)
+        self.unroll_trace = saved_unroll_trace
         state.consume_expr(abs_discr, consumed_refs)
         if config.merge_switch:
             abs_discr = JSTop
         has_true = False
+        has_maybe = False
         states_after = []
         ncase = 0
         for case in cases:
+            saved_unroll_trace = self.unroll_trace
+            self.unroll_trace = None
             abs_test = self.eval_expr(state, case.test)
+            self.unroll_trace = saved_unroll_trace
             state.consume_expr(abs_test, consumed_refs)
             if (abs_test is not JSTop) and (abs_discr is not JSTop) and ((type(abs_test) != type(abs_discr)) or (abs_test != abs_discr)):
                 pass #No
             elif isinstance(abs_test, JSPrimitive) and isinstance(abs_discr, JSPrimitive) and abs_test.val == abs_discr.val:
+                for i in range(0, ncase + 1):
+                    self.trace(cases[i].test)
                 has_true = True
                 state_clone = state.clone()
                 saved_state = self.break_state
@@ -812,40 +851,61 @@ class Interpreter(object):
                 states_after.append(state_clone)
                 break
             else:
+                has_maybe = True
                 state_clone = state.clone()
                 saved_state = self.break_state
                 self.break_state = State.bottom()
+                saved_unroll_trace = self.unroll_trace
+                self.unroll_trace = None
                 self.do_sequence(state_clone, case.consequent) #Maybe
+                self.unroll_trace = saved_unroll_trace
                 state_clone.join(self.break_state)
                 self.break_state = saved_state
                 states_after.append(state_clone)
             ncase += 1
+        if not has_true:
+            if has_maybe:
+                self.trace(statement)
+            else:
+                for case in cases:
+                    self.trace(case.test)
         if has_true:
             state.set_to_bottom()
         for s in states_after:
             state.join(s)
         state.pending.difference_update(consumed_refs)
 
-    def do_if(self, state, test, consequent, alternate):
+    def do_if(self, state, statement):
         consumed_refs = set()
+        (test, consequent, alternate) = (statement.test, statement.consequent, statement.alternate)
+        saved_unroll_trace = self.unroll_trace
+        self.unroll_trace = None
         abs_test_result = self.eval_expr(state, test)
+        self.unroll_trace = saved_unroll_trace
         state.consume_expr(abs_test_result, consumed_refs)
 
         if abs_test_result is JSTop:
+            self.trace(statement)
+            saved_unroll_trace = self.unroll_trace
+            self.unroll_trace = None
             state_then = state
             state_else = state.clone()
             self.do_statement(state_then, consequent)
             if alternate is not None:
                 self.do_statement(state_else, alternate)
             state_then.join(state_else)
+            self.unroll_trace = saved_unroll_trace
             state.pending.difference_update(consumed_refs)
             return
+            
+        self.trace(test)
 
         if plugin_manager.to_bool(abs_test_result):
             self.do_statement(state, consequent)
         else:
             #TODO temporary workaround for probably incorrect boolean value evaluation
             if config.process_not_taken:
+                assert not config.simplify_control_flow, "config.simplify_control_flow is incompatible with config.process_not_taken"
                 a = self.return_state
                 b = self.return_value
                 c = self.break_state
@@ -996,6 +1056,19 @@ class Interpreter(object):
         for b in bye:
             del state.objs[b]
 
+
+    def trace(self, statement, unroll_trace=None):
+        if unroll_trace is None:
+            unroll_trace = self.unroll_trace
+        if unroll_trace is not None:
+            if statement.trace_id is None:
+                newid = State.new_id()
+                if newid == 108:
+                    print(statement)
+                statement.trace_id = newid
+            unroll_trace.append(statement)
+        return
+
     def do_statement(self, state, statement, hoisting=False):
         if state.is_bottom:
             debug("Ignoring dead code: ", statement.type)
@@ -1012,30 +1085,56 @@ class Interpreter(object):
 
 
         if statement.type == "VariableDeclaration":
+            if not hoisting:
+                self.trace(statement)
+                saved_unroll_trace = self.unroll_trace
+                self.unroll_trace = None
             for decl in statement.declarations:
                 self.do_vardecl(state, decl, hoisting)
+            if not hoisting:
+                self.unroll_trace = saved_unroll_trace
 
         elif statement.type == "ExpressionStatement":
+            self.trace(statement)
+            saved_unroll_trace = self.unroll_trace
+            self.unroll_trace = None
             self.do_exprstat(state, statement.expression)
+            self.unroll_trace = saved_unroll_trace
 
         elif statement.type == "ForOfStatement":
             print("ForOfStatement")
             pass #TODO
         
         elif statement.type == "ForStatement":
-            self.do_for(state, statement.init, statement.test, statement.update, statement.body.body)
+            self.trace(statement)
+            saved_unroll_trace = self.unroll_trace
+            self.unroll_trace = None
+            self.do_for(state, statement)
+            self.unroll_trace = saved_unroll_trace
 
         elif statement.type == "IfStatement":
-            self.do_if(state, statement.test, statement.consequent, statement.alternate)
+            self.do_if(state, statement)
 
         elif statement.type == "FunctionDeclaration":
+            self.trace(statement)
+            saved_unroll_trace = self.unroll_trace
+            self.unroll_trace = None
             self.do_fundecl(state, statement)
+            self.unroll_trace = saved_unroll_trace
        
         elif statement.type == "ReturnStatement":
+            self.trace(statement)
+            saved_unroll_trace = self.unroll_trace
+            self.unroll_trace = None
             self.do_return(state, statement.argument)
+            self.unroll_trace = saved_unroll_trace
 
         elif statement.type == "WhileStatement":
-            self.do_while(state, statement.test, statement.body.body)
+            self.trace(statement)
+            saved_unroll_trace = self.unroll_trace
+            self.unroll_trace = None
+            self.do_while(state, statement)
+            self.unroll_trace = saved_unroll_trace
         
         elif statement.type == "BreakStatement":
             self.do_break(state)
@@ -1044,16 +1143,24 @@ class Interpreter(object):
             self.do_continue(state)
 
         elif statement.type == "TryStatement":
+            self.trace(statement)
+            saved_unroll_trace = self.unroll_trace
+            self.unroll_trace = None
             self.do_statement(state, statement.block) #TODO we assume that exceptions never happen  ¯\_(ツ)_/¯
+            self.unroll_trace = saved_unroll_trace
         
         elif statement.type == "BlockStatement":
+            self.trace(statement)
+            saved_unroll_trace = self.unroll_trace
+            self.unroll_trace = None
             self.do_sequence_with_hoisting(state, statement.body)
+            self.unroll_trace = saved_unroll_trace
         
         elif statement.type == "EmptyStatement":
             pass
 
         elif statement.type == "SwitchStatement":
-            self.do_switch(state, statement.discriminant, statement.cases)
+            self.do_switch(state, statement)
 
         else:
             raise ValueError("Statement type not handled: " + statement.type)
@@ -1069,7 +1176,7 @@ class Interpreter(object):
         for statement in sequence:
             if statement.type == "FunctionDeclaration" or statement.type == "VariableDeclaration":
                 self.do_statement(state, statement, True)
-        
+
         for statement in sequence:
             if not statement.type == "FunctionDeclaration":
                 self.do_statement(state, statement)
@@ -1122,10 +1229,9 @@ class Interpreter(object):
         print("End value:", state.value, end="")
         if isinstance(state.value, JSRef):
             print("", state.objs[state.value.target()])
-        print("")
         dead_funcs = 0
         funcs = 0
-        print("\n\nProcessing deferred functions...")
+        print("\nProcessing deferred functions...")
         header_state = State.bottom()
         for s, f in self.deferred:
             for obj_id, obj in s.objs.items():
