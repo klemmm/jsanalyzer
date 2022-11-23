@@ -276,9 +276,9 @@ class Output(object):
             raise ValueError("Expr type not handled: " + expr.type)
 
     def do_statement(self, statement, end="\n"):
-        if statement.dead_code:
+        if (statement.dead_code or not statement.live) and not statement.type in EXPRESSIONS:
             self.out((self.indent)*" " + "{");
-            self.out((self.indent+self.INDENT)*" " + "/* Dead Code */")
+            self.out((self.indent+self.INDENT)*" " + "/* Dead Code: " + statement.type + " */")
             self.out((self.indent)*" " + "}");
         elif statement.type == "VariableDeclaration":
             for decl in statement.declarations:

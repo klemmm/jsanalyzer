@@ -767,6 +767,7 @@ class Interpreter(object):
 
             #print("condi: ", abs_test_result)
             if abs_test_result is JSTop or plugin_manager.to_bool(abs_test_result):
+                statement.body.live = True
                 self.do_sequence(state, body)
                 if update:
                     self.do_expr_or_statement(state, update)
@@ -1073,6 +1074,8 @@ class Interpreter(object):
         if state.is_bottom:
             debug("Ignoring dead code: ", statement.type)
             return
+
+        statement.live = True
 
         debug("Current state: ", state)
 
