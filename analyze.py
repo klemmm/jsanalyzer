@@ -16,6 +16,8 @@ print("\n============ Settings: ==============")
 print("Simplify expressions:\t\t", config.simplify_expressions)
 print("Simplify function calls:\t", config.simplify_function_calls)
 print("Simplify control flow:\t\t", config.simplify_control_flow)
+print("Remove dead code:\t\t", config.remove_dead_code)
+print("Rename variables:\t\t", config.regexp_rename != [])
 print("=====================================\n")
 
 print("Opening input file:", sys.argv[1])

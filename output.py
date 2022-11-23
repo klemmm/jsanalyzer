@@ -1,5 +1,5 @@
 from abstract import JSPrimitive, JSRef
-from config import regexp_rename, rename_length, simplify_expressions, simplify_function_calls, simplify_control_flow, max_unroll_ratio
+from config import regexp_rename, rename_length, simplify_expressions, simplify_function_calls, simplify_control_flow, max_unroll_ratio, remove_dead_code
 import re
 EXPRESSIONS = ["BinaryExpression", "UnaryExpression", "Identifier", "CallExpression", "Literal", "NewExpression", "UpdateExpression", "ConditionalExpression", "NewExpression", "ThisExpression", "AssignmentExpression", "MemberExpression", "ObjectExpression", "ArrayExpression", "LogicalExpression", "FunctionExpression", "ArrowFunctionExpression"]
 
@@ -22,6 +22,11 @@ class Output(object):
         self.ast = ast
         self.f = f
         self.renamed = {}
+        self.count_rename = 0
+        self.count_reduce = 0
+        self.count_unroll = 0
+        self.count_evaluate = 0
+        self.count_dead = 0
 
     def rename(self, name):
         if name is None:
@@ -31,6 +36,7 @@ class Output(object):
                 if name in self.renamed.keys():
                     return self.renamed[name]
                 newname = generate(rename_length)
+                self.count_rename += 1
                 self.renamed[name] = newname
                 return newname
         return name
@@ -41,6 +47,14 @@ class Output(object):
 
     def dump(self):
         self.do_prog(self.ast.body)
+        print("")
+        print("======== Processing finished ========")
+        print("Expressions simplified:\t\t", self.count_evaluate)
+        print("Function calls inlined:\t\t", self.count_reduce)
+        print("Loops unrolled:\t\t\t", self.count_unroll)
+        print("Dead statements removed:\t", self.count_dead)
+        print("Variables renamed:\t\t", self.count_rename)
+        print("=====================================")
 
     def print_literal(self, literal):
         if type(literal) == str:
@@ -66,6 +80,7 @@ class Output(object):
                 for st in statement.unrolled:
                     self.do_statement(st)
                 self.out(self.indent*" " + " /* End of unrolled loop */ ")
+                self.count_unroll += 1
                 return True
             else:
                 self.out(self.indent*" " + " /* Could unroll, but decided not to */ ")
@@ -91,6 +106,7 @@ class Output(object):
 
         elif simplify and (expr.static_value is not None and isinstance(expr.static_value, JSPrimitive) and expr.static_value.val is not None) and not (expr.type == "CallExpression" and expr.callee.name == "eval"): 
             self.print_literal(expr.static_value.val)
+            self.count_evaluate += 1
         
         elif expr.type == "Literal":
             if expr.raw == "null":
@@ -255,6 +271,7 @@ class Output(object):
         elif expr.type == "CallExpression":
             if expr.reduced is not None and simplify_function_calls:
                 self.do_expr(expr.reduced)
+                self.count_reduce += 1
                 return
             self.do_expr(expr.callee)
             self.out("(", end="")
@@ -276,10 +293,11 @@ class Output(object):
             raise ValueError("Expr type not handled: " + expr.type)
 
     def do_statement(self, statement, end="\n"):
-        if (statement.dead_code or not statement.live) and not statement.type in EXPRESSIONS:
+        if remove_dead_code and (statement.dead_code or not statement.live) and not statement.type in EXPRESSIONS:
             self.out((self.indent)*" " + "{");
             self.out((self.indent+self.INDENT)*" " + "/* Dead Code: " + statement.type + " */")
             self.out((self.indent)*" " + "}");
+            self.count_dead += 1
         elif statement.type == "VariableDeclaration":
             for decl in statement.declarations:
                 self.out(self.indent*" " + "var " + self.rename(decl.id.name), end="")

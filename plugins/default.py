@@ -354,6 +354,11 @@ def interpret_as_number(state, value):
                 return 0
         elif value.val is None:
             return None
+        elif type(value.val) is bool:
+            if value.val:
+                return 1
+            else:
+                return 0
         else:
             raise ValueError("interpret_as_number: unhandled value " + repr(value))
     elif isinstance(value, JSRef):

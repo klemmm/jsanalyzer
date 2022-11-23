@@ -6,6 +6,7 @@ max_unroll_ratio = 2.0 #Max acceptable unrolled_size/original_size ratio
 simplify_function_calls = True
 simplify_expressions = True
 simplify_control_flow = True
+remove_dead_code = True
 
 #List of enabled plugins
 enabled_plugins = [

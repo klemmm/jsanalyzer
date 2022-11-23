@@ -322,7 +322,7 @@ class Interpreter(object):
             target, prop, target_id = self.use_member(state, lvalue_expr, consumed_refs)
             if rvalue_expr is not None and not rvalue_expr.processed and (target is None or (target_id is not None and "__probable_api" in target.properties.keys())) and isinstance(abs_rvalue, JSRef) and state.objs[abs_rvalue.target()].is_function():
                 self.deferred.append((state.clone(), state.objs[abs_rvalue.target()]))
-                print("Deferred callback handler:", prop)
+                #print("Deferred callback handler:", prop)
                 rvalue_expr.processed = True
             if target is None:
                 return
@@ -376,7 +376,8 @@ class Interpreter(object):
     def eval_expr_aux(self, state, expr):
         if expr.type == "Literal":
             if expr.value is None:
-                return JSUndefNaN
+                return JSPrimitive("<<NULL>>")
+                #return JSUndefNaN
             return JSPrimitive(expr.value)
 
         elif expr.type == "Identifier":
@@ -1226,15 +1227,15 @@ class Interpreter(object):
                     print("Called from: \n" + t + "\n")
                 print("\nException: ")
             raise
-        print("\nAbstract state stabilized.")
+        print("Abstract state stabilized.")
         self.bring_out_your_dead(state)
         debug("Abstract state at end: ", state)
-        print("End value:", state.value, end="")
+        debug("End value:", state.value, end="")
         if isinstance(state.value, JSRef):
             print("", state.objs[state.value.target()])
         dead_funcs = 0
         funcs = 0
-        print("\nProcessing deferred functions...")
+        print("Processing deferred functions...")
         header_state = State.bottom()
         for s, f in self.deferred:
             for obj_id, obj in s.objs.items():
@@ -1258,5 +1259,3 @@ class Interpreter(object):
                 f.body.dead_code = True
                 dead_funcs += 1
         print("End of deferred function processing.")
-        print("Functions analyzed: ", funcs)
-        print("Dead-code functions: ", dead_funcs)
