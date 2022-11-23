@@ -97,7 +97,7 @@ class State(object):
         topify = []
         adds = []
         for k in d1:
-            if k in d2 and not State.value_equal(d1[k], d2[k]):
+            if k in d2 and not State.value_equal(d1[k], d2[k]) and not d1[k] is JSUndefNaN and not d2[k] is JSUndefNaN:
                 topify.append(k)
         for k in d2:
             if not k in d1:
