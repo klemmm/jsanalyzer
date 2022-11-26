@@ -3,7 +3,7 @@ import config
 import base64
 import urllib.parse
 
-from plugin_manager import register_preexisting_object, register_update_handler, register_unary_handler, register_binary_handler, register_global_symbol, register_method_hook, JSTop, JSUndefNaN, JSPrimitive, JSObject, JSRef, to_bool, State, Data, JSBot, JSSpecial, MissingMode
+from plugin_manager import register_preexisting_object, register_update_handler, register_unary_handler, register_binary_handler, register_global_symbol, register_method_hook, JSTop, JSUndefNaN, JSPrimitive, JSObject, JSRef, to_bool, State, Data, JSBot, JSSpecial, MissingMode, lift_top, lift_or
 
 def update_handler(opname, state, abs_arg):
     if isinstance(abs_arg, JSPrimitive) and type(abs_arg.val) is int:
@@ -155,7 +155,7 @@ def binary_handler(opname, state, abs_arg1, abs_arg2):
         print("Failed to handle binary operation: ", opname)
         return JSTop
 
-register_binary_handler(binary_handler)
+register_binary_handler(lift_or(binary_handler))
 
 def ___display(state, expr, *args):
     print("displaying args:")

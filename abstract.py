@@ -63,21 +63,24 @@ class State(object):
         if missing_mode == MissingMode.MISSING_IS_TOP:
             bye = []
             for k in d1:
-                if not k in d2 or not State.value_equal(d1[k], d2[k]):
+                if not k in d2:
                     bye.append(k)
+                else:
+                    if not State.value_equal(d1[k], d2[k]):
+                        d1[k] = State.value_join(d1[k], d2[k])
             for k in bye:
                 del d1[k]
             return d1
         else:
-            topify = []
             for k in d1:
-                if not k in d2 or not State.value_equal(d1[k], d2[k]):
-                    topify.append(k)
+                if not k in d2:
+                    d1[k] = State.value_join(JSUndefNaN, d1[k])
+                else:
+                    if not State.value_equal(d1[k], d2[k]):
+                        d1[k] = State.value_join(d1[k], d2[k])
             for k in d2:
                 if not k in d1:
-                    topify.append(k)
-            for k in topify:
-                d1[k] = JSTop
+                    d1[k] = State.value_join(JSUndefNaN, d2[k])
             return d1
 
     @staticmethod
@@ -128,6 +131,10 @@ class State(object):
         return type(v1) == type(v2) and v1 == v2
 
     @staticmethod
+    def keep_or(s):
+        return len(s) <= 2
+
+    @staticmethod
     def value_join(v1, v2):
         if v1 is None:
             return v2
@@ -136,7 +143,21 @@ class State(object):
         if State.value_equal(v1, v2):
             return v1
         else:
-            return JSTop
+            if isinstance(v1, JSOr):
+                s1 = v1.choices
+            else:
+                s1 = set([v1])
+            if isinstance(v2, JSOr):
+                s2 = v2.choices
+            else:
+                s2 = set([v2])
+            total = s1.union(s2)
+            if State.keep_or(total):
+                ret = JSOr()
+                ret.choices = total
+                return ret
+            else:
+                return JSTop
 
     # Instance methods
     def set_to_bottom(self):
@@ -210,13 +231,6 @@ class State(object):
         bye = []
         for k in self.objs:
             if k in other.objs:
-                if k == 11151749:
-                    if 55 in self.objs[k].properties and 55 not in other.objs[k].properties:
-                        raise ValueError
-                    if 55 not in self.objs[k].properties and 55 in other.objs[k].properties:
-                        raise ValueError
-                    if 55 in self.objs[k].properties and (self.objs[k].properties[55] != other.objs[k].properties[55]):
-                        raise ValueError
                 State.object_join(self.objs[k], other.objs[k])
             else:
                 bye.append(k)
@@ -296,6 +310,8 @@ class JSPrimitive(JSValue):
         return repr(self.val)
     def __repr__(self):
         return self.__str__()
+    def __hash__(self):
+        return self.val.__hash__()
     def clone(self):
         return self
 
@@ -313,6 +329,8 @@ class JSSpecial(JSValue):
         if type(self) != type(other):
             return False
         return self.name == other.name
+    def __hash__(self):
+        return self.name.__hash__()
     def contains_top(self):
         return self.name == "Top"
 
@@ -456,4 +474,17 @@ class JSRef(JSValue):
         return self._this is not None
     def this(self):
         return self._this
+    def __hash__(self):
+        return self.ref_id.__hash__()
+
+# Represent a choice between values
+class JSOr(JSValue):
+    def __init__(self, *choices):
+        self.choices = set([*choices])
+    def __str__(self):
+        return "Or(" + ",".join([str(c) for c in self.choices]) + ")"
+    def __eq__(self, other):
+        return self.choices == other.choices
+    def __repr__(self):
+        return self.__str__() 
 

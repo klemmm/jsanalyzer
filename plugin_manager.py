@@ -1,7 +1,7 @@
 import abstract
 import config
 
-
+JSOr = abstract.JSOr
 JSBot = abstract.JSBot
 JSTop = abstract.JSTop
 JSUndefNaN = abstract.JSUndefNaN
@@ -88,6 +88,45 @@ def register_global_symbol(name, value):
 
 def register_method_hook(hook):
     JSObject.add_hook(hook)
+
+def lift_top(f):
+    def f2(*args):
+        for l in args:
+            if l is JSTop:
+                return JSTop
+        return f(*args)
+    return f2
+
+def lift_or(f):
+    def f2(*args):
+        or_pos = None
+        i = 0
+        for l in args:
+            if isinstance(l, JSOr):
+                or_pos = i
+                break
+            i += 1
+        if or_pos is None:
+            return f(*args)
+        else:
+            l = [*args]
+            results = set()
+            for c in l[or_pos].choices:
+                k = l[0:or_pos] + [c] + l[or_pos + 1:]
+                r = f2(*k)
+                if isinstance(r, JSOr):
+                    results = results.union(r.choices)
+                else:
+                    results.add(r)
+            if abstract.State.keep_or(results):
+                if len(results) == 1:
+                    return results.pop()
+                return JSOr(*results)
+            else:
+                return JSTop
+    return f2
+
+abs_to_bool = lift_or(lift_top(to_bool))
 
 for p in config.enabled_plugins:
     __import__("plugins." + p)

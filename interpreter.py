@@ -1,5 +1,5 @@
 import esprima
-from abstract import State, JSObject, JSUndefNaN, JSTop, JSBot, JSRef, JSPrimitive, JSValue, MissingMode
+from abstract import State, JSObject, JSUndefNaN, JSTop, JSBot, JSRef, JSPrimitive, JSValue, MissingMode, JSOr
 from debug import debug
 import re
 SITE = 0
@@ -305,8 +305,8 @@ class Interpreter(object):
         if expr.type == "CallExpression" and self.need_clean:
             self.bring_out_your_dead(state)
         return result
-            
-    def do_assignment(self, state, lvalue_expr, rvalue_expr, abs_rvalue, consumed_refs=None):
+    
+    def use_lvalue(self, state, lvalue_expr, consumed_refs=None):
         #try to find the dict holding the identifier or property that is being written to, and the property/identifier name
         target_id = None
         if lvalue_expr.type == "Identifier":
@@ -325,15 +325,22 @@ class Interpreter(object):
                 #print("Deferred callback handler:", prop)
                 rvalue_expr.processed = True
             if target is None:
-                return
+                return None
         else:
             raise ValueError("Invalid assignment left type")
+
+        return target, prop
+            
+    def do_assignment(self, state, lvalue_expr, rvalue_expr, abs_rvalue, consumed_refs=None):
+        r = self.use_lvalue(state, lvalue_expr, consumed_refs)
+        if r is None:
+            return
+
+        target, prop = r
 
         #Delete old value (if any)
         old = target.properties.pop(prop, None)
 
-#        if target_id == 51749 and prop == 55:
-#            print("ICI ON UPDATE:", abs_rvalue)
         target.set_member(prop, abs_rvalue)
 
     #Helper function to decompose member expression into object (dict) and property (string). Returns None if not found.
@@ -877,6 +884,35 @@ class Interpreter(object):
             state.join(s)
         state.pending.difference_update(consumed_refs)
 
+    def do_filtering(self, state, condition, taken , consumed_refs=None):
+        if condition.operator == "===":
+            cond = "==="
+        elif condition.operator == "!==":
+            cond = "!=="
+            taken = not taken
+        else:
+            return
+     
+        if condition.left.type == "Identifier" and isinstance(condition.right.static_value, JSPrimitive):
+            left, right = condition.left, condition.right
+        elif condition.right.type == "Identifier" and isinstance(condition.left.static_value, JSPrimitive):
+            right, left = condition.left, condition.right
+        else:
+            return
+        
+        target, prop = self.use_lvalue(state, left , consumed_refs)
+
+        if taken:
+            target.properties[prop] = right.static_value
+        else:
+            if prop in target.properties and isinstance(target.properties[prop], JSOr):
+                target.properties[prop].choices.remove(right.static_value)
+                if len(target.properties[prop].choices) == 0:
+                    state.set_to_bottom()
+                    return
+                if len(target.properties[prop].choices) == 1:
+                    target.properties[prop] = target.properties[prop].choices.pop()
+
     def do_if(self, state, statement):
         consumed_refs = set()
         (test, consequent, alternate) = (statement.test, statement.consequent, statement.alternate)
@@ -885,14 +921,19 @@ class Interpreter(object):
         abs_test_result = self.eval_expr(state, test)
         self.unroll_trace = saved_unroll_trace
         state.consume_expr(abs_test_result, consumed_refs)
+        
+        abs_bool = plugin_manager.abs_to_bool(abs_test_result)
 
-        if abs_test_result is JSTop:
+        if type(abs_bool) is not bool:
             self.trace(statement)
             saved_unroll_trace = self.unroll_trace
             self.unroll_trace = None
             state_then = state
             state_else = state.clone()
+            self.do_filtering(state_then, test, True, consumed_refs)
             self.do_statement(state_then, consequent)
+
+            self.do_filtering(state_else, test, False, consumed_refs)
             if alternate is not None:
                 self.do_statement(state_else, alternate)
             state_then.join(state_else)
@@ -902,7 +943,7 @@ class Interpreter(object):
             
         self.trace(test)
 
-        if plugin_manager.to_bool(abs_test_result):
+        if abs_bool is True:
             self.do_statement(state, consequent)
         else:
             #TODO temporary workaround for probably incorrect boolean value evaluation
