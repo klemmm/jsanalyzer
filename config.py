@@ -9,6 +9,8 @@ simplify_control_flow = True
 remove_dead_code = True
 use_or = True
 use_unify = True
+use_filtering_if = True
+use_filtering_err = True
 
 #List of enabled plugins
 enabled_plugins = [

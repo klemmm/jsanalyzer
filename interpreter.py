@@ -97,7 +97,7 @@ class Interpreter(object):
         callee_ref = self.eval_expr(state, expr.callee)
         state.consume_expr(callee_ref, consumed_refs)
 
-        if isinstance(callee_ref, JSOr):
+        if isinstance(callee_ref, JSOr) and config.use_filtering_err:
             #print("Or in call:", callee_ref)
             c = callee_ref.choices.difference({JSUndefNaN})
             if len(c) == 1:
@@ -364,7 +364,7 @@ class Interpreter(object):
         abs_target = self.eval_expr(state, expr.object)
         state.consume_expr(abs_target, consumed_refs)
 
-        if isinstance(abs_target, JSOr):
+        if isinstance(abs_target, JSOr) and config.use_filtering_err:
             #print("Or in usemember!", abs_target)
             c = abs_target.choices.difference({JSUndefNaN})
             if len(c) == 1:
@@ -910,6 +910,8 @@ class Interpreter(object):
         state.pending.difference_update(consumed_refs)
 
     def do_filtering(self, state, condition, taken , consumed_refs=None):
+        if not config.use_filtering_if:
+            return
         if condition.operator == "===":
             cond = "==="
         elif condition.operator == "!==":
