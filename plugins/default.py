@@ -347,6 +347,7 @@ def string_split(state, expr, string, separator=None):
             result = string.val.split(separator.val)
         obj_id = State.new_id()
         state.objs[obj_id] = JSObject(dict(enumerate([JSPrimitive(r) for r in result])))
+        state.objs[obj_id].tablength = len(state.objs[obj_id].properties)
         return JSRef(obj_id)
     return JSTop
 

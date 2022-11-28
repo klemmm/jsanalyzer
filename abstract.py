@@ -323,8 +323,6 @@ class State(object):
             return _id
 
         self.visit(do_remap)
-        if len(remap) > 0:
-            print("remapping: ", remap)
         for k, v in self.objs.items():
             nk = do_remap(k)
             if nk != k:
@@ -364,7 +362,7 @@ class State(object):
         for k in other.objs:
             if not k in self.objs:
                 adds.append(k)
-        for b in adds:
+        for k in adds:
             self.objs[k] = other.objs[k].clone()
 
         if self.value is JSBot:
@@ -394,15 +392,24 @@ class State(object):
         return self.__str__()
 
     def consume_expr(self, expr, consumed_refs=None):
+
+        refs_to_add = set()
+        if isinstance(expr, JSRef):
+            refs_to_add.add(expr)
+        elif isinstance(expr, JSOr):
+            for c in expr.choices:
+                if isinstance(c, JSRef):
+                    refs_to_add.add(c)
+
         if consumed_refs is None:
-            if isinstance(expr, JSRef):
+            for expr in refs_to_add:
                 self.pending.discard(expr.target())
                 #print("PEND discard: ", expr.target())
                 if expr.is_bound() and type(expr.this()) is int:
                     self.pending.discard(expr.this())
                     #print("PEND discard: ", expr.this())
         else:
-            if isinstance(expr, JSRef):
+            for expr in refs_to_add:
                 consumed_refs.add(expr.target())
                 #print("PEND consume: ", expr.target())
                 if expr.is_bound() and type(expr.this()) is int:

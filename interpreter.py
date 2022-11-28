@@ -307,10 +307,18 @@ class Interpreter(object):
         result = self.eval_expr_aux(state, expr)
         expr.static_value = State.value_join(expr.static_value, result)
 
+        refs_to_add = set()
         if isinstance(result, JSRef):
-            state.pending.add(result.target())
-            if result.is_bound() and type(result.this()) is int:
-                state.pending.add(result.this())
+            refs_to_add.add(result)
+        elif isinstance(result, JSOr):
+            for c in result.choices:
+                if isinstance(c, JSRef):
+                    refs_to_add.add(c)
+
+        for ref in refs_to_add:
+            state.pending.add(ref.target())
+            if ref.is_bound() and type(ref.this()) is int:
+                state.pending.add(ref.this())
         if expr.type == "CallExpression" and self.need_clean:
             self.bring_out_your_dead(state)
         return result
