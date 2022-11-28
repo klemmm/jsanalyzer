@@ -7,8 +7,8 @@ simplify_function_calls = True
 simplify_expressions = True
 simplify_control_flow = True
 remove_dead_code = True
-use_or = False
-use_unify = False
+use_or = True
+use_unify = True
 
 #List of enabled plugins
 enabled_plugins = [

@@ -323,10 +323,8 @@ class State(object):
             return _id
 
         self.visit(do_remap)
-        for k, v in self.objs.items():
-            nk = do_remap(k)
-            if nk != k:
-                self.objs[nk] = self.objs.pop(k)
+        for old, new in remap.items():
+            self.objs[new] = self.objs.pop(old)
 
     #In case of join on recursion state, other is the state of the greater recursion depth, self is the state of lesser recursion depth
     def join(self, other):
@@ -354,16 +352,24 @@ class State(object):
         self.unify(other)
 
 
-        adds = []
         for k in self.objs:
             if k in other.objs:
                 State.object_join(self.objs[k], other.objs[k])
 
-        for k in other.objs:
-            if not k in self.objs:
-                adds.append(k)
-        for k in adds:
-            self.objs[k] = other.objs[k].clone()
+        if config.use_or:
+            adds = []
+            for k in other.objs:
+                if not k in self.objs:
+                    adds.append(k)
+            for k in adds:
+                self.objs[k] = other.objs[k].clone()
+        else:
+            bye = []
+            for k in self.objs:
+                if not k in other.objs:
+                    bye.append(k)
+            for k in bye:
+                del self.objs[k]
 
         if self.value is JSBot:
             self.value = other.value.clone()

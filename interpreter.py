@@ -964,8 +964,8 @@ class Interpreter(object):
             if alternate is not None:
                 self.do_statement(state_else, alternate)
             #print("join")
-            #self.bring_out_your_dead(state_then)
-            #self.bring_out_your_dead(state_else)
+            self.bring_out_your_dead(state_then)
+            self.bring_out_your_dead(state_else)
             state_then.join(state_else)
             self.unroll_trace = saved_unroll_trace
             state.pending.difference_update(consumed_refs)
