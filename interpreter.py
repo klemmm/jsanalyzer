@@ -1,5 +1,5 @@
 import esprima
-from abstract import State, JSObject, JSUndefNaN, JSTop, JSBot, JSRef, JSPrimitive, JSValue, MissingMode, JSOr
+from abstract import State, JSObject, JSUndefNaN, JSTop, JSBot, JSRef, JSPrimitive, JSValue, MissingMode, JSOr, GCConfig
 from debug import debug
 import re
 SITE = 0
@@ -1052,89 +1052,10 @@ class Interpreter(object):
     def bring_out_your_dead(self, state, verbose=False):
         self.need_clean = False
 
-        #Delete unreachable objects that are in cycles
         if not config.delete_unused:
             return
-
-        debug("State before GC: ", state)
-
-        if state.is_bottom:
-            debug("GC: Not doing anything\n")
-            return
-
-        #first, unlink top objects
-        changes = config.clean_top_objects
-        while changes:
-            changes = False
-            for obj_id in state.objs:
-                bye = []
-                for p in state.objs[obj_id].properties:
-                    if isinstance(state.objs[obj_id].properties[p], JSRef):
-                        i = state.objs[obj_id].properties[p].target()
-                        if state.objs[i].missing_mode == MissingMode.MISSING_IS_TOP and len([v for v in state.objs[i].properties.values() if v is not JSTop]) == 0:
-                            bye.append(p)
-                if len(bye) > 0:
-                    changes = True
-                for b in bye:
-                    if state.objs[obj_id].missing_mode == MissingMode.MISSING_IS_TOP:
-                        del state.objs[obj_id].properties[b]
-                    else:
-                        state.objs[obj_id].properties[b] = JSTop
-
-        reachable = set()
-        def visit(ref_id):
-            if ref_id in reachable:
-                return
-            reachable.add(ref_id)
-            obj = state.objs[ref_id]
-            for k,p in obj.properties.items():
-                if isinstance(p, JSOr):
-                    fields = p.choices
-                else:
-                    fields = set([p])
-                for v in fields:
-                    if v.target() is None:
-                        continue
-                    visit(v.target())
-                    if v.is_bound():
-                        visit(v.this())
-            if obj.is_closure():
-                visit(obj.closure_env())
-
-        visit(state.lref) #local context gc root
-        visit(state.gref) #global context gc root
-
-        if isinstance(state.value, JSRef): #end-value is a gc root
-            reachable.add(state.value.target())
-
-        #callstack local contexts gc root
-        for ref in state.stack_frames:
-            visit(ref)
-
-        #pending expressions gc root
-        for ref in state.pending:
-            visit(ref)
-
-        #preexisting objects gc root
-        for ref, obj in plugin_manager.preexisting_objects:
-            visit(ref)
-
-        #avoid deleting context of deferred functions
-#        for f in self.deferred:
-#            if f.is_closure():
-#                if f.closure_env() in state.objs.keys():
-#                    visit(f.closure_env())
-
-        if verbose or config.debug:
-            print("GC: Reachable nodes: ", reachable)
-        bye = set()
-        for o,v in state.objs.items():
-            if o not in reachable:
-                bye.add(o)
-
-        for b in bye:
-            del state.objs[b]
-
+        
+        state.cleanup(verbose)
 
     def trace(self, statement, unroll_trace=None):
         if unroll_trace is None:
@@ -1290,6 +1211,8 @@ class Interpreter(object):
         debug("Dumping Abstract Syntax Tree:")
         debug(self.ast.body)
         debug("Init state: ", str(state))
+        GCConfig.preexisting_objects = plugin_manager.preexisting_objects
+
         print("Starting abstract interpretation...")
         try:
             self.do_sequence_with_hoisting(state, self.ast.body)

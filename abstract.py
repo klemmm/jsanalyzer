@@ -3,11 +3,15 @@ import sys
 import traceback
 import config
 import copy
+from debug import debug
 from enum import Enum
 
 class MissingMode(Enum):
     MISSING_IS_UNDEF = 0
     MISSING_IS_TOP = 1
+
+class GCConfig:
+    pass
 
 class State(object):
     def __init__(self, glob=False, bottom=False):
@@ -356,25 +360,19 @@ class State(object):
             if k in other.objs:
                 State.object_join(self.objs[k], other.objs[k])
 
-        if config.use_or:
-            adds = []
-            for k in other.objs:
-                if not k in self.objs:
-                    adds.append(k)
-            for k in adds:
-                self.objs[k] = other.objs[k].clone()
-        else:
-            bye = []
-            for k in self.objs:
-                if not k in other.objs:
-                    bye.append(k)
-            for k in bye:
-                del self.objs[k]
+        adds = []
+        for k in other.objs:
+            if not k in self.objs:
+                adds.append(k)
+        for k in adds:
+            self.objs[k] = other.objs[k].clone()
 
         if self.value is JSBot:
             self.value = other.value.clone()
         elif not State.value_equal(self.value, other.value):
             self.value = JSTop
+
+        self.cleanup()
 
     def scope_lookup(self, name):
         if name in self.objs[self.lref].properties:
@@ -422,6 +420,80 @@ class State(object):
                     consumed_refs.add(expr.this())
                     #print("PEND consume: ", expr.this())
 
+
+    def cleanup(self, verbose=False):
+        debug("State before GC: ", self)
+
+        if self.is_bottom:
+            debug("GC: Not doing anything\n")
+            return
+
+        #first, unlink top objects
+        changes = config.clean_top_objects
+        while changes:
+            changes = False
+            for obj_id in self.objs:
+                bye = []
+                for p in self.objs[obj_id].properties:
+                    if isinstance(self.objs[obj_id].properties[p], JSRef):
+                        i = self.objs[obj_id].properties[p].target()
+                        if self.objs[i].missing_mode == MissingMode.MISSING_IS_TOP and len([v for v in self.objs[i].properties.values() if v is not JSTop]) == 0:
+                            bye.append(p)
+                if len(bye) > 0:
+                    changes = True
+                for b in bye:
+                    if self.objs[obj_id].missing_mode == MissingMode.MISSING_IS_TOP:
+                        del self.objs[obj_id].properties[b]
+                    else:
+                        self.objs[obj_id].properties[b] = JSTop
+
+        reachable = set()
+        def visit(ref_id):
+            if ref_id in reachable:
+                return
+            reachable.add(ref_id)
+            obj = self.objs[ref_id]
+            for k,p in obj.properties.items():
+                if isinstance(p, JSOr):
+                    fields = p.choices
+                else:
+                    fields = set([p])
+                for v in fields:
+                    if v.target() is None:
+                        continue
+                    visit(v.target())
+                    if v.is_bound():
+                        visit(v.this())
+            if obj.is_closure():
+                visit(obj.closure_env())
+
+        visit(self.lref) #local context gc root
+        visit(self.gref) #global context gc root
+
+        if isinstance(self.value, JSRef): #end-value is a gc root
+            reachable.add(self.value.target())
+
+        #callstack local contexts gc root
+        for ref in self.stack_frames:
+            visit(ref)
+
+        #pending expressions gc root
+        for ref in self.pending:
+            visit(ref)
+
+        #preexisting objects gc root
+        for ref, obj in GCConfig.preexisting_objects:
+            visit(ref)
+
+        if verbose or config.debug:
+            print("GC: Reachable nodes: ", reachable)
+        bye = set()
+        for o,v in self.objs.items():
+            if o not in reachable:
+                bye.add(o)
+
+        for b in bye:
+            del self.objs[b]
 
 ## Classes for wrapping JS values
 
