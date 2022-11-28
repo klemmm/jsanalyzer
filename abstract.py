@@ -269,9 +269,9 @@ class State(object):
     def unify(self, other):
         if not config.use_unify:
             return
-        assert self.lref == other.lref
-        assert self.stack_frames == other.stack_frames
-
+        if self.lref != other.lref or self.stack_frames != other.stack_frames:
+            return 
+       
         #print("\n\nUnifying...")
         #print("self: ", self)
         #print("other:", other)
@@ -390,7 +390,7 @@ class State(object):
     def __str__(self):
         if self.is_bottom:
             return "Bottom";
-        return("frames=" + str(self.stack_frames) + " gref=" + str(self.gref) + ", lref=" + str(self.lref) +", objs=" + str(self.objs) + ", pending="+ str(self.pending))
+        return("frames=" + str(self.stack_frames) + " gref=" + str(self.gref) + ", lref=" + str(self.lref) +", objs=" + str(self.objs) + ", pending="+ str(self.pending) + ", endval=" + str(self.value))
 
     def __repr__(self):
         return self.__str__()
@@ -471,7 +471,7 @@ class State(object):
         visit(self.gref) #global context gc root
 
         if isinstance(self.value, JSRef): #end-value is a gc root
-            reachable.add(self.value.target())
+            visit(self.value.target())
 
         #callstack local contexts gc root
         for ref in self.stack_frames:
