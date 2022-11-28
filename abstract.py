@@ -132,13 +132,18 @@ class State(object):
 
     @staticmethod
     def keep_or(s):
-        return len(s) <= 2
+        if not config.use_or:
+            return False
+        if len(s) > 2:
+            return False
+        return JSUndefNaN in s
+
 
     @staticmethod
     def value_join(v1, v2):
-        if v1 is None:
+        if v1 is None or v1 is JSBot:
             return v2
-        if v2 is None:
+        if v2 is None or v2 is JSBot:
             return v1
         if State.value_equal(v1, v2):
             return v1
@@ -153,8 +158,7 @@ class State(object):
                 s2 = set([v2])
             total = s1.union(s2)
             if State.keep_or(total):
-                ret = JSOr()
-                ret.choices = total
+                ret = JSOr(total)
                 return ret
             else:
                 return JSTop
@@ -204,6 +208,128 @@ class State(object):
         self.stack_frames = other.stack_frames.copy()
         self.value = other.value.clone()
 
+    def visit(self, f):
+        modify = []
+        seen = set()
+        def aux(val):
+            nonlocal modify
+            if isinstance(val, JSOr):
+                s = set()
+                for c in val.choices:
+                    s.add(aux(c))
+                if s != val.choices:
+                    return JSOr(s)
+                else:
+                    return val
+            elif isinstance(val, JSRef):
+                target = f(val.target())
+                nr = JSRef(target)
+                if val.target() not in seen:
+                    seen.add(val.target())
+                    aux(self.objs[val.target()])
+                if val.is_bound() and type(val.this()) is int:
+                    this = f(val.this())
+                    nr.bind(this)
+                    if val.this() not in seen:
+                        seen.add(val.this())
+                        aux(self.objs[val.this()])
+                if nr == val:
+                    return val
+                else:
+                    return nr
+            elif isinstance(val, JSObject):
+                for p, v in val.properties.items():
+                    nv = aux(v)
+                    if v != nv:
+                        modify.append((val, p, nv))
+                if val.is_closure():
+                    if val.closure_env() not in seen:
+                        seen.add(val.closure_env())
+                        aux(self.objs[val.closure_env()])
+                    val.env = f(val.env)
+            else:
+                return val
+
+        aux(self.objs[self.lref])
+        aux(self.objs[self.gref])
+        for p in self.pending:
+            aux(self.objs[p])
+        for p in self.stack_frames:
+            aux(self.objs[p])
+
+        self.value = aux(self.value)
+
+        for o, p, v in modify:
+            o.properties[p] = v
+
+    def unify(self, other):
+        if not config.use_unify:
+            return
+        assert self.lref == other.lref
+        assert self.stack_frames == other.stack_frames
+
+        #print("\n\nUnifying...")
+        #print("self: ", self)
+        #print("other:", other)
+        seen = set()
+        def extract_ref(val):
+            if isinstance(val, JSRef):
+                return val
+            if isinstance(val, JSOr):
+                s = {v for v in val.choices if isinstance(v, JSRef)}
+                if len(s) == 1:
+                    return list(s)[0]
+            return None
+        def unify_aux(obj1, obj2):
+            nonlocal remap
+            nonlocal self
+            if obj1.is_closure() and obj2.is_closure():
+                if obj1.closure_env() not in seen:
+                    seen.add(obj1.closure_env())
+                    unify_aux(self.objs[obj1.closure_env()], other.objs[obj2.closure_env()])
+                if obj1.closure_env() != obj2.closure_env():
+                    remap[obj1.closure_env()] = obj2.closure_env()
+            for p in obj1.properties:
+                #print("pre: ", p, obj1.properties.get(p), obj2.properties.get(p))
+                ref1 = extract_ref(obj1.properties.get(p))
+                ref2 = extract_ref(obj2.properties.get(p))
+                if ref1 is not None and ref2 is not None:
+                    #print("processing 1", p)
+                    if ref1.target() not in seen:
+                        #print("add", ref1.target(), ref2.target())
+                        seen.add(ref1.target())
+                        unify_aux(self.objs[ref1.target()], other.objs[ref2.target()])
+                    if ref1.target() != ref2.target() and ref2.target() not in self.objs:
+                        remap[ref1.target()] = ref2.target()
+                    if ref1.is_bound() and ref2.is_bound() and type(ref1.this()) is int and type(ref2.this()) is int:
+                        if ref1.this() not in seen:
+                            seen.add(ref1.this())
+                            unify_aux(self.objs[ref1.this()], other.objs[ref2.this()])
+                        if ref1.this() != ref2.this() and ref2.this() not in self.objs:
+                            remap[ref1.this()] = ref2.this()
+
+        remap = {} 
+        unify_aux(self.objs[self.lref], other.objs[other.lref])
+        unify_aux(self.objs[self.gref], other.objs[other.gref])
+        #for p in self.pending:
+        #    unify_aux(self.objs[p], other.objs[p])
+        
+        for s in self.stack_frames:
+            unify_aux(self.objs[s], other.objs[s])
+
+        def do_remap(_id):
+            if _id in remap:
+                return remap[_id]
+            return _id
+
+        self.visit(do_remap)
+        if len(remap) > 0:
+            print("remapping: ", remap)
+        for k, v in self.objs.items():
+            nk = do_remap(k)
+            if nk != k:
+                self.objs[nk] = self.objs.pop(k)
+
     #In case of join on recursion state, other is the state of the greater recursion depth, self is the state of lesser recursion depth
     def join(self, other):
         if other.is_bottom:
@@ -227,15 +353,19 @@ class State(object):
             State.object_join(self.objs[self.lref], other.objs[other.lref])
 
         self.pending.intersection_update(other.pending)
+        self.unify(other)
 
-        bye = []
+
+        adds = []
         for k in self.objs:
             if k in other.objs:
                 State.object_join(self.objs[k], other.objs[k])
-            else:
-                bye.append(k)
-        for b in bye:
-            del self.objs[b]
+
+        for k in other.objs:
+            if not k in self.objs:
+                adds.append(k)
+        for b in adds:
+            self.objs[k] = other.objs[k].clone()
 
         if self.value is JSBot:
             self.value = other.value.clone()
@@ -393,6 +523,8 @@ class JSObject(JSValue):
     def __repr__(self):
         return self.__str__()
     def __eq__(self, other):
+        if type(self) != type(other):
+            return False
         return self.properties == other.properties and self.body == other.body and self.params == other.params and self.env == other.env and self.simfct == other.simfct and self.missing_mode == other.missing_mode and self.tablength == other.tablength
 
     def contains_top(self):
@@ -465,6 +597,8 @@ class JSRef(JSValue):
     def __repr__(self):
         return self.__str__() 
     def __eq__(self, other):
+        if type(self) != type(other):
+            return False
         return self.ref_id == other.ref_id
     def target(self):
         return self.ref_id
@@ -479,12 +613,16 @@ class JSRef(JSValue):
 
 # Represent a choice between values
 class JSOr(JSValue):
-    def __init__(self, *choices):
-        self.choices = set([*choices])
+    def __init__(self, choices):
+        self.choices = set(choices)
     def __str__(self):
         return "Or(" + ",".join([str(c) for c in self.choices]) + ")"
     def __eq__(self, other):
+        if type(self) != type(other):
+            return False
         return self.choices == other.choices
     def __repr__(self):
         return self.__str__() 
+    def clone(self):
+        return self
 

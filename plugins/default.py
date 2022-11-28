@@ -3,7 +3,7 @@ import config
 import base64
 import urllib.parse
 
-from plugin_manager import register_preexisting_object, register_update_handler, register_unary_handler, register_binary_handler, register_global_symbol, register_method_hook, JSTop, JSUndefNaN, JSPrimitive, JSObject, JSRef, to_bool, State, Data, JSBot, JSSpecial, MissingMode, lift_top, lift_or
+from plugin_manager import register_preexisting_object, register_update_handler, register_unary_handler, register_binary_handler, register_global_symbol, register_method_hook, JSTop, JSUndefNaN, JSPrimitive, JSObject, JSRef, to_bool, State, Data, JSBot, JSSpecial, MissingMode, lift_top, lift_or, JSOr
 
 def update_handler(opname, state, abs_arg):
     if isinstance(abs_arg, JSPrimitive) and type(abs_arg.val) is int:
@@ -63,8 +63,8 @@ def binary_handler(opname, state, abs_arg1, abs_arg2):
         else:
             return JSTop
     
-    if opname == "===" and abs_arg1 is JSTop and abs_arg2 is JSUndefNaN or abs_arg1 is JSUndefNaN and abs_arg2 is JSTop:
-        return JSPrimitive(True) #hack pour faire marcher le truc d'incapsula
+#    if opname == "===" and abs_arg1 is JSTop and abs_arg2 is JSUndefNaN or abs_arg1 is JSUndefNaN and abs_arg2 is JSTop:
+#        return JSPrimitive(True) #hack pour faire marcher le truc d'incapsula
 
     if abs_arg1 is JSTop or abs_arg2 is JSTop:
         return JSTop
@@ -169,14 +169,14 @@ def ___display(state, expr, *args):
             print(" concrete type:", type(a.val))
         else:
             print("")
-        print(expr.arguments[i])
+        #print(expr.arguments[i])
         i += 1
     print("")
     return JSUndefNaN
 
 
 def string_fromcharcode(state, expr, obj, code):
-    if code is JSTop:
+    if code is JSTop or isinstance(code, JSOr):
         return JSTop
 
     return JSPrimitive(chr(interpret_as_number(state, code)))
@@ -188,6 +188,13 @@ register_global_symbol('String', JSRef(string_ref))
 
 ___display_ref = register_preexisting_object(JSObject.simfct(___display));
 register_global_symbol('___display', JSRef(___display_ref))
+
+def ___state(state, expr, *args):
+    print("___state:", state)
+    return JSTop
+
+___state_ref = register_preexisting_object(JSObject.simfct(___state));
+register_global_symbol('___state', JSRef(___state_ref))
 
 def parse_int(state, expr, s, base=JSPrimitive(10)):
     if s is JSUndefNaN:

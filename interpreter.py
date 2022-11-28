@@ -97,6 +97,15 @@ class Interpreter(object):
         callee_ref = self.eval_expr(state, expr.callee)
         state.consume_expr(callee_ref, consumed_refs)
 
+        if isinstance(callee_ref, JSOr):
+            #print("Or in call:", callee_ref)
+            c = callee_ref.choices.difference({JSUndefNaN})
+            if len(c) == 1:
+                target, prop, target_id = self.use_lvalue(state, expr.callee, consumed_refs)
+                target.properties[prop] = list(c)[0]
+                callee_ref = list(c)[0]
+
+
         if callee_ref.is_bound() and this is None:
             #print("callee ref is bound:", callee_ref, state.objs[callee_ref.this()], expr)
             this = callee_ref.this()
@@ -221,12 +230,12 @@ class Interpreter(object):
             callee.body.used = True
 
             #enable inlining if the function consists of only one return statement
-            if callee.body.type is "ReturnStatement":
+            if callee.body.type == "ReturnStatement":
                 callee.body.redex = True
                 return_statement = callee.body
 
             #same, for a block statement containing a single return statement
-            if callee.body.type is "BlockStatement" and len(callee.body.body) > 0 and callee.body.body[0].type is "ReturnStatement":
+            if callee.body.type == "BlockStatement" and len(callee.body.body) > 0 and callee.body.body[0].type == "ReturnStatement":
                 callee.body.redex = True
                 return_statement = callee.body.body[0]
 
@@ -320,26 +329,24 @@ class Interpreter(object):
             self.pure = False
             #Member expression: identify target object (dict), and property name (string)
             target, prop, target_id = self.use_member(state, lvalue_expr, consumed_refs)
-            if rvalue_expr is not None and not rvalue_expr.processed and (target is None or (target_id is not None and "__probable_api" in target.properties.keys())) and isinstance(abs_rvalue, JSRef) and state.objs[abs_rvalue.target()].is_function():
-                self.deferred.append((state.clone(), state.objs[abs_rvalue.target()]))
-                #print("Deferred callback handler:", prop)
-                rvalue_expr.processed = True
-            if target is None:
-                return None
         else:
             raise ValueError("Invalid assignment left type")
 
-        return target, prop
+        return target, prop, target_id
             
     def do_assignment(self, state, lvalue_expr, rvalue_expr, abs_rvalue, consumed_refs=None):
-        r = self.use_lvalue(state, lvalue_expr, consumed_refs)
-        if r is None:
+        target, prop, target_id = self.use_lvalue(state, lvalue_expr, consumed_refs)
+
+        if rvalue_expr is not None and not rvalue_expr.processed and (target is None or (target_id is not None and "__probable_api" in target.properties.keys())) and isinstance(abs_rvalue, JSRef) and state.objs[abs_rvalue.target()].is_function():
+            self.deferred.append((state.clone(), state.objs[abs_rvalue.target()]))
+            #print("Deferred callback handler:", prop)
+            rvalue_expr.processed = True
+
+        if prop is None or target is None:
             return
 
-        target, prop = r
-
         #Delete old value (if any)
-        old = target.properties.pop(prop, None)
+        target.properties.pop(prop, None)
 
         target.set_member(prop, abs_rvalue)
 
@@ -349,11 +356,21 @@ class Interpreter(object):
         abs_target = self.eval_expr(state, expr.object)
         state.consume_expr(abs_target, consumed_refs)
 
+        if isinstance(abs_target, JSOr):
+            #print("Or in usemember!", abs_target)
+            c = abs_target.choices.difference({JSUndefNaN})
+            if len(c) == 1:
+                parent_target, parent_prop, parent_target_id = self.use_lvalue(state, expr.object, consumed_refs)
+                parent_target.properties[parent_prop] = list(c)[0]
+                abs_target = list(c)[0]
+
         #If we cannot locate the referenced object, we will return JSTop later (but still evaluate computed property, if needed)
         if isinstance(abs_target, JSRef):
             target = state.objs[abs_target.target()]
         elif isinstance(abs_target, JSPrimitive):
             target = abs_target
+
+
 
         #Now, try to find the property name, it can be directly given, or computed.
         if expr.computed:
@@ -892,26 +909,28 @@ class Interpreter(object):
             taken = not taken
         else:
             return
-     
-        if condition.left.type == "Identifier" and isinstance(condition.right.static_value, JSPrimitive):
+  
+        if (condition.left.type == "Identifier" or condition.left.type == "MemberExpression") and (isinstance(condition.right.static_value, JSPrimitive) or (condition.right.static_value is JSUndefNaN)):
             left, right = condition.left, condition.right
-        elif condition.right.type == "Identifier" and isinstance(condition.left.static_value, JSPrimitive):
+        elif (condition.right.type == "Identifier" or condition.right.type == "MemberExpression") and (isinstance(condition.left.static_value, JSPrimitive) or (condition.left.static_value is JSUndefNaN)):
             right, left = condition.left, condition.right
         else:
             return
         
-        target, prop = self.use_lvalue(state, left , consumed_refs)
+        target, prop, target_id = self.use_lvalue(state, left , consumed_refs)
+        if target is None or prop is None:
+            return
 
         if taken:
             target.properties[prop] = right.static_value
         else:
             if prop in target.properties and isinstance(target.properties[prop], JSOr):
-                target.properties[prop].choices.remove(right.static_value)
+                target.properties[prop] = JSOr(target.properties[prop].choices.difference({right.static_value}))
                 if len(target.properties[prop].choices) == 0:
                     state.set_to_bottom()
                     return
                 if len(target.properties[prop].choices) == 1:
-                    target.properties[prop] = target.properties[prop].choices.pop()
+                    target.properties[prop] = list(target.properties[prop].choices)[0]
 
     def do_if(self, state, statement):
         consumed_refs = set()
@@ -936,6 +955,9 @@ class Interpreter(object):
             self.do_filtering(state_else, test, False, consumed_refs)
             if alternate is not None:
                 self.do_statement(state_else, alternate)
+            #print("join")
+            self.bring_out_your_dead(state_then)
+            self.bring_out_your_dead(state_else)
             state_then.join(state_else)
             self.unroll_trace = saved_unroll_trace
             state.pending.difference_update(consumed_refs)
@@ -1019,7 +1041,7 @@ class Interpreter(object):
         
         state.set_to_bottom()
 
-    def bring_out_your_dead(self, state):
+    def bring_out_your_dead(self, state, verbose=False):
         self.need_clean = False
 
         #Delete unreachable objects that are in cycles
@@ -1057,12 +1079,17 @@ class Interpreter(object):
                 return
             reachable.add(ref_id)
             obj = state.objs[ref_id]
-            for k,v in obj.properties.items():
-                if v.target() is None:
-                    continue
-                visit(v.target())
-                if v.is_bound():
-                    visit(v.this())
+            for k,p in obj.properties.items():
+                if isinstance(p, JSOr):
+                    fields = p.choices
+                else:
+                    fields = set([p])
+                for v in fields:
+                    if v.target() is None:
+                        continue
+                    visit(v.target())
+                    if v.is_bound():
+                        visit(v.this())
             if obj.is_closure():
                 visit(obj.closure_env())
 
@@ -1090,7 +1117,8 @@ class Interpreter(object):
 #                if f.closure_env() in state.objs.keys():
 #                    visit(f.closure_env())
 
-        debug("GC: Reachable nodes: ", reachable)
+        if verbose or config.debug:
+            print("GC: Reachable nodes: ", reachable)
         bye = set()
         for o,v in state.objs.items():
             if o not in reachable:
@@ -1271,13 +1299,15 @@ class Interpreter(object):
         print("Abstract state stabilized.")
         self.bring_out_your_dead(state)
         debug("Abstract state at end: ", state)
-        debug("End value:", state.value, end="")
-        if isinstance(state.value, JSRef):
-            print("", state.objs[state.value.target()])
+        if config.debug:
+            print("End value:", state.value, end="")
+            if isinstance(state.value, JSRef):
+                print("", state.objs[state.value.target()])
         dead_funcs = 0
         funcs = 0
         print("Processing deferred functions...")
         header_state = State.bottom()
+        prev_header_state = None
         for s, f in self.deferred:
             for obj_id, obj in s.objs.items():
                 if obj_id in state.objs.keys():
@@ -1287,10 +1317,11 @@ class Interpreter(object):
                     state.objs[obj_id] = obj.clone()
                     state.pending.add(obj_id)
         while True:
+            self.bring_out_your_dead(header_state)
+            if prev_header_state is not None and (header_state == prev_header_state):
+                break
             prev_header_state = header_state.clone()
             header_state.join(state)
-            if header_state == prev_header_state:
-                break
             state = header_state.clone()
             for s,f in self.deferred:
                 self.eval_func_call(state, f, None)

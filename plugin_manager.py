@@ -121,7 +121,7 @@ def lift_or(f):
             if abstract.State.keep_or(results):
                 if len(results) == 1:
                     return results.pop()
-                return JSOr(*results)
+                return JSOr(results)
             else:
                 return JSTop
     return f2
