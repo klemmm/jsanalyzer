@@ -1166,6 +1166,9 @@ class Interpreter(object):
         elif statement.type == "SwitchStatement":
             self.do_switch(state, statement)
 
+        elif statement.type == "ClassDeclaration":
+            return 
+
         else:
             raise ValueError("Statement type not handled: " + statement.type)
 

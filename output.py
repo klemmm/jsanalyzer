@@ -401,6 +401,27 @@ class Output(object):
             self.indent -= self.INDENT
             self.out(self.indent*" " + "}")
 
+        elif statement.type == "ClassDeclaration":
+            self.out(self.indent*" " + "Class " + self.rename(statement.id.name) + " {")
+            self.do_statement(statement.body)
+            self.out(self.indent*" " + "}")
+
+        elif statement.type == "ClassBody":
+            for item in statement.body:
+                self.do_statement(item) 
+
+        elif statement.type == "MethodDefinition":
+            first = True
+            params = ""
+            for a in statement.value.params:
+                if first:
+                    first = False
+                else:
+                    params += ", "
+                params += self.rename(a.name)
+            self.out(self.indent*" " + statement.key.name+"(" + params + ")")
+            self.do_statement(statement.value.body)
+
         else:
             pass
             #raise ValueError("Statement type not handled: " + statement.type)
