@@ -595,7 +595,11 @@ class JSObject(JSValue):
         l = ""
         if self.tablength is not None:
             l = "len=" + str(self.tablength) + ", "
-        props = "{" + l + (", ".join([(str(i) + ': ' + str(self.properties[i])) for i in sorted(self.properties)])) + missing_mode + "} "
+        def fn(s):
+            if type(s) is int:
+                return s
+            return -1
+        props = "{" + l + (", ".join([(str(i) + ': ' + str(self.properties[i])) for i in sorted(self.properties, key=fn)])) + missing_mode + "} "
         if self.simfct is not None:
             return "<simfct " + props + ">"
         elif self.env is not None:

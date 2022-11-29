@@ -257,8 +257,12 @@ class Interpreter(object):
 
             #Store the argument values in callee local scope
             i = 0
+            arguments_id = State.new_id()
+            state.objs[state.lref].properties["arguments"] = JSRef(arguments_id)
+            state.objs[arguments_id] = JSObject({})
             for v in args_val:
                 state.objs[state.lref].properties[callee.params[i].name] = v
+                state.objs[arguments_id].properties[i] = v
                 i = i + 1
        
             #bind closure environment, if any
@@ -455,23 +459,25 @@ class Interpreter(object):
             abs_test_result = self.eval_expr(state, expr.test)
             state.consume_expr(abs_test_result, consumed_refs)
 
-            state_then = state
-            state_else = state.clone()
-            expr_then = self.eval_expr(state_then, expr.consequent)
-            state.consume_expr(expr_then, consumed_refs)
-            expr_else = self.eval_expr(state_else, expr.alternate)
-            state.consume_expr(expr_else, consumed_refs)
 
             if abs_test_result is JSTop:
+                state_then = state
+                state_else = state.clone()
+                expr_then = self.eval_expr(state_then, expr.consequent)
+                state.consume_expr(expr_then, consumed_refs)
+                expr_else = self.eval_expr(state_else, expr.alternate)
+                state.consume_expr(expr_else, consumed_refs)
                 state_then.join(state_else)
                 if State.value_equal(expr_then, expr_else):
                     result = expr_then
                 else:
                     result = JSTop
             elif plugin_manager.to_bool(abs_test_result):
-                result = expr_then
+                result = self.eval_expr(state, expr.consequent)
+                state.consume_expr(result, consumed_refs)
             else:
-                result = expr_else
+                result = self.eval_expr(state, expr.alternate)
+                state.consume_expr(result, consumed_refs)
 
             state.pending.difference_update(consumed_refs)
             return result
@@ -689,7 +695,7 @@ class Interpreter(object):
             state.pending.difference_update(consumed_refs)
             return ret
         else:
-            raise ValueError("Expr type not handled:" + expr.type)
+            print("WARNING: Expr type not handled:" + expr.type)
         return
 
     def do_vardecl(self, state, decl, hoisting=False):
@@ -1170,7 +1176,8 @@ class Interpreter(object):
             return 
 
         else:
-            raise ValueError("Statement type not handled: " + statement.type)
+            print("WARNING: Statement type not handled: " + statement.type)
+            #raise ValueError("Statement type not handled: " + statement.type)
 
 
 

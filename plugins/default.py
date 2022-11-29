@@ -25,10 +25,24 @@ def unary_handler(opname, state, abs_arg):
 
     if opname == "!":
         return JSPrimitive(not to_bool(abs_arg))
+    elif opname == "~":
+        if isinstance(abs_arg, JSPrimitive):
+            if type(abs_arg.val) is int or type(abs_arg.val) is float:
+                return JSPrimitive(~abs_arg.val)
+            elif type(abs_arg.val) is str:
+                return JSPrimitive(~interpret_as_number(state, abs_arg))
+            else:
+                return JSUndefNaN
+        elif abs_arg is JSUndefNaN:
+            return JSUndefNaN
+        else:
+            return JSTop
     elif opname == "-":
         if isinstance(abs_arg, JSPrimitive):
             if type(abs_arg.val) is int or type(abs_arg.val) is float:
                 return JSPrimitive(-abs_arg.val)
+            elif type(abs_arg.val) is str:
+                return JSPrimitive(-interpret_as_number(state, abs_arg))
             else:
                 return JSUndefNaN
         elif abs_arg is JSUndefNaN:
@@ -210,6 +224,7 @@ def parse_int(state, expr, s, base=JSPrimitive(10)):
             return JSUndefNaN
         else:
             return JSPrimitive(int(prefix, base.val))
+    print("parseint return top:" , s)
     return JSTop
 
 parse_int_ref = register_preexisting_object(JSObject.simfct(parse_int));
@@ -357,7 +372,10 @@ def interpret_as_number(state, value):
             return value.val
         elif type(value.val) is str:
             try:
-                return int(value.val)
+                if value.val[0:2] == '0x':
+                    return int(value.val, 16)
+                else:
+                    return int(value.val)
             except ValueError:
                 return 0
         elif value.val is None:
