@@ -173,6 +173,7 @@ class Interpreter(object):
                 state.assign(old_recursion_state)
                 self.return_state = saved_return_state
                 self.return_value = saved_return_value
+                state.unify(expr.recursion_state)
                 if state == expr.recursion_state:
                     expr.skip = True
                     #print("Recursion state stabilized, function=", callee.body.name, site)
@@ -782,6 +783,7 @@ class Interpreter(object):
                 previous_header_state = header_state.clone()
                 header_state.join(state)
                 state.assign(header_state)
+                previous_header_state.unify(header_state)
                 if previous_header_state == header_state:
                     break
                 #print("joined:", state)
