@@ -691,7 +691,7 @@ class JSRef(JSValue):
     def __eq__(self, other):
         if type(self) != type(other):
             return False
-        return self.ref_id == other.ref_id
+        return self.ref_id == other.ref_id and self._this == other._this
     def target(self):
         return self.ref_id
     def clone(self):
