@@ -304,13 +304,17 @@ class State(object):
                         #print("add", ref1.target(), ref2.target())
                         seen.add(ref1.target())
                         unify_aux(self.objs[ref1.target()], other.objs[ref2.target()])
-                    if ref1.target() != ref2.target() and ref2.target() not in self.objs:
+                    if ref1.target() != ref2.target():
+                        if ref2.target() in self.objs:
+                            remap[ref2.target()] = State.new_id()
                         remap[ref1.target()] = ref2.target()
                     if ref1.is_bound() and ref2.is_bound() and type(ref1.this()) is int and type(ref2.this()) is int:
                         if ref1.this() not in seen:
                             seen.add(ref1.this())
                             unify_aux(self.objs[ref1.this()], other.objs[ref2.this()])
-                        if ref1.this() != ref2.this() and ref2.this() not in self.objs:
+                        if ref1.this() != ref2.this():
+                            if ref2.this() in self.objs:
+                                remap[ref2.this()] = State.new_id()
                             remap[ref1.this()] = ref2.this()
 
         remap = {} 

@@ -110,7 +110,8 @@ class Output(object):
             if unrolled_size / (statement.range[1] - statement.range[0]) < max_unroll_ratio:
                 self.out(self.indent*" " + " /* Start of unrolled loop */ ")
                 for st in statement.unrolled:
-                    self.do_statement(st)
+                    if st.type not in EXPRESSIONS: #TODO
+                        self.do_statement(st)
                 self.out(self.indent*" " + " /* End of unrolled loop */ ")
                 self.count_unroll += 1
                 return True
@@ -136,7 +137,7 @@ class Output(object):
             self.indent -= self.INDENT
             self.out("')", end="")
 
-        elif simplify and (expr.static_value is not None and ((isinstance(expr.static_value, JSPrimitive) and expr.static_value.val is not None) and not (expr.type == "CallExpression" and expr.callee.name == "eval")) or expr.static_value is JSUndefNaN):
+        elif simplify_expressions and simplify and (expr.static_value is not None and ((isinstance(expr.static_value, JSPrimitive) and expr.static_value.val is not None) and not (expr.type == "CallExpression" and expr.callee.name == "eval") and not expr.type == "AssignmentExpression")):
             if expr.static_value is JSUndefNaN:
                 self.out("undefined", end="")
             else:
@@ -283,8 +284,11 @@ class Output(object):
                 else:
                     params += ", "
                 params += self.rename(a.name)
-            self.out(self.indent*" " + "function(" + params + ")")
-            self.do_statement(expr.body)
+            self.out(self.indent*" " + "(" + params + ") =>", end="")
+            if expr.expression:
+                self.do_expr(expr.body)
+            else:
+                self.do_statement(expr.body)
 
         elif expr.type == "CallExpression":
             if expr.reduced is not None and simplify_function_calls:
@@ -411,6 +415,11 @@ class Output(object):
         
         elif statement.type == "ForOfStatement":
             self.out(self.indent*" " + "ForOfStatement;")
+        
+        elif statement.type == "ThrowStatement":
+            self.out(self.indent*" " + "throw ", end="")
+            self.do_expr(statement.argument)
+            self.out(";")
 
         elif statement.type == "SwitchStatement":
             self.out(self.indent*" " + "switch (", end="")

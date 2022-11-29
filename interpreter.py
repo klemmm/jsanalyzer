@@ -776,8 +776,14 @@ class Interpreter(object):
     def do_exprstat(self, state, expr):
         state.value = self.eval_expr(state, expr)
         state.consume_expr(state.value)
-    
+
+    def do_throw(self, state, expr):
+        discarded = self.eval_expr(state, expr)
+        state.consume_expr(discarded)
+
     def do_for_in(self, state, statement):
+        statement.left.live = True
+        statement.right.live = True
         self.do_for(state, statement, True)
     
     def do_while(self, state, statement):
@@ -1158,6 +1164,9 @@ class Interpreter(object):
                 self.unroll_trace = saved_unroll_trace
 
         elif statement.type == "ClassDeclaration":
+            self.trace(statement)
+            saved_unroll_trace = self.unroll_trace
+            self.unroll_trace = None
             statement.body.live = True
             class_obj = JSObject({})
             proto_obj = JSObject({})
@@ -1182,6 +1191,7 @@ class Interpreter(object):
             state.objs[proto_id] = proto_obj
             state.objs[state.gref].properties[statement.id.name] = JSRef(class_id)
             state.objs[class_id].properties["prototype"] = JSRef(proto_id)
+            self.unroll_trace = saved_unroll_trace
             state.pending.difference_update(consumed_refs)
 
         elif statement.type == "ExpressionStatement":
@@ -1211,6 +1221,13 @@ class Interpreter(object):
 
         elif statement.type == "IfStatement":
             self.do_if(state, statement)
+        
+        elif statement.type == "ThrowStatement":
+            self.trace(statement)
+            saved_unroll_trace = self.unroll_trace
+            self.unroll_trace = None
+            self.do_throw(state, statement.argument)
+            self.unroll_trace = saved_unroll_trace
 
         elif statement.type == "FunctionDeclaration":
             self.trace(statement)

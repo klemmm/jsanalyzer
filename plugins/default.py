@@ -87,10 +87,14 @@ def binary_handler(opname, state, abs_arg1, abs_arg2):
         return JSBot
 
     if opname == "===":
-
         if type(abs_arg1) != type(abs_arg2):
             return JSPrimitive(False)
         return JSPrimitive(abs_arg1 == abs_arg2) #TODO actually incorrect if test is undefined === NaN
+    
+    if opname == "!==":
+        if type(abs_arg1) != type(abs_arg2):
+            return JSPrimitive(True)
+        return JSPrimitive(abs_arg1 != abs_arg2) #TODO actually incorrect if test is undefined === NaN
     
     if abs_arg1 is JSUndefNaN or abs_arg2 is JSUndefNaN: #TODO incorrect if test is undefined == undefined
         return JSPrimitive(type(abs_arg1) == type(abs_arg2))
