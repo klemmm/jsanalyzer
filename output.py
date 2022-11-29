@@ -304,7 +304,7 @@ class Output(object):
 
         else:
             self.out(expr)
-            print("WARNING: Expr type not handled: " + expr.type)
+            print("WARNING: Expr type not handled:" + expr.type)
 
     def do_statement(self, statement, end="\n"):
         if remove_dead_code and (statement.dead_code or not statement.live) and not statement.type in EXPRESSIONS:

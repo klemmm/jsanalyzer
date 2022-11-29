@@ -1241,60 +1241,62 @@ class Interpreter(object):
         print("Starting abstract interpretation...")
         try:
             self.do_sequence_with_hoisting(state, self.ast.body)
-        except:
-            if self.last is not None:
-                print("\n=== ERROR DURING ABSTRACT INTERPRETATION ===")
-                print("\nWith abstract state: ")
-                print(state)
-                print("\nAt analyzed program statement: ")
-                print(self.last + "\n")
-                for t in reversed(self.stack_trace):
-                    print("Called from: \n" + t + "\n")
-                print("\nException: ")
-            raise
-        print("Abstract state stabilized.")
-        self.bring_out_your_dead(state)
-        debug("Abstract state at end: ", state)
-        if config.debug:
-            print("End value:", state.value, end="")
-            if isinstance(state.value, JSRef):
-                print("", state.objs[state.value.target()])
-        dead_funcs = 0
-        funcs = 0
-        print("Processing callbacks...")
-        deferred_id = state.objs[state.gref].properties["___deferred"].target()
-
-        prev_header_state = None
-
-        header_state = State.bottom()
-        i = 0
-        while True:
-            i = i + 1
-            if i == 5000:
-                break
-            prev_header_state = header_state.clone()
+            print("Abstract state stabilized.")
             self.bring_out_your_dead(state)
-            header_state.join(state)
-            state.assign(header_state)
-            self.bring_out_your_dead(prev_header_state)
-            self.bring_out_your_dead(header_state)
-            prev_header_state.unify(header_state)
-            self.bring_out_your_dead(prev_header_state)
-            fn_refs = set()
-            for d in state.objs[deferred_id].properties.values():
-                if isinstance(d, JSRef):
-                    fn_refs.add(d)
-                elif isinstance(d, JSOr):
-                    for c in d.choices:
-                        if isinstance(c, JSRef):
-                            fn_refs.add(c)
-            
-            if header_state == prev_header_state:
-                break
+            debug("Abstract state at end: ", state)
+            if config.debug:
+                print("End value:", state.value, end="")
+                if isinstance(state.value, JSRef):
+                    print("", state.objs[state.value.target()])
+            dead_funcs = 0
+            funcs = 0
+            print("Processing callbacks...")
+            deferred_id = state.objs[state.gref].properties["___deferred"].target()
 
-            for r in fn_refs:
-                state_fn = state.clone()
-                self.eval_func_call(state_fn, state_fn.objs[r.target()], None)
-                state.join(state_fn)
+            prev_header_state = None
 
-        print("End of callback processing.")
+            header_state = State.bottom()
+            i = 0
+            while True:
+                i = i + 1
+                if i == 5000:
+                    break
+                prev_header_state = header_state.clone()
+                self.bring_out_your_dead(state)
+                header_state.join(state)
+                state.assign(header_state)
+                self.bring_out_your_dead(prev_header_state)
+                self.bring_out_your_dead(header_state)
+                prev_header_state.unify(header_state)
+                self.bring_out_your_dead(prev_header_state)
+                fn_refs = set()
+                for d in state.objs[deferred_id].properties.values():
+                    if isinstance(d, JSRef):
+                        fn_refs.add(d)
+                    elif isinstance(d, JSOr):
+                        for c in d.choices:
+                            if isinstance(c, JSRef):
+                                fn_refs.add(c)
+                
+                if header_state == prev_header_state:
+                    break
+
+                for r in fn_refs:
+                    state_fn = state.clone()
+                    self.eval_func_call(state_fn, state_fn.objs[r.target()], None)
+                    state.join(state_fn)
+
+            print("End of callback processing.")
+        
+        except:
+            if self.last is None:
+                self.last = "<<PROGRAM START>>\n"
+            print("\n=== ERROR DURING ABSTRACT INTERPRETATION ===")
+            print("\nWith abstract state: ")
+            print(state)
+            print("\nAt analyzed program statement: ")
+            print(self.last + "\n")
+            for t in reversed(self.stack_trace):
+                print("Called from: \n" + t + "\n")
+            print("\nException: ")
+            raise
