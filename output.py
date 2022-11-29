@@ -436,9 +436,15 @@ class Output(object):
             self.out(self.indent*" " + str(statement.key.name) + "(" + params + ")")
             self.do_statement(statement.value.body)
 
+        elif statement.type == "ForInStatement":
+            self.out(self.indent*" " + "for(", end="")
+            self.do_expr_or_statement(statement.left, simplify=False, end="")
+            self.out(" in ", end="")
+            self.do_expr_or_statement(statement.right, simplify=False, end="")
+            self.out(")")
+            self.do_statement(statement.body)
         else:
-            pass
-            #raise ValueError("Statement type not handled: " + statement.type)
+            print ("WARNING: Statement type not handled: " + statement.type)
     def do_prog(self, prog):
         for statement in prog:
             self.do_statement(statement)
