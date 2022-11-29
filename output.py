@@ -433,7 +433,12 @@ class Output(object):
                 else:
                     params += ", "
                 params += self.rename(a.name)
-            self.out(self.indent*" " + str(statement.key.name) + "(" + params + ")")
+            if statement.key.type == "Identifier":
+                self.out(self.indent*" " + str(statement.key.name) + "(" + params + ")")
+            else:
+                self.out(self.indent*" " + "[", end="")
+                self.do_expr(statement.key)
+                self.out("](" + params + ")")
             self.do_statement(statement.value.body)
 
         elif statement.type == "ForInStatement":

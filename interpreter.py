@@ -777,10 +777,13 @@ class Interpreter(object):
         state.value = self.eval_expr(state, expr)
         state.consume_expr(state.value)
     
+    def do_for_in(self, state, statement):
+        self.do_for(state, statement, True)
+    
     def do_while(self, state, statement):
         self.do_for(state, statement)
 
-    def do_for(self, state, statement):
+    def do_for(self, state, statement, is_for_in=False):
         if state.is_bottom:
             return
         (init, test, update, body) = (statement.init, statement.test, statement.update, statement.body.body)
@@ -797,6 +800,9 @@ class Interpreter(object):
         exit = False
         if init is not None:
             self.do_expr_or_statement(state, init)
+
+        if is_for_in:
+            pass
 
         #Unrolling is performed as long as the test condition is true, and the maximum iteration count has not been reached
         unrolling = True
@@ -834,9 +840,13 @@ class Interpreter(object):
             saved_loopcont = self.continue_state
             self.continue_state = State.bottom()
             i = i + 1
-            abs_test_result = self.eval_expr(state, test)
-            if state.is_bottom:
-                break
+
+            if is_for_in:
+                abs_test_result = JSTop
+            else:
+                abs_test_result = self.eval_expr(state, test)
+                if state.is_bottom:
+                    break
             state.consume_expr(abs_test_result, consumed_refs)
 
             #stop unrolling because max iter reached
@@ -1148,13 +1158,23 @@ class Interpreter(object):
                 self.unroll_trace = saved_unroll_trace
 
         elif statement.type == "ClassDeclaration":
+            statement.body.live = True
             class_obj = JSObject({})
             proto_obj = JSObject({})
             consumed_refs = set()
             for m in statement.body.body:
+                m.live = True
                 fn_expr = self.eval_expr(state, m.value)
                 state.consume_expr(fn_expr, consumed_refs)
-                proto_obj.properties[m.key.name] = fn_expr
+                if m.key.type == "Identifier":
+                    proto_obj.properties[m.key.name] = fn_expr
+                else:
+                    key_expr = self.eval_expr(state, m.key)
+                    state.consume_expr(key_expr, consumed_refs)
+                    if isinstance(key_expr, JSPrimitive) and type(key_expr.val) == str:
+                        proto_obj.properties[key_expr.val] = fn_expr
+                    else:
+                        print("WARNING: Cannot evaluate method name for class:", statement.id.name)
 
             class_id = State.new_id()
             proto_id = State.new_id()
@@ -1175,6 +1195,13 @@ class Interpreter(object):
             print("ForOfStatement")
             pass #TODO
         
+        elif statement.type == "ForInStatement":
+            self.trace(statement)
+            saved_unroll_trace = self.unroll_trace
+            self.unroll_trace = None
+            self.do_for_in(state, statement)
+            self.unroll_trace = saved_unroll_trace
+
         elif statement.type == "ForStatement":
             self.trace(statement)
             saved_unroll_trace = self.unroll_trace

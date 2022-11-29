@@ -224,7 +224,6 @@ def parse_int(state, expr, s, base=JSPrimitive(10)):
             return JSUndefNaN
         else:
             return JSPrimitive(int(prefix, base.val))
-    print("parseint return top:" , s)
     return JSTop
 
 parse_int_ref = register_preexisting_object(JSObject.simfct(parse_int));
