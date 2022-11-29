@@ -302,8 +302,11 @@ class Output(object):
             self.do_expr(expr.argument, simplify=False)
             self.out(")" + expr.operator, end="")
 
+        elif expr.type == "AwaitExpression":
+            self.out("await ", end="")
+            self.do_expr(expr.argument);
+            self.out("\n", end="")
         else:
-            self.out(expr)
             print("WARNING: Expr type not handled:" + expr.type)
 
     def do_statement(self, statement, end="\n"):

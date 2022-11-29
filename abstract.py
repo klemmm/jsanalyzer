@@ -585,6 +585,7 @@ class JSObject(JSValue):
         self.env = env #if function, this is the ID of object representing closure-captured environment, if any
         self.simfct = simfct #Simulated function, if any
         self.missing_mode = MissingMode.MISSING_IS_UNDEF
+        self.fn_isexpr = False
         self.tablength = 0
     def __str__(self):
         missing_mode = ""
@@ -603,9 +604,9 @@ class JSObject(JSValue):
         if self.simfct is not None:
             return "<simfct " + props + ">"
         elif self.env is not None:
-            return "<closure, env=" + str(self.env) + " " + props + ">"
+            return "<closure, isexpr=" + str(self.fn_isexpr) + ", env=" + str(self.env) + " " + props + ">"
         elif self.body is not None:
-            return "<function " + props + ">"
+            return "<function, isexpr=" + str(self.fn_isexpr) + " " + props + ">"
         else:
             return "<object " + props + ">"
 
@@ -614,7 +615,7 @@ class JSObject(JSValue):
     def __eq__(self, other):
         if type(self) != type(other):
             return False
-        return self.properties == other.properties and self.body == other.body and self.params == other.params and self.env == other.env and self.simfct == other.simfct and self.missing_mode == other.missing_mode and self.tablength == other.tablength
+        return self.properties == other.properties and self.body == other.body and self.params == other.params and self.env == other.env and self.simfct == other.simfct and self.missing_mode == other.missing_mode and self.tablength == other.tablength and self.fn_isexpr == other.fn_isexpr
 
     def contains_top(self):
         return self.missing_mode == MissingMode.MISSING_IS_TOP or JSTop in self.properties.values()
@@ -637,6 +638,7 @@ class JSObject(JSValue):
         c.simfct = self.simfct
         c.missing_mode = self.missing_mode
         c.tablength = self.tablength
+        c.fn_isexpr = self.fn_isexpr
         return c
 
     def set_missing_mode(self, missing_mode):

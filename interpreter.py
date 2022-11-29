@@ -72,6 +72,9 @@ class Interpreter(object):
             else:
                 return expression
 
+        elif expression.type == "AwaitExpression":
+            return Interpreter.beta_reduction(expression.argument, formal_args, effective_args)
+
         elif expression.type == "CallExpression":
             args = []
             for a in expression.arguments:
@@ -198,7 +201,7 @@ class Interpreter(object):
             arguments = []
         else:
             arguments = expr.arguments
-        
+       
         #Argument evaluation is the same in each case.
         #Evaluate argument, then handle the actual function call.
         args_val = []
@@ -277,13 +280,17 @@ class Interpreter(object):
                 state.objs[state.lref].properties["__closure"] = JSRef(callee.closure_env())
            
             #evaluate function, join any return states
-            self.do_statement(state, callee.body)
+            if callee.fn_isexpr:
+                return_value = self.eval_expr(state, callee.body)
+            else:
+                self.do_statement(state, callee.body)
             self.need_clean = True
             callee.body.pure = self.pure
             state.join(self.return_state)
            
             #Save function return value
-            return_value = self.return_value #TODO reflechir au pending
+            if not callee.fn_isexpr:
+                return_value = self.return_value #TODO reflechir au pending
        
             #Leave callee context
             self.return_value = saved_return
@@ -690,6 +697,9 @@ class Interpreter(object):
                 f = JSObject.closure(expr.body, expr.params, state.lref)
                 f.range = expr.range
 
+            if expr.expression:
+                f.fn_isexpr = True
+
             if f.body.seen is not True:
                 f.body.seen = True
                 f.body.name = "<anonymous>"
@@ -703,6 +713,8 @@ class Interpreter(object):
             ret = self.eval_func_helper(state, expr, consumed_refs)
             state.pending.difference_update(consumed_refs)
             return ret
+        elif expr.type == "AwaitExpression":
+            return self.eval_expr_aux(state, expr.argument)
         else:
             print("WARNING: Expr type not handled:" + expr.type)
         return
@@ -1181,9 +1193,6 @@ class Interpreter(object):
 
         elif statement.type == "SwitchStatement":
             self.do_switch(state, statement)
-
-        elif statement.type == "ClassDeclaration":
-            return 
 
         else:
             print("WARNING: Statement type not handled: " + statement.type)
