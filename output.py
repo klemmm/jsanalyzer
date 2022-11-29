@@ -22,6 +22,7 @@ class Output(object):
         self.ast = ast
         self.f = f
         self.renamed = {}
+        self.used_names = set()
         self.count_rename = 0
         self.count_reduce = 0
         self.count_unroll = 0
@@ -29,13 +30,23 @@ class Output(object):
         self.count_dead = 0
 
     def rename(self, name):
+        global rename_length
         if name is None:
             return "NONE"
         for r in regexp_rename:
             if re.match(r, name) is not None:
                 if name in self.renamed.keys():
                     return self.renamed[name]
+
                 newname = generate(rename_length)
+                t = 0
+                while newname in self.used_names:
+                    if t > 10:
+                        rename_length += 1
+                        print("WARNING: increased variable rename length to:", rename_length)
+                    newname = generate(rename_length)
+                    t = t + 1
+                self.used_names.add(newname)
                 self.count_rename += 1
                 self.renamed[name] = newname
                 return newname

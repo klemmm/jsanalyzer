@@ -210,7 +210,12 @@ class Interpreter(object):
                 args_val.append(v)
             elif isinstance(v, JSRef) and state.objs[v.target()].is_function():
                 #If the function is unknown, and closures are passed as arguments, we assume these closures will be called by the unknown function.
-                self.eval_func_call(state, state.objs[v.target()], None)
+                #self.eval_func_call(state, state.objs[v.target()], None)
+                if not argument.processed:
+                    argument.processed = True
+                    deferred_id = state.objs[state.gref].properties["___deferred"].target()
+                    fn_id = State.new_id()
+                    state.objs[deferred_id].properties[fn_id] = v
 
         #Handle the case where callee is a simfct
         if callee.is_simfct(): 
@@ -351,8 +356,11 @@ class Interpreter(object):
         target, prop, target_id = self.use_lvalue(state, lvalue_expr, consumed_refs)
 
         if rvalue_expr is not None and not rvalue_expr.processed and (target is None or (target_id is not None and "__probable_api" in target.properties.keys())) and isinstance(abs_rvalue, JSRef) and state.objs[abs_rvalue.target()].is_function():
-            self.deferred.append((state.clone(), state.objs[abs_rvalue.target()]))
+            #self.deferred.append((state.clone(), state.objs[abs_rvalue.target()]))
             #print("Deferred callback handler:", prop)
+            deferred_id = state.objs[state.gref].properties["___deferred"].target()
+            fn_id = State.new_id()
+            state.objs[deferred_id].properties[fn_id] = abs_rvalue
             rvalue_expr.processed = True
 
         if prop is None or target is None:
@@ -1212,6 +1220,9 @@ class Interpreter(object):
             eval_obj = plugin_manager.register_preexisting_object(JSObject.simfct(eval_fct))
             plugin_manager.register_global_symbol("eval", JSRef(eval_obj))
 
+            deferred_obj = plugin_manager.register_preexisting_object(JSObject({}))
+            plugin_manager.register_global_symbol("___deferred", JSRef(deferred_obj))
+
             for (ref_id, obj) in plugin_manager.preexisting_objects:
                 state.objs[ref_id] = obj
             
@@ -1250,29 +1261,40 @@ class Interpreter(object):
                 print("", state.objs[state.value.target()])
         dead_funcs = 0
         funcs = 0
-        print("Processing deferred functions...")
-        header_state = State.bottom()
+        print("Processing callbacks...")
+        deferred_id = state.objs[state.gref].properties["___deferred"].target()
+
         prev_header_state = None
-        for s, f in self.deferred:
-            for obj_id, obj in s.objs.items():
-                if obj_id in state.objs.keys():
-                    State.object_permissive_join(state.objs[obj_id], obj)
-                    pass
-                else:
-                    state.objs[obj_id] = obj.clone()
-                    state.pending.add(obj_id)
+
+        header_state = State.bottom()
+        i = 0
         while True:
-            self.bring_out_your_dead(header_state)
-            if prev_header_state is not None and (header_state == prev_header_state):
+            i = i + 1
+            if i == 5000:
                 break
             prev_header_state = header_state.clone()
+            self.bring_out_your_dead(state)
             header_state.join(state)
-            state = header_state.clone()
-            for s,f in self.deferred:
-                self.eval_func_call(state, f, None)
-        for f in self.funcs:
-            funcs += 1
-            if not f.body.used:
-                f.body.dead_code = True
-                dead_funcs += 1
-        print("End of deferred function processing.")
+            state.assign(header_state)
+            self.bring_out_your_dead(prev_header_state)
+            self.bring_out_your_dead(header_state)
+            prev_header_state.unify(header_state)
+            self.bring_out_your_dead(prev_header_state)
+            fn_refs = set()
+            for d in state.objs[deferred_id].properties.values():
+                if isinstance(d, JSRef):
+                    fn_refs.add(d)
+                elif isinstance(d, JSOr):
+                    for c in d.choices:
+                        if isinstance(c, JSRef):
+                            fn_refs.add(c)
+            
+            if header_state == prev_header_state:
+                break
+
+            for r in fn_refs:
+                state_fn = state.clone()
+                self.eval_func_call(state_fn, state_fn.objs[r.target()], None)
+                state.join(state_fn)
+
+        print("End of callback processing.")

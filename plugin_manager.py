@@ -36,6 +36,8 @@ def to_bool(v):
         elif type(v.val) is bool:
             return v.val
         elif type(v.val) is str:
+            if v.val == "<<NULL>>":
+                return 0
             return len(v.val) > 0
         else:
             raise ValueError("truth_value: unhandled concrete type" + str(type(v.val)))
