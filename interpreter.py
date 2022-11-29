@@ -94,11 +94,15 @@ class Interpreter(object):
             return expression
 
     def eval_func_helper(self, state, expr, consumed_refs, this=None):
+
+        called_with_new = this is not None
+
         if expr.skip:
             #print("skipped for site=", expr.site)
             return JSBot
         callee_ref = self.eval_expr(state, expr.callee)
         state.consume_expr(callee_ref, consumed_refs)
+
 
         if isinstance(callee_ref, JSOr) and config.use_filtering_err:
             #print("Or in call:", callee_ref)
@@ -116,6 +120,21 @@ class Interpreter(object):
         callee = JSTop
         if isinstance(callee_ref, JSRef):
             callee = state.objs[callee_ref.target()]
+
+        if callee is not JSTop and called_with_new and "prototype" in callee.properties and isinstance(callee.properties["prototype"], JSRef):
+            #copy stuff from prototype into fresh object
+            this_obj = state.objs[this]
+            proto_obj = state.objs[callee.properties["prototype"].target()]
+            for k, v in proto_obj.properties.items():
+                this_obj.properties[k] = JSRef(v.target(), this)
+
+            #prepare to call constructor if any
+            if "constructor" in proto_obj.properties:
+                callee = JSTop
+                if isinstance(proto_obj.properties["constructor"], JSRef):
+                    callee = state.objs[proto_obj.properties["constructor"].target()]
+            else:
+                callee = None
 
         if expr.active is None:
             expr.active = 0
@@ -221,7 +240,9 @@ class Interpreter(object):
                     state.objs[deferred_id].properties[fn_id] = v
 
         #Handle the case where callee is a simfct
-        if callee.is_simfct(): 
+        if callee is None:
+            pass
+        elif callee.is_simfct(): 
             self.pure = False #TODO implement a way for plugins to tell the interpreter that a python function is pure.
 
             #TODO for now, only simfct can be bound
@@ -1125,6 +1146,23 @@ class Interpreter(object):
                 self.do_vardecl(state, decl, hoisting)
             if not hoisting:
                 self.unroll_trace = saved_unroll_trace
+
+        elif statement.type == "ClassDeclaration":
+            class_obj = JSObject({})
+            proto_obj = JSObject({})
+            consumed_refs = set()
+            for m in statement.body.body:
+                fn_expr = self.eval_expr(state, m.value)
+                state.consume_expr(fn_expr, consumed_refs)
+                proto_obj.properties[m.key.name] = fn_expr
+
+            class_id = State.new_id()
+            proto_id = State.new_id()
+            state.objs[class_id] = class_obj
+            state.objs[proto_id] = proto_obj
+            state.objs[state.gref].properties[statement.id.name] = JSRef(class_id)
+            state.objs[class_id].properties["prototype"] = JSRef(proto_id)
+            state.pending.difference_update(consumed_refs)
 
         elif statement.type == "ExpressionStatement":
             self.trace(statement)

@@ -227,16 +227,17 @@ class State(object):
                     return val
             elif isinstance(val, JSRef):
                 target = f(val.target())
-                nr = JSRef(target)
+                #nr = JSRef(target)
                 if val.target() not in seen:
                     seen.add(val.target())
                     aux(self.objs[val.target()])
+                this = None
                 if val.is_bound() and type(val.this()) is int:
                     this = f(val.this())
-                    nr.bind(this)
                     if val.this() not in seen:
                         seen.add(val.this())
                         aux(self.objs[val.this()])
+                nr = JSRef(target, this)
                 if nr == val:
                     return val
                 else:
