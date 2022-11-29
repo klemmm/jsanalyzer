@@ -67,6 +67,27 @@ class Output(object):
         print("Variables renamed:\t\t", self.count_rename)
         print("=====================================")
 
+    def do_object_properties(self, properties):
+            first = True
+            for prop in properties:
+                if not first:
+                    self.out(", ")
+                first = False
+                self.out(" "*self.indent, end="")
+                if prop.computed:
+                    self.do_expr(prop.key)
+                else:
+                    if prop.type == "Property":
+                        if prop.key.name is not None:
+                            self.out(prop.key.name, end="")
+                        else:
+                            self.out(prop.key.value, end="")
+                        self.out(": ", end="")
+                        self.do_expr(prop.value)
+                    else:
+                        self.out("<???>") #TODO
+
+
     def print_literal(self, literal):
         if type(literal) == str:
             self.out('"' + literal + '"', end="")
@@ -189,27 +210,10 @@ class Output(object):
         elif expr.type == "ObjectExpression":
             self.out("{")
             self.indent += self.INDENT
-            first = True
-            for prop in expr.properties:
-                if not first:
-                    self.out(", ")
-                first = False
-                self.out(" "*self.indent, end="")
-                if prop.computed:
-                    self.do_expr(prop.key)
-                else:
-                    if prop.type == "Property":
-                        if prop.key.name is not None:
-                            self.out(prop.key.name, end="")
-                        else:
-                            self.out(prop.key.value, end="")
-                        self.out(": ", end="")
-                        self.do_expr(prop.value)
-                    else:
-                        self.out("<???>") #TODO
+            self.do_object_properties(expr.properties)
 
             self.indent -= self.INDENT
-            self.out("\n}")
+            self.out("\n}", end="")
 
         elif expr.type == "ArrayExpression":
             self.out("[", end="")
@@ -317,7 +321,16 @@ class Output(object):
             self.count_dead += 1
         elif statement.type == "VariableDeclaration":
             for decl in statement.declarations:
-                self.out(self.indent*" " + "var " + self.rename(decl.id.name), end="")
+                if decl.id.type == "Identifier":
+                    self.out(self.indent*" " + "var " + self.rename(decl.id.name), end="")
+                elif decl.id.type == "ObjectPattern":
+                    self.out(self.indent*" " + "var {\n", end="")
+                    self.indent += self.INDENT
+                    self.do_object_properties(decl.id.properties)
+                    self.indent -= self.INDENT
+                    self.out(self.indent*" " + "\n}", end="")
+                else:
+                    self.out(self.indent*" " + "var [[GNI?]]", end="")
                 if decl.init is not None:
                     self.out(" = ", end="")
                     self.do_expr(decl.init)
