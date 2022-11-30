@@ -1,7 +1,7 @@
 import esprima
 from abstract import State, JSObject, JSUndefNaN, JSTop, JSBot, JSRef, JSPrimitive, JSValue, MissingMode, JSOr, GCConfig
 from debug import debug
-from tools import call
+from tools import call, Try, Raise, Except
 import re
 SITE = 0
 
@@ -178,33 +178,25 @@ class Interpreter(object):
             expr.recursion_state.join(state)
 #            if callee is not JSTop:
 #                print("   joined state stack frames: ",  expr.recursion_state.stack_frames, expr.recursion_state.lref, "function=", callee.body.name, site)
-            raise StackUnwind(site)
+            yield Raise(site)
 
         expr.active += 1
         stable = False
         while not stable:
-            try:
-                #print("start eval, site", expr.site, "skip=", expr.skip)
-                if expr.recursion_state is not None:
-                    old_recursion_state = expr.recursion_state.clone()
-                if self.return_state is not None:
-                    saved_return_state = self.return_state
-                else:
-                    saved_return_state = None
-                if self.return_value is not None:
-                    saved_return_value = self.return_value.clone()
-                else:
-                    saved_return_value = None
-                ret =  yield [self.eval_func_call, state, callee, expr, this, consumed_refs]
-                #print("stop eval, site", expr.site, "skip=", expr.skip)
-                stable = True
-            except StackUnwind as e:
-                #print("at site: ", expr.site)
-                if e.site != expr.site:
-                    #print("not my function")
-                    expr.active -= 1
-                    expr.recursion_state = None
-                    raise e
+            #print("start eval, site", expr.site, "skip=", expr.skip)
+            if expr.recursion_state is not None:
+                old_recursion_state = expr.recursion_state.clone()
+            if self.return_state is not None:
+                saved_return_state = self.return_state
+            else:
+                saved_return_state = None
+            if self.return_value is not None:
+                saved_return_value = self.return_value.clone()
+            else:
+                saved_return_value = None
+            ret =  yield Try(expr.site, [self.eval_func_call, state, callee, expr, this, consumed_refs])
+
+            if ret is Except:
                 #print("Unwinded: ", e.site)
                 state.assign(old_recursion_state)
                 self.return_state = saved_return_state
@@ -216,6 +208,10 @@ class Interpreter(object):
 #                    else:
 #                       print("not stable yet")
                     state.assign(expr.recursion_state)
+            else:
+                stable = True
+        ### fin exception
+
         #if expr.recursion_state is not None:
         #    print("Finished site=", expr.site, expr.range)
         expr.skip = None
