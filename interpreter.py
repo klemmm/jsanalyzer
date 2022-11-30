@@ -23,12 +23,10 @@ def fn_cons(state, expr, this, *args):
         return JSTop #TODO should clear entire state here
     if isinstance(raw_body, JSPrimitive) and type(raw_body.val) is str:
         fn_body = "(function() {" + raw_body.val + "})"
-        print("Launch sub-interpreter to manage Function.constructor()")
         ast = esprima.parse(fn_body, options={ 'range': True})
-        i = Interpreter(ast, fn_body)
+        i = Interpreter(ast, fn_body, True)
         i.run(state)
         expr.fn_cons = ast.body
-        print("Sub-interpreter finished")
         return state.value
     else:
         return JSTop
@@ -36,21 +34,20 @@ def eval_fct(state, expr, target):
     if target is JSTop:
         return JSTop #TODO should clear entire state here
     if isinstance(target, JSPrimitive) and type(target.val) is str:
-        print("Launch sub-interpreter to manage eval()")
         ast = esprima.parse(target.val, options={ 'range': True})
-        i = Interpreter(ast, target.val)
+        i = Interpreter(ast, target.val, True)
         i.run(state)
         expr.eval = ast.body
-        print("Sub-interpreter finished")
         return state.value
     else:
         return target
 
 class Interpreter(object):
-    def __init__(self, ast, data):
+    def __init__(self, ast, data, quiet=False):
         self.ast = ast
         self.funcs = []
         self.data = data
+        self.quiet = quiet
         plugin_manager.set_source(data)
         self.lines  = []
         self.stack_trace = []
@@ -1363,10 +1360,12 @@ class Interpreter(object):
         debug("Init state: ", str(state))
         GCConfig.preexisting_objects = plugin_manager.preexisting_objects
 
-        print("Starting abstract interpretation...")
+        if not self.quiet:
+            print("Starting abstract interpretation...")
         try:
             call(self.do_sequence_with_hoisting,state, self.ast.body)
-            print("Abstract state stabilized.")
+            if not self.quiet:
+                print("Abstract state stabilized.")
             self.bring_out_your_dead(state)
             debug("Abstract state at end: ", state)
             if config.debug:
@@ -1375,7 +1374,8 @@ class Interpreter(object):
                     print("", state.objs[state.value.target()])
             dead_funcs = 0
             funcs = 0
-            print("Processing callbacks...")
+            if not self.quiet:
+                print("Processing callbacks...")
             deferred_id = state.objs[state.gref].properties["___deferred"].target()
 
             prev_header_state = None
@@ -1411,7 +1411,8 @@ class Interpreter(object):
                     call(self.eval_func_call, state_fn, state_fn.objs[r.target()], None)
                     state.join(state_fn)
 
-            print("End of callback processing.")
+            if not self.quiet:
+                print("End of callback processing.")
         
         except Exception as e:
             if self.last is None:
