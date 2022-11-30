@@ -262,7 +262,6 @@ def parse_int(state, expr, s, base=JSPrimitive(10)):
         if prefix == "":
             return JSUndefNaN
         else:
-            print("ici")
             return JSPrimitive(int(prefix, base.val))
     return JSTop
 

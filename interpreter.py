@@ -24,7 +24,6 @@ def fn_cons(state, expr, this, *args):
     if isinstance(raw_body, JSPrimitive) and type(raw_body.val) is str:
         fn_body = "(function() {" + raw_body.val + "})"
         print("Launch sub-interpreter to manage Function.constructor()")
-        print("fn body" , fn_body)
         ast = esprima.parse(fn_body, options={ 'range': True})
         i = Interpreter(ast, fn_body)
         i.run(state)
@@ -681,6 +680,8 @@ class Interpreter(object):
                 return fct
 
             elif isinstance(target,JSPrimitive) and type(target.val) is re.Pattern:
+                if prop == "source":
+                    return JSPrimitive(target.val.pattern)
                 return JSUndefNaN
             else:
                 state.pending.difference_update(consumed_refs)
