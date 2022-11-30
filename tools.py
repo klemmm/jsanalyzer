@@ -10,7 +10,8 @@ class Raise(object):
         self.site = site
 
 class Except(object):
-    pass
+    def __init__(self, site):
+        self.site = site
 
 def call(fn, *args):
     stack = [[fn, *args]]
@@ -30,11 +31,11 @@ def call(fn, *args):
                     found = False
                     while not found:
                         frame = stack.pop()
-                        if isinstance(frame, Try) and frame.site == yielded.site:
+                        if isinstance(frame, Try):
                             found = True
                             break
                     assert found
-                    result = Except
+                    result = Except(yielded.site)
                 else:
                     stack.append(yielded)
             except StopIteration as e:

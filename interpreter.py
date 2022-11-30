@@ -196,7 +196,12 @@ class Interpreter(object):
                 saved_return_value = None
             ret =  yield Try(expr.site, [self.eval_func_call, state, callee, expr, this, consumed_refs])
 
-            if ret is Except:
+            if isinstance(ret, Except):
+                if ret.site != expr.site:
+                    expr.active -= 1
+                    expr.recursion_state = None
+                    yield Raise(ret.site)
+
                 #print("Unwinded: ", e.site)
                 state.assign(old_recursion_state)
                 self.return_state = saved_return_state
@@ -1150,8 +1155,6 @@ class Interpreter(object):
         if unroll_trace is not None:
             if statement.trace_id is None:
                 newid = State.new_id()
-                if newid == 108:
-                    print(statement)
                 statement.trace_id = newid
             unroll_trace.append(statement)
         return
