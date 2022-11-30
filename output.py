@@ -91,7 +91,7 @@ class Output(object):
 
     def print_literal(self, literal):
         if type(literal) == str:
-            self.out('"' + literal + '"', end="")
+            self.out(str(literal.encode("utf-8"))[1:], end="")
         elif type(literal) == bool:
             if literal:
                 self.out("true", end="")
