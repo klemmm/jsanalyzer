@@ -587,8 +587,20 @@ def decode_uri_component(state, expr, string):
         return JSPrimitive(urllib.parse.unquote(string.val))
     return JSTop
 
+def decode_uri(state, expr, string):
+    subst = [("%00", "\x00"),("%01", "\x01"),("%02", "\x02"),("%03", "\x03"),("%04", "\x04"),("%05", "\x05"),("%06", "\x06"),("%07", "\x07"),("%08", "\x08"),("%09", "\x09"),("%0A", "\x0a"),("%0B", "\x0b"),("%0C", "\x0c"),("%0D", "\x0d"),("%0E", "\x0e"),("%0F", "\x0f"),("%10", "\x10"),("%11", "\x11"),("%12", "\x12"),("%13", "\x13"),("%14", "\x14"),("%15", "\x15"),("%16", "\x16"),("%17", "\x17"),("%18", "\x18"),("%19", "\x19"),("%1A", "\x1a"),("%1B", "\x1b"),("%1C", "\x1c"),("%1D", "\x1d"),("%1E", "\x1e"),("%1F", "\x1f"),("%20", "\x20"),("%22", "\x22"),("%25", "\x25"),("%3C", "\x3c"),("%3E", "\x3e"),("%5B", "\x5b"),("%5C", "\x5c"),("%5D", "\x5d"),("%5E", "\x5e"),("%60", "\x60"),("%7B", "\x7b"),("%7C", "\x7c"),("%7D", "\x7d"),("%7F", "\x7f"),("%C2%80", "\x80"),("%C2%81", "\x81"),("%C2%82", "\x82"),("%C2%83", "\x83"),("%C2%84", "\x84"),("%C2%85", "\x85"),("%C2%86", "\x86"),("%C2%87", "\x87"),("%C2%88", "\x88"),("%C2%89", "\x89"),("%C2%8A", "\x8a"),("%C2%8B", "\x8b"),("%C2%8C", "\x8c"),("%C2%8D", "\x8d"),("%C2%8E", "\x8e"),("%C2%8F", "\x8f"),("%C2%90", "\x90"),("%C2%91", "\x91"),("%C2%92", "\x92"),("%C2%93", "\x93"),("%C2%94", "\x94"),("%C2%95", "\x95"),("%C2%96", "\x96"),("%C2%97", "\x97"),("%C2%98", "\x98"),("%C2%99", "\x99"),("%C2%9A", "\x9a"),("%C2%9B", "\x9b"),("%C2%9C", "\x9c"),("%C2%9D", "\x9d"),("%C2%9E", "\x9e"),("%C2%9F", "\x9f"),("%C2%A0", "\xa0"),("%C2%A1", "\xa1"),("%C2%A2", "\xa2"),("%C2%A3", "\xa3"),("%C2%A4", "\xa4"),("%C2%A5", "\xa5"),("%C2%A6", "\xa6"),("%C2%A7", "\xa7"),("%C2%A8", "\xa8"),("%C2%A9", "\xa9"),("%C2%AA", "\xaa"),("%C2%AB", "\xab"),("%C2%AC", "\xac"),("%C2%AD", "\xad"),("%C2%AE", "\xae"),("%C2%AF", "\xaf"),("%C2%B0", "\xb0"),("%C2%B1", "\xb1"),("%C2%B2", "\xb2"),("%C2%B3", "\xb3"),("%C2%B4", "\xb4"),("%C2%B5", "\xb5"),("%C2%B6", "\xb6"),("%C2%B7", "\xb7"),("%C2%B8", "\xb8"),("%C2%B9", "\xb9"),("%C2%BA", "\xba"),("%C2%BB", "\xbb"),("%C2%BC", "\xbc"),("%C2%BD", "\xbd"),("%C2%BE", "\xbe"),("%C2%BF", "\xbf"),("%C3%80", "\xc0"),("%C3%81", "\xc1"),("%C3%82", "\xc2"),("%C3%83", "\xc3"),("%C3%84", "\xc4"),("%C3%85", "\xc5"),("%C3%86", "\xc6"),("%C3%87", "\xc7"),("%C3%88", "\xc8"),("%C3%89", "\xc9"),("%C3%8A", "\xca"),("%C3%8B", "\xcb"),("%C3%8C", "\xcc"),("%C3%8D", "\xcd"),("%C3%8E", "\xce"),("%C3%8F", "\xcf"),("%C3%90", "\xd0"),("%C3%91", "\xd1"),("%C3%92", "\xd2"),("%C3%93", "\xd3"),("%C3%94", "\xd4"),("%C3%95", "\xd5"),("%C3%96", "\xd6"),("%C3%97", "\xd7"),("%C3%98", "\xd8"),("%C3%99", "\xd9"),("%C3%9A", "\xda"),("%C3%9B", "\xdb"),("%C3%9C", "\xdc"),("%C3%9D", "\xdd"),("%C3%9E", "\xde"),("%C3%9F", "\xdf"),("%C3%A0", "\xe0"),("%C3%A1", "\xe1"),("%C3%A2", "\xe2"),("%C3%A3", "\xe3"),("%C3%A4", "\xe4"),("%C3%A5", "\xe5"),("%C3%A6", "\xe6"),("%C3%A7", "\xe7"),("%C3%A8", "\xe8"),("%C3%A9", "\xe9"),("%C3%AA", "\xea"),("%C3%AB", "\xeb"),("%C3%AC", "\xec"),("%C3%AD", "\xed"),("%C3%AE", "\xee"),("%C3%AF", "\xef"),("%C3%B0", "\xf0"),("%C3%B1", "\xf1"),("%C3%B2", "\xf2"),("%C3%B3", "\xf3"),("%C3%B4", "\xf4"),("%C3%B5", "\xf5"),("%C3%B6", "\xf6"),("%C3%B7", "\xf7"),("%C3%B8", "\xf8"),("%C3%B9", "\xf9"),("%C3%BA", "\xfa"),("%C3%BB", "\xfb"),("%C3%BC", "\xfc"),("%C3%BD", "\xfd"),("%C3%BE", "\xfe")]
+    if isinstance(string, JSPrimitive) and type(string.val) is str:
+        txt = string.val
+        for (k, v) in subst:
+            txt = txt.replace(k, v)
+        return JSPrimitive(txt)
+    else:
+        return JSTop
+
 decode_uri_component_ref = register_preexisting_object(JSObject.simfct(decode_uri_component))
+decode_uri_ref = register_preexisting_object(JSObject.simfct(decode_uri))
 register_global_symbol('decodeURIComponent', JSRef(decode_uri_component_ref))
+register_global_symbol('decodeURI', JSRef(decode_uri_ref))
 register_global_symbol('unescape', JSRef(decode_uri_component_ref))
 
 function_ref = register_preexisting_object(JSObject({}))
@@ -596,6 +608,15 @@ register_global_symbol('Function', JSRef(function_ref))
 
 number_ref = register_preexisting_object(JSObject.simfct(parse_int))
 register_global_symbol('Number', JSRef(number_ref))
+
+def math_round(state, expr, this, number):
+    if isinstance(number, JSPrimitive) and type(number.val) is float:
+        return JSPrimitive(round(number.val))
+    return JSTop
+
+round_ref = register_preexisting_object(JSObject.simfct(math_round))
+math_ref = register_preexisting_object(JSObject({"round": JSRef(round_ref)}))
+register_global_symbol('Math', JSRef(math_ref))
 
 def regexp_match(state, expr, this, target):
     return JSPrimitive(this.properties["regexp"].val.match(target.val) is not None)
