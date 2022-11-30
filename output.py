@@ -149,7 +149,7 @@ class Output(object):
             self.indent -= self.INDENT
             self.out("})", end="")
 
-        elif simplify_expressions and simplify and (expr.static_value is not None and (((isinstance(expr.static_value, JSPrimitive) and expr.static_value.val is not None) or expr.static_value is JSUndefNaN) and not (expr.type == "CallExpression" and expr.callee.name == "eval") and not expr.type == "AssignmentExpression")):
+        elif simplify_expressions and simplify and (expr.static_value is not None and (((isinstance(expr.static_value, JSPrimitive) and expr.static_value.val is not None)) and not (expr.type == "CallExpression" and expr.callee.name == "eval") and not expr.type == "AssignmentExpression")):
             if expr.static_value is JSUndefNaN:
                 self.out("undefined", end="")
             else:
