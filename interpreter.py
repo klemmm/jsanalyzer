@@ -16,6 +16,23 @@ class StackUnwind(Exception):
     def __init__(self, site):
         self.site = site
 
+def fn_cons(state, expr, this, *args):
+    raw_body = args[-1]
+    fn_args = args[0:-1] #TODO
+    if raw_body is JSTop:
+        return JSTop #TODO should clear entire state here
+    if isinstance(raw_body, JSPrimitive) and type(raw_body.val) is str:
+        fn_body = "(function() {" + raw_body.val + "})"
+        print("Launch sub-interpreter to manage Function.constructor()")
+        print("fn body" , fn_body)
+        ast = esprima.parse(fn_body, options={ 'range': True})
+        i = Interpreter(ast, fn_body)
+        i.run(state)
+        expr.fn_cons = ast.body
+        print("Sub-interpreter finished")
+        return state.value
+    else:
+        return JSTop
 def eval_fct(state, expr, target):
     if target is JSTop:
         return JSTop #TODO should clear entire state here
@@ -292,7 +309,8 @@ class Interpreter(object):
             state.objs[state.lref].properties["arguments"] = JSRef(arguments_id)
             state.objs[arguments_id] = JSObject({})
             for v in args_val:
-                state.objs[state.lref].properties[callee.params[i].name] = v
+                if i < len(callee.params):
+                    state.objs[state.lref].properties[callee.params[i].name] = v
                 state.objs[arguments_id].properties[i] = v
                 i = i + 1
        
@@ -646,6 +664,9 @@ class Interpreter(object):
                 state.pending.difference_update(consumed_refs)
                 return fct
             elif isinstance(target, JSPrimitive) and type(target.val) is int:
+                if prop == "constructor":
+                    state.pending.difference_update(consumed_refs)
+                    return state.objs[state.gref].properties["Number"]
                 fct = JSTop
                 for h in JSObject.hooks:
                     fct = h(prop)
@@ -1313,17 +1334,24 @@ class Interpreter(object):
         if entry_state is None:
             state = State(glob=True, bottom=False)
 
+            
             eval_obj = plugin_manager.register_preexisting_object(JSObject.simfct(eval_fct))
             plugin_manager.register_global_symbol("eval", JSRef(eval_obj))
 
             deferred_obj = plugin_manager.register_preexisting_object(JSObject({}))
             plugin_manager.register_global_symbol("___deferred", JSRef(deferred_obj))
+            
+            fn_cons_obj = plugin_manager.register_preexisting_object(JSObject.simfct(fn_cons))
 
             for (ref_id, obj) in plugin_manager.preexisting_objects:
                 state.objs[ref_id] = obj
             
             for (name, value) in plugin_manager.global_symbols:
                 state.objs[state.gref].properties[name] = value
+            
+            for (name, value) in plugin_manager.global_symbols:
+                if name == "Number":
+                    state.objs[value.target()].properties["constructor"] = JSRef(fn_cons_obj)
             
             State.set_next_id(plugin_manager.ref_id)
         else:
@@ -1384,7 +1412,7 @@ class Interpreter(object):
 
             print("End of callback processing.")
         
-        except:
+        except Exception as e:
             if self.last is None:
                 self.last = "<<PROGRAM START>>\n"
             print("\n=== ERROR DURING ABSTRACT INTERPRETATION ===")
@@ -1394,5 +1422,5 @@ class Interpreter(object):
             print(self.last + "\n")
             for t in reversed(self.stack_trace):
                 print("Called from: \n" + t + "\n")
-            print("\nException: ")
+            print("\nException " + str(e) + ":")
             raise

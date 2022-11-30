@@ -127,6 +127,12 @@ def binary_handler(opname, state, abs_arg1, abs_arg2):
         arg2 = abs_arg2.val
        
         if opname == "+":
+            if type(arg1) is float and float.is_integer(arg1):
+                arg1 = int(arg1)
+            
+            if type(arg2) is float and float.is_integer(arg2):
+                arg2 = int(arg2)
+
             if (type(arg1) is int or type(arg1) is float or type(arg1) is bool) and type(arg2) is str:
                 arg1 = str(arg1)
             if type(arg1) is str and (type(arg2) is int or type(arg2) is float or type(arg2) is bool):
@@ -244,6 +250,8 @@ register_global_symbol('___state', JSRef(___state_ref))
 def parse_int(state, expr, s, base=JSPrimitive(10)):
     if s is JSUndefNaN:
         return JSUndefNaN
+    if isinstance(s, JSPrimitive) and type(s.val) is int:
+        s = JSPrimitive(str(s.val))
     if isinstance(s, JSPrimitive) and type(s.val) is str and isinstance(base, JSPrimitive) and type(base.val) is int:
         if base.val > 36:
             return JSUndefNaN
@@ -254,6 +262,7 @@ def parse_int(state, expr, s, base=JSPrimitive(10)):
         if prefix == "":
             return JSUndefNaN
         else:
+            print("ici")
             return JSPrimitive(int(prefix, base.val))
     return JSTop
 
@@ -584,6 +593,9 @@ register_global_symbol('unescape', JSRef(decode_uri_component_ref))
 
 function_ref = register_preexisting_object(JSObject({}))
 register_global_symbol('Function', JSRef(function_ref))
+
+number_ref = register_preexisting_object(JSObject.simfct(parse_int))
+register_global_symbol('Number', JSRef(number_ref))
 
 def regexp_match(state, expr, this, target):
     return JSPrimitive(this.properties["regexp"].val.match(target.val) is not None)

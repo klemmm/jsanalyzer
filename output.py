@@ -141,6 +141,13 @@ class Output(object):
                 yield [self.do_statement,statement]
             self.indent -= self.INDENT
             self.out("')", end="")
+        elif expr.fn_cons is not None:
+            self.out("(function() {\n", end="")
+            self.indent += self.INDENT
+            for statement in expr.fn_cons:
+                yield [self.do_statement,statement]
+            self.indent -= self.INDENT
+            self.out("})", end="")
 
         elif simplify_expressions and simplify and (expr.static_value is not None and (((isinstance(expr.static_value, JSPrimitive) and expr.static_value.val is not None) or expr.static_value is JSUndefNaN) and not (expr.type == "CallExpression" and expr.callee.name == "eval") and not expr.type == "AssignmentExpression")):
             if expr.static_value is JSUndefNaN:
@@ -409,7 +416,7 @@ class Output(object):
             pass
         
         elif statement.type == "ForStatement":
-            if not self.try_unroll(statement):
+            if not (yield [self.try_unroll, statement]):
                 self.out(self.indent*" " + "for(", end="")
                 yield [self.do_expr_or_statement,statement.init, False, ""]
                 self.out("; ", end="")
