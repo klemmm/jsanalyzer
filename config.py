@@ -22,5 +22,5 @@ clean_top_objects = False #Delete objects that contain only top value
 console_enable = True #Show expressions passed to console.log
 process_not_taken = False #workaround for probably incorrect boolean evaluation
 merge_switch = False #force switch discriminant to be JSTop
-regexp_rename = ['___.*'] #['_0x', '............................', '.*']
+regexp_rename = ['_0x', '............................', '____*']
 rename_length = 3
