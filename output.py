@@ -98,6 +98,10 @@ class Output(object):
                 self.out("false", end="")
         elif type(literal) == int:
             self.out(str(literal), end="")
+        elif type(literal) == float:
+            self.out(str(literal), end="")
+        elif type(literal) == re.Pattern:
+            self.out('/' + literal.pattern + '/')
         else:
             self.out("[[TODO: litteral type not handled, type="+str(type(literal)) + ", val=" +str(literal) + "]]", end="")
         return
@@ -137,7 +141,7 @@ class Output(object):
             self.indent -= self.INDENT
             self.out("')", end="")
 
-        elif simplify_expressions and simplify and (expr.static_value is not None and ((isinstance(expr.static_value, JSPrimitive) and expr.static_value.val is not None) and not (expr.type == "CallExpression" and expr.callee.name == "eval") and not expr.type == "AssignmentExpression")):
+        elif simplify_expressions and simplify and (expr.static_value is not None and (((isinstance(expr.static_value, JSPrimitive) and expr.static_value.val is not None) or expr.static_value is JSUndefNaN) and not (expr.type == "CallExpression" and expr.callee.name == "eval") and not expr.type == "AssignmentExpression")):
             if expr.static_value is JSUndefNaN:
                 self.out("undefined", end="")
             else:
@@ -151,8 +155,10 @@ class Output(object):
                 self.print_literal(expr.value)
 
         elif expr.type == "Identifier":
-            self.out(self.rename(expr.name), end="")
-            pass
+            if expr.name != "undefined":
+                self.out(self.rename(expr.name), end="")
+            else:
+                self.out("undefined", end="")
 
         elif expr.type == "NewExpression":
             self.out("new ", end="")

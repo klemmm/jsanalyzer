@@ -620,6 +620,8 @@ class Interpreter(object):
                     state.pending.difference_update(consumed_refs)
                     return member
             elif isinstance(target, JSPrimitive) and type(target.val) is str:
+                if type(prop) is float and float.is_integer(prop):
+                    prop = int(prop)
                 if type(prop) is int:
                     if prop >= 0 and prop < len(target.val):
                         ret = JSPrimitive(target.val[prop])
@@ -656,6 +658,8 @@ class Interpreter(object):
                 state.pending.difference_update(consumed_refs)
                 return fct
 
+            elif isinstance(target,JSPrimitive) and type(target.val) is re.Pattern:
+                return JSUndefNaN
             else:
                 state.pending.difference_update(consumed_refs)
                 return JSTop
@@ -676,7 +680,7 @@ class Interpreter(object):
             state.consume_expr(left, consumed_refs)
             #special handling for && and || due to shortcircuit evaluation
             if expr.operator == "&&":
-                if left is JSTop:
+                if left is JSTop or isinstance(left, JSOr):
                     state_right = state.clone()
                     right = self.eval_expr(state_right, expr.right)
                     state_right.consume_expr(right, consumed_refs)
