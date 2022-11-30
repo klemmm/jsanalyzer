@@ -1,4 +1,5 @@
 from abstract import JSPrimitive, JSRef, JSUndefNaN
+from tools import call
 from config import regexp_rename, rename_length, simplify_expressions, simplify_function_calls, simplify_control_flow, max_unroll_ratio, remove_dead_code
 import re
 EXPRESSIONS = ["BinaryExpression", "UnaryExpression", "Identifier", "CallExpression", "Literal", "NewExpression", "UpdateExpression", "ConditionalExpression", "NewExpression", "ThisExpression", "AssignmentExpression", "MemberExpression", "ObjectExpression", "ArrayExpression", "LogicalExpression", "FunctionExpression", "ArrowFunctionExpression"]
@@ -57,7 +58,7 @@ class Output(object):
         print(*args, **kwargs)
 
     def dump(self):
-        self.do_prog(self.ast.body)
+        call(self.do_prog, self.ast.body)
         print("")
         print("======== Processing finished ========")
         print("Expressions simplified:\t\t", self.count_evaluate)
@@ -75,7 +76,7 @@ class Output(object):
                 first = False
                 self.out(" "*self.indent, end="")
                 if prop.computed:
-                    self.do_expr(prop.key)
+                    yield [self.do_expr,prop.key]
                 else:
                     if prop.type == "Property":
                         if prop.key.name is not None:
@@ -83,7 +84,7 @@ class Output(object):
                         else:
                             self.out(prop.key.value, end="")
                         self.out(": ", end="")
-                        self.do_expr(prop.value)
+                        yield [self.do_expr,prop.value]
                     else:
                         self.out("<???>") #TODO
 
@@ -115,7 +116,7 @@ class Output(object):
                 self.out(self.indent*" " + " /* Start of unrolled loop */ ")
                 for st in statement.unrolled:
                     if st.type not in EXPRESSIONS: #TODO
-                        self.do_statement(st)
+                        yield [self.do_statement,st]
                 self.out(self.indent*" " + " /* End of unrolled loop */ ")
                 self.count_unroll += 1
                 return True
@@ -128,16 +129,16 @@ class Output(object):
 
     def do_expr_or_statement(self, exprstat, simplify=simplify_expressions, end="\n"):
         if exprstat.type in EXPRESSIONS:
-            self.do_expr(exprstat, simplify)
+            yield [self.do_expr,exprstat, simplify]
         else:
-            self.do_statement(exprstat, end)
+            yield [self.do_statement,exprstat, end]
 
     def do_expr(self, expr, simplify=True):
         if expr.eval is not None:
             self.out("eval('\n", end="")
             self.indent += self.INDENT
             for statement in expr.eval:
-                self.do_statement(statement)
+                yield [self.do_statement,statement]
             self.indent -= self.INDENT
             self.out("')", end="")
 
@@ -162,23 +163,23 @@ class Output(object):
 
         elif expr.type == "NewExpression":
             self.out("new ", end="")
-            self.do_expr(expr.callee)
+            yield [self.do_expr,expr.callee]
             self.out("(", end="")
             first = True
             for argument in expr.arguments:
                 if not first:
                     self.out(", ", end="")
                 first = False
-                self.do_expr(argument)
+                yield [self.do_expr,argument]
             self.out(")", end="")
 
         elif expr.type == "ConditionalExpression":
             self.out(" ( ", end="")
-            self.do_expr(expr.test)
+            yield [self.do_expr,expr.test]
             self.out(" ? ", end="")
-            self.do_expr(expr.consequent)
+            yield [self.do_expr,expr.consequent]
             self.out(" : ", end="")
-            self.do_expr(expr.alternate)
+            yield [self.do_expr,expr.alternate]
             self.out(" ) ", end="")
 
         elif expr.type == "ThisExpression":
@@ -190,7 +191,7 @@ class Output(object):
                 if not first:
                     self.out(", ", end="")
                 first = False
-                self.do_expr(e)
+                yield [self.do_expr,e]
 
         elif expr.type == "AssignmentExpression":
             if expr.left.type == "Identifier":
@@ -199,25 +200,25 @@ class Output(object):
                 glob = isinstance(expr.left.object.static_value, JSRef) and expr.left.object.static_value.target() == 0
                 prefix = ""
                 if not glob:
-                    self.do_expr(expr.left.object)
+                    yield [self.do_expr,expr.left.object]
                     prefix = "."
                 if expr.left.computed:
                     if isinstance(expr.left.property.static_value, JSPrimitive) and type(expr.left.property.static_value.val) is str:
                         self.out(prefix + expr.left.property.static_value.val, end="")
                     else:
                         self.out("[", end="")
-                        self.do_expr(expr.left.property)
+                        yield [self.do_expr,expr.left.property]
                         self.out("]", end="")
                 else:
                     self.out(prefix + expr.left.property.name, end="")
                 self.out(" " + expr.operator + " ", end="")
 
-            self.do_expr(expr.right)
+            yield [self.do_expr,expr.right]
 
         elif expr.type == "ObjectExpression":
             self.out("{")
             self.indent += self.INDENT
-            self.do_object_properties(expr.properties)
+            yield [self.do_object_properties,expr.properties]
 
             self.indent -= self.INDENT
             self.out("\n}", end="")
@@ -229,21 +230,21 @@ class Output(object):
                 if not first:
                     self.out(", ", end="")
                 first = False
-                self.do_expr(elem)
+                yield [self.do_expr,elem]
             self.out("]", end="")
 
         elif expr.type == "MemberExpression":
             glob = isinstance(expr.object.static_value, JSRef) and expr.object.static_value.target() == 0
             prefix = ""
             if not glob:
-                self.do_expr(expr.object)
+                yield [self.do_expr,expr.object]
                 prefix = "."
             if expr.computed:
                 if isinstance(expr.property.static_value, JSPrimitive) and type(expr.property.static_value.val) is str:
                     self.out(prefix + expr.property.static_value.val, end="")
                 else:
                     self.out("[", end="")
-                    self.do_expr(expr.property)
+                    yield [self.do_expr,expr.property]
                     self.out("]", end="")
             else:
                 self.out(prefix + expr.property.name, end="")
@@ -252,21 +253,21 @@ class Output(object):
             self.out(expr.operator, end="")
             if expr.operator.isalpha():
                 self.out(" ", end="")
-            self.do_expr(expr.argument)
+            yield [self.do_expr,expr.argument]
 
         elif expr.type == "BinaryExpression":
-            self.do_expr(expr.left)
+            yield [self.do_expr,expr.left]
             self.out(" ", end="")
             self.out(expr.operator, end="")
             self.out(" ", end="")
-            self.do_expr(expr.right)
+            yield [self.do_expr,expr.right]
 
         elif expr.type == "LogicalExpression":
-            self.do_expr(expr.left)
+            yield [self.do_expr,expr.left]
             self.out(" ", end="")
             self.out(expr.operator, end="")
             self.out(" ", end="")
-            self.do_expr(expr.right)
+            yield [self.do_expr,expr.right]
 
         elif expr.type == "FunctionExpression":
             first = True
@@ -279,7 +280,7 @@ class Output(object):
                 params += self.rename(a.name)
             self.out(self.indent*" " + "function(" + params + ")")
             #self.out("/* PURE: " + str(expr.body.pure) + " REDEX: " + str(expr.body.redex) + " */")
-            self.do_statement(expr.body)
+            yield [self.do_statement,expr.body]
 
         elif expr.type == "ArrowFunctionExpression":
             first = True
@@ -292,33 +293,33 @@ class Output(object):
                 params += self.rename(a.name)
             self.out(self.indent*" " + "(" + params + ") =>", end="")
             if expr.expression:
-                self.do_expr(expr.body)
+                yield [self.do_expr,expr.body]
             else:
-                self.do_statement(expr.body)
+                yield [self.do_statement,expr.body]
 
         elif expr.type == "CallExpression":
             if expr.reduced is not None and simplify_function_calls:
-                self.do_expr(expr.reduced)
+                yield [self.do_expr,expr.reduced]
                 self.count_reduce += 1
                 return
-            self.do_expr(expr.callee)
+            yield [self.do_expr,expr.callee]
             self.out("(", end="")
             first = True
             for argument in expr.arguments:
                 if not first:
                     self.out(", ", end="")
                 first = False
-                self.do_expr(argument)
+                yield [self.do_expr,argument]
             self.out(")", end="")
 
         elif expr.type == "UpdateExpression":
             self.out("(", end="")
-            self.do_expr(expr.argument, simplify=False)
+            yield [self.do_expr,expr.argument, False]
             self.out(")" + expr.operator, end="")
 
         elif expr.type == "AwaitExpression":
             self.out("await ", end="")
-            self.do_expr(expr.argument);
+            yield [self.do_expr, expr.argument]
             self.out("\n", end="")
         else:
             print("WARNING: Expr type not handled:" + expr.type)
@@ -336,29 +337,29 @@ class Output(object):
                 elif decl.id.type == "ObjectPattern":
                     self.out(self.indent*" " + "var {\n", end="")
                     self.indent += self.INDENT
-                    self.do_object_properties(decl.id.properties)
+                    yield [self.do_object_properties, decl.id.properties]
                     self.indent -= self.INDENT
                     self.out(self.indent*" " + "\n}", end="")
                 else:
                     self.out(self.indent*" " + "var [[GNI?]]", end="")
                 if decl.init is not None:
                     self.out(" = ", end="")
-                    self.do_expr(decl.init)
+                    yield [self.do_expr, decl.init]
                 self.out(";", end=end)
 
         elif statement.type == "ExpressionStatement":
             self.out(" "*self.indent, end="")
-            self.do_expr(statement.expression, simplify=False)
+            yield [self.do_expr, statement.expression, False]
             self.out(";", end=end)
 
         elif statement.type == "IfStatement":
             self.out(self.indent*" " + "if (", end="")
-            self.do_expr(statement.test)
+            yield [self.do_expr,statement.test]
             self.out(")", end="")
-            self.do_statement(statement.consequent)
+            yield [self.do_statement, statement.consequent]
             if statement.alternate is not None:
                 self.out(self.indent*" " + "else")
-                self.do_statement(statement.alternate)
+                yield [self.do_statement, statement.alternate]
 
         elif statement.type == "FunctionDeclaration":
             first = True
@@ -371,19 +372,19 @@ class Output(object):
                 params += self.rename(a.name)
             self.out(self.indent*" " + "function " + self.rename(statement.id.name) + "(" + params + ")")
             #self.out("/* PURE: " + str(statement.body.pure) + " REDEX: " + str(statement.body.redex) + " */")
-            self.do_statement(statement.body)
+            yield [self.do_statement, statement.body]
        
         elif statement.type == "ReturnStatement":
             self.out(self.indent*" " + "return ", end="")
             if statement.argument is not None:
-                self.do_expr(statement.argument)
+                yield [self.do_expr, statement.argument]
 
         elif statement.type == "WhileStatement":
-            if not self.try_unroll(statement):
+            if not (yield [self.try_unroll,statement]):
                 self.out(self.indent*" " + "while (", end="")
-                self.do_expr(statement.test)
+                yield [self.do_expr,statement.test]
                 self.out(")")
-                self.do_statement(statement.body)
+                yield [self.do_statement,statement.body]
         
         elif statement.type == "BreakStatement":
             self.out(self.indent*" " + "break")
@@ -393,14 +394,14 @@ class Output(object):
 
         elif statement.type == "TryStatement":
             self.out(self.indent*" " + "try ")
-            self.do_statement(statement.block)
+            yield [self.do_statement,statement.block]
             self.out(self.indent*" " + "catch { /* NOT SUPPORTED */}")
         
         elif statement.type == "BlockStatement":
             self.out(self.indent*" " + "{")
             self.indent += self.INDENT
             for statement in statement.body:
-                self.do_statement(statement)
+                yield [self.do_statement,statement]
             self.indent -= self.INDENT
             self.out(self.indent*" " + "}")
         
@@ -410,47 +411,47 @@ class Output(object):
         elif statement.type == "ForStatement":
             if not self.try_unroll(statement):
                 self.out(self.indent*" " + "for(", end="")
-                self.do_expr_or_statement(statement.init, simplify=False, end="")
+                yield [self.do_expr_or_statement,statement.init, False, ""]
                 self.out("; ", end="")
-                self.do_expr(statement.test)
+                yield [self.do_expr,statement.test]
                 self.out("; ", end="")
-                self.do_expr_or_statement(statement.update, simplify=False, end="")
+                yield [self.do_expr_or_statement,statement.update, False,""]
                 self.out("; ", end="")
                 self.out(")")
-                self.do_statement(statement.body)
+                yield [self.do_statement,statement.body]
         
         elif statement.type == "ForOfStatement":
             self.out(self.indent*" " + "ForOfStatement;")
         
         elif statement.type == "ThrowStatement":
             self.out(self.indent*" " + "throw ", end="")
-            self.do_expr(statement.argument)
+            yield [self.do_expr,statement.argument]
             self.out(";")
 
         elif statement.type == "SwitchStatement":
             self.out(self.indent*" " + "switch (", end="")
-            self.do_expr(statement.discriminant)
+            yield [self.do_expr,statement.discriminant]
             self.out(") {")
             self.indent += self.INDENT
             for case in statement.cases:
                 self.out(self.indent*" ", end="")
-                self.do_expr(case.test)
+                yield [self.do_expr,case.test]
                 self.out(": ", end="")
                 self.indent += self.INDENT
                 for statement in case.consequent:
-                    self.do_statement(statement)
+                    yield [self.do_statement,statement]
                 self.indent -= self.INDENT
             self.indent -= self.INDENT
             self.out(self.indent*" " + "}")
 
         elif statement.type == "ClassDeclaration":
             self.out(self.indent*" " + "Class " + self.rename(statement.id.name) + " {")
-            self.do_statement(statement.body)
+            yield [self.do_statement,statement.body]
             self.out(self.indent*" " + "}")
 
         elif statement.type == "ClassBody":
             for item in statement.body:
-                self.do_statement(item) 
+                yield [self.do_statement,item]
 
         elif statement.type == "MethodDefinition":
             first = True
@@ -465,19 +466,19 @@ class Output(object):
                 self.out(self.indent*" " + str(statement.key.name) + "(" + params + ")")
             else:
                 self.out(self.indent*" " + "[", end="")
-                self.do_expr(statement.key)
+                yield [self.do_expr,statement.key]
                 self.out("](" + params + ")")
-            self.do_statement(statement.value.body)
+            yield [self.do_statement,statement.value.body]
 
         elif statement.type == "ForInStatement":
             self.out(self.indent*" " + "for(", end="")
-            self.do_expr_or_statement(statement.left, simplify=False, end="")
+            yield [self.do_expr_or_statement,statement.left, False, ""]
             self.out(" in ", end="")
-            self.do_expr_or_statement(statement.right, simplify=False, end="")
+            yield [self.do_expr_or_statement,statement.right, False, ""]
             self.out(")")
-            self.do_statement(statement.body)
+            yield [self.do_statement,statement.body]
         else:
             print ("WARNING: Statement type not handled: " + statement.type)
     def do_prog(self, prog):
         for statement in prog:
-            self.do_statement(statement)
+            yield [self.do_statement, statement]
