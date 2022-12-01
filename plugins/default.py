@@ -506,7 +506,7 @@ def string_slice(state, expr, string, begin=JSPrimitive(0), end=JSPrimitive(None
     if isinstance(string, JSPrimitive) and type(string.val) is str and isinstance(begin, JSPrimitive) and type(begin.val) is int and isinstance(end, JSPrimitive) and (type(end.val) is int or end.val is None):
         return JSPrimitive(string.val[begin.val:end.val])
     else:
-        print("slice: unhandled argument: ", string, " begin: ", begin, "end: ", end)
+        #print("slice: unhandled argument: ", string, " begin: ", begin, "end: ", end)
         return JSTop
 
 

@@ -1360,11 +1360,11 @@ class Interpreter(object):
         GCConfig.preexisting_objects = plugin_manager.preexisting_objects
 
         if not self.quiet:
-            print("Starting abstract interpretation...")
+            print("Starting abstract interpretation of main program...")
         try:
             call(self.do_sequence_with_hoisting,state, self.ast.body)
             if not self.quiet:
-                print("Abstract state stabilized.")
+                print("Main program processing finished.")
             self.bring_out_your_dead(state)
             debug("Abstract state at end: ", state)
             if config.debug:
@@ -1383,8 +1383,6 @@ class Interpreter(object):
             i = 0
             while True:
                 i = i + 1
-                if i == 5000:
-                    break
                 prev_header_state = header_state.clone()
                 self.bring_out_your_dead(state)
                 header_state.join(state)
@@ -1411,7 +1409,7 @@ class Interpreter(object):
                     state.join(state_fn)
 
             if not self.quiet:
-                print("End of callback processing.")
+                print("Abstract state stabilized after " + str(i) + " steps.")
         
         except Exception as e:
             if self.last is None:
