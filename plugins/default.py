@@ -146,15 +146,15 @@ def binary_handler(opname, state, abs_arg1, abs_arg2):
 
         if opname == "-" or opname == "/" or opname == "*" or opname == "&" or opname == "|" or opname == ">>" or opname == "<" :
             if type(arg1) is str:
-                try:
-                    arg1 = eval(arg1)
-                except NameError:
+                arg1 = str_to_number(arg1)
+                if arg1 is None:
                     arg1 = JSUndefNaN
+
             if type(arg2) is str:
-                try:
-                    arg2 = eval(arg2)
-                except NameError:
+                arg2 = str_to_number(arg2)
+                if arg2 is None:
                     arg2 = JSUndefNaN
+
         if (opname == "==" or opname == "===") and (type(arg1) is re.Pattern or type(arg2) is re.Pattern):
             return JSPrimitive(False) #TODO not always correct
         
@@ -404,18 +404,35 @@ def string_split(state, expr, string, separator=None):
         return JSRef(obj_id)
     return JSTop
 
+def str_to_number(s):
+    s = s.lstrip()
+    try:
+        if len(s) > 2:
+            if s[0:2] == '0x':
+                return int(s[2:], 16)
+            elif s[0:2] == '0b':
+                return int(s[2:], 2)
+            elif s[0:2] == '0o':
+                return int(s[2:], 8)
+
+        if s.count(".") == 1:
+            return float(s)
+        else:
+            return int(s)
+    except ValueError:
+        return None 
+
+
 def interpret_as_number(state, value):
     if isinstance(value, JSPrimitive):
         if type(value.val) is int:
             return value.val
         elif type(value.val) is str:
-            try:
-                if value.val[0:2] == '0x':
-                    return int(value.val, 16)
-                else:
-                    return int(value.val)
-            except ValueError:
+            result = str_to_number(value.val)
+            if result is None:
                 return 0
+            else:
+                return result
         elif value.val is None:
             return None
         elif type(value.val) is bool:
