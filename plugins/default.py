@@ -650,3 +650,4 @@ def regexp(state, expr, this, string):
 
 regexp_ref = register_preexisting_object(JSObject.simfct(regexp))
 register_global_symbol("RegExp", JSRef(regexp_ref))
+

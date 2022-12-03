@@ -1,5 +1,3 @@
-import inspect
-
 class Try(object):
     def __init__(self, site, args):
         self.site = site
@@ -14,34 +12,32 @@ class Except(object):
         self.site = site
 
 def call(fn, *args):
-    stack = [[fn, *args]]
+    stack = [fn(*args)]
     result = None
     while len(stack) > 0:
         current = stack[-1]
         if isinstance(current, Try):
             current = current.args
 
-        if inspect.isgeneratorfunction(current[0]):
-            current[0] = current[0](*current[1:])
-            result = None
-        elif inspect.isgenerator(current[0]):
-            try:
-                yielded = current[0].send(result)
-                if isinstance(yielded, Raise):
-                    found = False
-                    while not found:
-                        frame = stack.pop()
-                        if isinstance(frame, Try):
-                            found = True
-                            break
-                    assert found
-                    result = Except(yielded.site)
-                else:
+        try:
+            yielded = current.send(result)
+            if isinstance(yielded, Raise):
+                found = False
+                while not found:
+                    frame = stack.pop()
+                    if isinstance(frame, Try):
+                        found = True
+                        break
+                assert found
+                result = Except(yielded.site)
+            else:
+                if isinstance(yielded, Try):
+                    yielded.args = yielded.args[0](*(yielded.args[1:]))
                     stack.append(yielded)
-            except StopIteration as e:
-                stack.pop()
-                result = e.value
-        else:
-            result = stack[-1][0](*stack[-1][1:])
+                else:
+                    stack.append(yielded[0](*(yielded[1:])))
+                result = None
+        except StopIteration as e:
             stack.pop()
+            result = e.value
     return result

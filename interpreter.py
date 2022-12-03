@@ -1256,7 +1256,7 @@ class Interpreter(object):
             self.trace(statement)
             saved_unroll_trace = self.unroll_trace
             self.unroll_trace = None
-            yield [self.do_fundecl, state, statement]
+            self.do_fundecl(state, statement)
             self.unroll_trace = saved_unroll_trace
        
         elif statement.type == "ReturnStatement":
@@ -1274,10 +1274,10 @@ class Interpreter(object):
             self.unroll_trace = saved_unroll_trace
         
         elif statement.type == "BreakStatement":
-            yield [self.do_break, state]
+            self.do_break(state)
         
         elif statement.type == "ContinueStatement":
-            yield [self.do_continue, state]
+            self.do_continue(state)
 
         elif statement.type == "TryStatement":
             self.trace(statement)
