@@ -213,8 +213,6 @@ class State(object):
             return None
         def eq_aux(obj1, obj2):
             nonlocal self
-            if obj1 == obj2:
-                return True
             if obj1.is_closure() and obj2.is_closure():
                 if obj1.closure_env() not in seen:
                     seen.add(obj1.closure_env())
@@ -235,7 +233,7 @@ class State(object):
                             seen.add(ref.this())
                             if not eq_aux(self.objs[ref1.this()], other.objs[ref2.this()]):
                                 return False
-            return True
+            return obj1 == obj2
 
         if not eq_aux(self.objs[self.lref], other.objs[other.lref]):
             return False
