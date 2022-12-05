@@ -195,12 +195,62 @@ class State(object):
             return False
         if self.lref != other.lref:
             return False
-        if self.objs != other.objs:
-            return False
         if self.pending != other.pending:
+            return False
+        if self.value != other.value:
             return False
         if self.stack_frames != other.stack_frames:
             return False
+
+        seen = set()
+        def extract_ref(val):
+            if isinstance(val, JSRef):
+                return val
+            if isinstance(val, JSOr):
+                s = {v for v in val.choices if isinstance(v, JSRef)}
+                if len(s) == 1:
+                    return list(s)[0]
+            return None
+        def eq_aux(obj1, obj2):
+            nonlocal self
+            if obj1 == obj2:
+                return True
+            if obj1.is_closure() and obj2.is_closure():
+                if obj1.closure_env() not in seen:
+                    seen.add(obj1.closure_env())
+                    if not eq_aux(self.objs[obj1.closure_env()], other.objs[obj2.closure_env()]):
+                        return False
+            for p in obj1.properties:
+                if p not in obj2.properties or obj1.properties[p] != obj2.properties[p]:
+                    return False
+                ref = extract_ref(obj1.properties.get(p))
+                if ref is not None:
+                    if ref.target() not in seen:
+                        seen.add(ref.target())
+                        if not eq_aux(self.objs[ref.target()], other.objs[ref.target()]):
+                            return False
+
+                    if ref.is_bound() and type(ref.this()) is int:
+                        if ref.this() not in seen:
+                            seen.add(ref.this())
+                            if not eq_aux(self.objs[ref1.this()], other.objs[ref2.this()]):
+                                return False
+            return True
+
+        if not eq_aux(self.objs[self.lref], other.objs[other.lref]):
+            return False
+
+        if not eq_aux(self.objs[self.gref], other.objs[other.gref]):
+            return False
+
+        for p in self.pending:
+            if not eq_aux(self.objs[p], other.objs[p]):
+                return False
+        
+        for s in self.stack_frames:
+            if not eq_aux(self.objs[s], other.objs[s]):
+                return False
+
         return True
 
     def assign(self, other):
