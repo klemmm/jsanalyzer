@@ -179,14 +179,8 @@ class State(object):
 
     def clone(self):
         c = State()
-        State.dict_assign(c.objs, self.objs)
-        c.is_bottom = self.is_bottom
-        c.lref = self.lref
-        c.gref = self.gref
-        c.pending = self.pending.copy()
-        c.stack_frames = self.stack_frames.copy()
-        c.value = self.value.clone()
-        return c 
+        c.assign(self)
+        return c
 
     def __eq__(self, other):
         if self.is_bottom != other.is_bottom:
@@ -252,13 +246,90 @@ class State(object):
         return True
 
     def assign(self, other):
-        self.is_bottom = other.is_bottom
+        if other.is_bottom:
+            self.set_to_bottom()
+            return
+        self.is_bottom = False
         self.gref = other.gref
         self.lref = other.lref
-        State.dict_assign(self.objs, other.objs)
         self.pending = other.pending.copy()
         self.stack_frames = other.stack_frames.copy()
         self.value = other.value.clone()
+
+        seen = set()
+        def extract_ref(val):
+            if isinstance(val, JSRef):
+                return val
+            if isinstance(val, JSOr):
+                s = {v for v in val.choices if isinstance(v, JSRef)}
+                if len(s) == 1:
+                    return list(s)[0]
+            return None
+
+        def assign_aux(obj1, obj2):
+            nonlocal self
+            obj1.assign(obj2)
+
+            if obj2.is_closure():
+                if obj2.closure_env() not in seen:
+                    seen.add(obj2.closure_env())
+                    self.objs[obj2.closure_env()] = JSObject({})
+                    assign_aux(self.objs[obj2.closure_env()], other.objs[obj2.closure_env()])
+
+            for p in obj2.properties:
+                ref = extract_ref(obj2.properties.get(p))
+                if ref is not None:
+                    if ref.target() not in seen:
+                        seen.add(ref.target())
+                        self.objs[ref.target()] = JSObject({})
+                        assign_aux(self.objs[ref.target()], other.objs[ref.target()])
+
+                    if ref.is_bound() and type(ref.this()) is int:
+                        if ref.this() not in seen:
+                            seen.add(ref.this())
+                            self.objs[ref.this()] = JSObject({})
+                            assign_aux(self.objs[ref.this()], other.objs[ref.this()])
+
+        if other.lref not in seen:
+            seen.add(other.lref)
+            self.objs[other.lref] = JSObject({})
+            assign_aux(self.objs[other.lref], other.objs[other.lref])
+
+        if other.gref not in seen:
+            seen.add(other.gref)
+            self.objs[other.gref] = JSObject({})
+            assign_aux(self.objs[other.gref], other.objs[other.gref])
+
+        for p in other.pending:
+            if p not in seen:
+                seen.add(p)
+                self.objs[p] = JSObject({})
+                assign_aux(self.objs[p], other.objs[p])
+        
+        for s in other.stack_frames:
+            if s not in seen:
+                seen.add(s)
+                self.objs[s] = JSObject({})
+                assign_aux(self.objs[s], other.objs[s])
+        
+
+        for r in range(len(GCConfig.preexisting_objects)):
+            if r not in seen:
+                seen.add(r)
+                self.objs[r] = JSObject({})
+                assign_aux(self.objs[r], other.objs[r])
+       
+        self.value = other.value.clone()
+        ref = extract_ref(self.value)
+        if ref is not None and ref.target() not in self.objs:
+            if ref.target() not in seen:
+                seen.add(ref.target())
+                self.objs[ref.target()] = JSObject({})
+                assign_aux(self.objs[ref.target()], other.objs[ref.target()])
+            if ref.is_bound() and type(ref.this()) is int and ref.this() not in seen:
+                seen.add(ref.this())
+                self.objs[ref.this()] = JSObject({})
+                assign_aux(self.objs[ref.this()], other.objs[ref.this()])
 
     def visit(self, f):
         modify = []
@@ -408,24 +479,60 @@ class State(object):
         self.pending.intersection_update(other.pending)
         self.unify(other)
 
+        seen = set()
+        def extract_ref(val):
+            if isinstance(val, JSRef):
+                return val
+            if isinstance(val, JSOr):
+                s = {v for v in val.choices if isinstance(v, JSRef)}
+                if len(s) == 1:
+                    return list(s)[0]
+            return None
+        def join_aux(obj1, obj2):
+            nonlocal self
+            State.object_join(obj1, obj2)
 
-        for k in self.objs:
-            if k in other.objs:
-                State.object_join(self.objs[k], other.objs[k])
+            if obj1.is_closure() and obj2.is_closure():
+                #and obj1.closure_env() == obj2.closure_env():
+                assert(obj1.closure_env() == obj2.closure_env())
+                if obj1.closure_env() not in self.objs:
+                    self.objs[obj1.closure_env()] = other.objs[obj2.closure_env()].clone()
+                if obj1.closure_env() not in seen:
+                    seen.add(obj1.closure_env())
+                    join_aux(self.objs[obj1.closure_env()], other.objs[obj2.closure_env()])
 
-        adds = []
-        for k in other.objs:
-            if not k in self.objs:
-                adds.append(k)
-        for k in adds:
-            self.objs[k] = other.objs[k].clone()
+            for p in obj1.properties:
+                ref1 = extract_ref(obj1.properties.get(p))
+                ref2 = extract_ref(obj2.properties.get(p))
+                if ref1 is not None and ref2 is not None:
+                    assert ref1 == ref2
+                    if ref1.target() not in self.objs:
+                        self.objs[ref1.target()] = other.objs[ref1.target()].clone()
+                    if ref1.target() not in seen:
+                        seen.add(ref1.target())
+                        join_aux(self.objs[ref1.target()], other.objs[ref2.target()])
 
+                    if ref1.is_bound() and type(ref1.this()) is int:
+                        if ref1.this() not in self.objs:
+                            self.objs[ref1.this()] = other.objs[ref1.this()].clone()
+                        if ref1.this() not in seen:
+                            seen.add(ref1.this())
+                            join_aux(self.objs[ref1.this()], other.objs[ref2.this()])
+
+        join_aux(self.objs[self.lref], other.objs[other.lref])
+
+        join_aux(self.objs[self.gref], other.objs[other.gref])
+
+        for p in self.pending:
+            join_aux(self.objs[p], other.objs[p])
+        
+        for s in self.stack_frames:
+            join_aux(self.objs[s], other.objs[s])
+        
         if self.value is JSBot:
             self.value = other.value.clone()
         elif not State.value_equal(self.value, other.value):
             self.value = JSTop
-
-        self.cleanup()
 
     def scope_lookup(self, name):
         if name in self.objs[self.lref].properties:
@@ -505,6 +612,9 @@ class State(object):
             if ref_id in reachable:
                 return
             reachable.add(ref_id)
+            if ref_id not in self.objs:
+                print(self)
+                raise ValueError
             obj = self.objs[ref_id]
             for k,p in obj.properties.items():
                 if isinstance(p, JSOr):
@@ -682,16 +792,20 @@ class JSObject(JSValue):
         return self.env is not None
     def closure_env(self):
         return self.env
+
+    def assign(self, other):
+        self.properties = other.properties.copy()
+        self.body = other.body
+        self.params = other.params
+        self.env = other.env
+        self.simfct = other.simfct
+        self.missing_mode = other.missing_mode
+        self.tablength = other.tablength
+        self.fn_isexpr = other.fn_isexpr
+
     def clone(self):
         c = JSObject({})
-        c.properties = self.properties.copy()
-        c.body = self.body
-        c.params = self.params
-        c.env = self.env
-        c.simfct = self.simfct
-        c.missing_mode = self.missing_mode
-        c.tablength = self.tablength
-        c.fn_isexpr = self.fn_isexpr
+        c.assign(self)
         return c
 
     def set_missing_mode(self, missing_mode):

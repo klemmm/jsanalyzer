@@ -7,14 +7,9 @@ SITE = 0
 
 import esprima
 import plugin_manager
-import output
 import config
 import sys
 import bisect
-
-class StackUnwind(Exception):
-    def __init__(self, site):
-        self.site = site
 
 def fn_cons(state, expr, this, *args):
     raw_body = args[-1]
@@ -26,7 +21,7 @@ def fn_cons(state, expr, this, *args):
         ast = esprima.parse(fn_body, options={ 'range': True})
         i = Interpreter(ast, fn_body, True)
         i.run(state)
-        expr.fn_cons = ast.body
+        expr.noout_fn_cons = ast.body
         return state.value
     else:
         return JSTop
@@ -37,7 +32,7 @@ def eval_fct(state, expr, target):
         ast = esprima.parse(target.val, options={ 'range': True})
         i = Interpreter(ast, target.val, True)
         i.run(state)
-        expr.eval = ast.body
+        expr.noout_eval = ast.body
         return state.value
     else:
         return target
@@ -66,8 +61,8 @@ class Interpreter(object):
        
     @staticmethod
     def beta_reduction(expression, formal_args, effective_args):
-        if expression.reduced is not None:
-            return Interpreter.beta_reduction(expression.reduced, formal_args, effective_args)
+        if expression.noout_reduced is not None:
+            return Interpreter.beta_reduction(expression.noout_reduced, formal_args, effective_args)
 
         if expression.type == "BinaryExpression":
             l = Interpreter.beta_reduction(expression.left, formal_args, effective_args)
@@ -100,6 +95,8 @@ class Interpreter(object):
 
             ret = esprima.nodes.CallExpression(Interpreter.beta_reduction(expression.callee, formal_args, effective_args), args)
             ret.created_by_beta_reduction = True
+            ret.pure = expression.pure
+            ret.notrans_static_value = expression.notrans_static_value
             return ret
         elif expression.type == "Literal":
             return expression
@@ -111,7 +108,7 @@ class Interpreter(object):
 
         called_with_new = this is not None
 
-        if expr.skip:
+        if expr.notrans_skip:
             #print("skipped for site=", expr.site)
             return JSBot
         callee_ref = yield [self.eval_expr, state, expr.callee]
@@ -150,8 +147,8 @@ class Interpreter(object):
             else:
                 callee = None
 
-        if expr.active is None:
-            expr.active = 0
+        if expr.notrans_active is None:
+            expr.notrans_active = 0
             #print("\nHandling function: ", callee.body.name, "site=", expr.site)
             #print("active count: ", expr.active)
 
@@ -159,13 +156,13 @@ class Interpreter(object):
             expr.site = State.new_id()
         site = expr.site
 
-        if expr.active == config.max_recursion:
-            assert expr.recursion_state is None
+        if expr.notrans_active == config.max_recursion:
+            assert expr.notrans_recursion_state is None
 #            if callee is not JSTop:
 #                print("[warning] Recursion inlining stopped at depth=", expr.active, "function=", callee.body.name, site)
-            expr.recursion_state = state.clone()
+            expr.notrans_recursion_state = state.clone()
 
-        if expr.active == config.max_recursion + 1:
+        if expr.notrans_active == config.max_recursion + 1:
 #            if callee is not JSTop:
 #                print("current state stack frames: ",  state.stack_frames, state.lref, "function=", callee.body.name, site)
 #
@@ -175,17 +172,17 @@ class Interpreter(object):
 #            else:
 #                if callee is not JSTop:
 #                    print("recursion state stack frames: ",  expr.recursion_state.stack_frames, expr.recursion_state.lref, "function=", callee.body.name, site)
-            expr.recursion_state.join(state)
+            expr.notrans_recursion_state.join(state)
 #            if callee is not JSTop:
 #                print("   joined state stack frames: ",  expr.recursion_state.stack_frames, expr.recursion_state.lref, "function=", callee.body.name, site)
             yield Raise(site)
 
-        expr.active += 1
+        expr.notrans_active += 1
         stable = False
         while not stable:
             #print("start eval, site", expr.site, "skip=", expr.skip)
-            if expr.recursion_state is not None:
-                old_recursion_state = expr.recursion_state.clone()
+            if expr.notrans_recursion_state is not None:
+                old_recursion_state = expr.notrans_recursion_state.clone()
             if self.return_state is not None:
                 saved_return_state = self.return_state
             else:
@@ -198,30 +195,30 @@ class Interpreter(object):
 
             if isinstance(ret, Except):
                 if ret.site != expr.site:
-                    expr.active -= 1
-                    expr.recursion_state = None
+                    expr.notrans_active -= 1
+                    expr.notrans_recursion_state = None
                     yield Raise(ret.site)
 
                 #print("Unwinded: ", e.site)
                 state.assign(old_recursion_state)
                 self.return_state = saved_return_state
                 self.return_value = saved_return_value
-                state.unify(expr.recursion_state)
-                if state == expr.recursion_state:
-                    expr.skip = True
+                state.unify(expr.notrans_recursion_state)
+                if state == expr.notrans_recursion_state:
+                    expr.notrans_skip = True
                     #print("Recursion state stabilized, function=", callee.body.name, site)
 #                    else:
 #                       print("not stable yet")
-                    state.assign(expr.recursion_state)
+                    state.assign(expr.notrans_recursion_state)
             else:
                 stable = True
         ### fin exception
 
         #if expr.recursion_state is not None:
         #    print("Finished site=", expr.site, expr.range)
-        expr.skip = None
-        expr.active -= 1
-        expr.recursion_state = None
+        expr.notrans_skip = None
+        expr.notrans_active -= 1
+        expr.notrans_recursion_state = None
         state.consume_expr(ret, consumed_refs)
         return ret
 
@@ -248,8 +245,8 @@ class Interpreter(object):
             elif isinstance(v, JSRef) and state.objs[v.target()].is_function():
                 #If the function is unknown, and closures are passed as arguments, we assume these closures will be called by the unknown function.
                 #yield [self.eval_func_call(state, state.objs[v.target, )], None]
-                if not argument.processed:
-                    argument.processed = True
+                if not argument.notrans_processed:
+                    argument.notrans_processed = True
                     deferred_id = state.objs[state.gref].properties["___deferred"].target()
                     fn_id = State.new_id()
                     state.objs[deferred_id].properties[fn_id] = v
@@ -323,6 +320,8 @@ class Interpreter(object):
                 yield [self.do_statement, state, callee.body]
             self.need_clean = True
             callee.body.pure = self.pure
+            if expr is not None:
+                expr.callee_is_pure = self.pure
             state.join(self.return_state)
            
             #Save function return value
@@ -339,7 +338,7 @@ class Interpreter(object):
             
             #Attempt to compute an inlined version of the expression
             if config.simplify_function_calls and callee.body.redex and expr is not None:
-                expr.reduced = Interpreter.beta_reduction(return_statement.argument, callee.params, arguments)
+                expr.noout_reduced = Interpreter.beta_reduction(return_statement.argument, callee.params, arguments)
 
             if return_value is None:
                 return JSUndefNaN
@@ -359,7 +358,7 @@ class Interpreter(object):
         if state.is_bottom:
             return JSBot
         result = yield [self.eval_expr_aux, state, expr]
-        expr.static_value = State.value_join(expr.static_value, result)
+        expr.notrans_static_value = State.value_join(expr.notrans_static_value, result)
 
         refs_to_add = set()
         if isinstance(result, JSRef):
@@ -399,13 +398,13 @@ class Interpreter(object):
     def do_assignment(self, state, lvalue_expr, rvalue_expr, abs_rvalue, consumed_refs=None):
         target, prop, target_id = yield [self.use_lvalue, state, lvalue_expr, consumed_refs]
 
-        if rvalue_expr is not None and not rvalue_expr.processed and (target is None or (target_id is not None and "__probable_api" in target.properties.keys())) and isinstance(abs_rvalue, JSRef) and state.objs[abs_rvalue.target()].is_function():
+        if rvalue_expr is not None and not rvalue_expr.notrans_processed and (target is None or (target_id is not None and "__probable_api" in target.properties.keys())) and isinstance(abs_rvalue, JSRef) and state.objs[abs_rvalue.target()].is_function():
             #self.deferred.append((state.clone(), state.objs[abs_rvalue.target()]))
             #print("Deferred callback handler:", prop)
             deferred_id = state.objs[state.gref].properties["___deferred"].target()
             fn_id = State.new_id()
             state.objs[deferred_id].properties[fn_id] = abs_rvalue
-            rvalue_expr.processed = True
+            rvalue_expr.notrans_processed = True
 
         if prop is None or target is None:
             return
@@ -791,12 +790,12 @@ class Interpreter(object):
             raise ValueError("Vardecl type not handled:" + decl.type)
         state.pending.difference_update(consumed_refs)
 
-    def do_expr_or_statement(self, state, exprstat):
-        if exprstat.type in output.EXPRESSIONS:
-            discarded = yield [self.eval_expr, state, exprstat]
-            state.consume_expr(discarded)
-        else:
-            yield [self.do_statement, state, exprstat]
+    def do_expr_or_declaration(self, state, exprdecl):
+        if exprdecl.type == "VariableDeclaration":
+            return (yield [self.do_statement, state, exprdecl])
+
+        discarded = yield [self.eval_expr, state, exprdecl]
+        state.consume_expr(discarded)
 
     def do_exprstat(self, state, expr):
         state.value = yield [self.eval_expr, state, expr]
@@ -830,7 +829,7 @@ class Interpreter(object):
         self.break_state = State.bottom()
         exit = False
         if init is not None:
-            yield [self.do_expr_or_statement, state, init]
+            yield [self.do_expr_or_declaration, state, init]
 
         if is_for_in:
             pass
@@ -893,7 +892,7 @@ class Interpreter(object):
                 statement.body.live = True
                 yield [self.do_sequence, state, body]
                 if update:
-                    yield [self.do_expr_or_statement, state, update]
+                    yield [self.do_expr_or_declaration, state, update]
                 state.join(self.continue_state)
                 self.continue_state = saved_loopcont
 
@@ -917,17 +916,17 @@ class Interpreter(object):
 
         state.join(self.break_state)
         if unrolling and not (state.is_bottom and self.return_state.is_bottom):
-            if statement.unrolled is None:
-                statement.unrolled = self.unroll_trace
-            elif statement.unrolled != self.unroll_trace:
-                statement.unrolled = False
-                statement.reason = "not stable"
+            if statement.noout_unrolled is None:
+                statement.noout_unrolled = self.unroll_trace
+            elif statement.noout_unrolled != self.unroll_trace:
+                statement.noout_unrolled = False
+                statement.notrans_reason = "not stable"
         else:
-            statement.unrolled = False
+            statement.noout_unrolled = False
             if not unrolling:
-                statement.reason = "abstract test"
+                statement.notrans_reason = "abstract test"
             else:
-                statement.reason = "infinite loop"
+                statement.notrans_reason = "infinite loop"
         #print("loop exit:", header_state)
         #print("loop exit:", state)
         self.break_state = saved_loopexit
@@ -1010,9 +1009,9 @@ class Interpreter(object):
         else:
             return
   
-        if (condition.left.type == "Identifier" or condition.left.type == "MemberExpression") and (isinstance(condition.right.static_value, JSPrimitive) or (condition.right.static_value is JSUndefNaN)):
+        if (condition.left.type == "Identifier" or condition.left.type == "MemberExpression") and (isinstance(condition.right.notrans_static_value, JSPrimitive) or (condition.right.notrans_static_value is JSUndefNaN)):
             left, right = condition.left, condition.right
-        elif (condition.right.type == "Identifier" or condition.right.type == "MemberExpression") and (isinstance(condition.left.static_value, JSPrimitive) or (condition.left.static_value is JSUndefNaN)):
+        elif (condition.right.type == "Identifier" or condition.right.type == "MemberExpression") and (isinstance(condition.left.notrans_static_value, JSPrimitive) or (condition.left.notrans_static_value is JSUndefNaN)):
             right, left = condition.left, condition.right
         else:
             return
@@ -1022,10 +1021,10 @@ class Interpreter(object):
             return
 
         if taken:
-            target.properties[prop] = right.static_value
+            target.properties[prop] = right.notrans_static_value
         else:
             if prop in target.properties and isinstance(target.properties[prop], JSOr):
-                target.properties[prop] = JSOr(target.properties[prop].choices.difference({right.static_value}))
+                target.properties[prop] = JSOr(target.properties[prop].choices.difference({right.notrans_static_value}))
                 if len(target.properties[prop].choices) == 0:
                     state.set_to_bottom()
                     return
