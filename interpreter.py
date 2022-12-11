@@ -255,7 +255,9 @@ class Interpreter(object):
         if callee is None:
             pass
         elif callee.is_simfct(): 
-            self.pure = False #TODO implement a way for plugins to tell the interpreter that a python function is pure.
+            self.pure = callee.is_pure_simfct()
+            if expr is not None:
+                expr.callee_is_pure = self.pure
 
             #TODO for now, only simfct can be bound
             if this:

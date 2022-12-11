@@ -233,7 +233,7 @@ def string_fromcharcode(state, expr, obj, code):
     return JSPrimitive(chr(interpret_as_number(state, code)))
     return JSTop
 
-string_fromcharcode_ref = register_preexisting_object(JSObject.simfct(string_fromcharcode))
+string_fromcharcode_ref = register_preexisting_object(JSObject.simfct(string_fromcharcode, True))
 string_ref = register_preexisting_object(JSObject({"fromCharCode": JSRef(string_fromcharcode_ref)}))
 register_global_symbol('String', JSRef(string_ref))
 
@@ -265,7 +265,7 @@ def parse_int(state, expr, s, base=JSPrimitive(10)):
             return JSPrimitive(int(prefix, base.val))
     return JSTop
 
-parse_int_ref = register_preexisting_object(JSObject.simfct(parse_int));
+parse_int_ref = register_preexisting_object(JSObject.simfct(parse_int, True));
 register_global_symbol('parseInt', JSRef(parse_int_ref))
 
 def ___assert(state, expr, b):
@@ -279,7 +279,7 @@ register_global_symbol('___assert', JSRef(___assert_ref))
 def ___is_concretizable(state, expr, b):
     return JSPrimitive(b is not JSTop)
 
-___is_concretizable_ref = register_preexisting_object(JSObject.simfct(___is_concretizable));
+___is_concretizable_ref = register_preexisting_object(JSObject.simfct(___is_concretizable, True));
 register_global_symbol('___is_concretizable', JSRef(___is_concretizable_ref))
 
 def array_indexof(state, expr, arr, item, start=JSPrimitive(0)):
@@ -370,7 +370,7 @@ def array_join(state, expr, arr, separator=JSPrimitive(",")):
 array_pop_ref = register_preexisting_object(JSObject.simfct(array_pop));
 array_push_ref = register_preexisting_object(JSObject.simfct(array_push));
 array_shift_ref = register_preexisting_object(JSObject.simfct(array_shift));
-array_indexof_ref = register_preexisting_object(JSObject.simfct(array_indexof));
+array_indexof_ref = register_preexisting_object(JSObject.simfct(array_indexof, True));
 array_reverse_ref = register_preexisting_object(JSObject.simfct(array_reverse));
 array_join_ref = register_preexisting_object(JSObject.simfct(array_join))
 
@@ -530,13 +530,13 @@ def string_slice(state, expr, string, begin=JSPrimitive(0), end=JSPrimitive(None
 
 
 
-string_split_ref = register_preexisting_object(JSObject.simfct(string_split))
-string_charcodeat_ref = register_preexisting_object(JSObject.simfct(string_charcodeat))
-string_charat_ref = register_preexisting_object(JSObject.simfct(string_charat))
-string_slice_ref = register_preexisting_object(JSObject.simfct(string_slice))
-string_substr_ref = register_preexisting_object(JSObject.simfct(string_substr))
-string_substring_ref = register_preexisting_object(JSObject.simfct(string_substring))
-string_replace_ref = register_preexisting_object(JSObject.simfct(string_replace))
+string_split_ref = register_preexisting_object(JSObject.simfct(string_split, True))
+string_charcodeat_ref = register_preexisting_object(JSObject.simfct(string_charcodeat, True))
+string_charat_ref = register_preexisting_object(JSObject.simfct(string_charat, True))
+string_slice_ref = register_preexisting_object(JSObject.simfct(string_slice, True))
+string_substr_ref = register_preexisting_object(JSObject.simfct(string_substr, True))
+string_substring_ref = register_preexisting_object(JSObject.simfct(string_substring, True))
+string_replace_ref = register_preexisting_object(JSObject.simfct(string_replace, True))
 
 def string_hook(name):
     if name == "split":
@@ -574,7 +574,7 @@ def function_or_int_tostring(state, expr, fn_or_int, base=JSPrimitive(10)):
         print("warning: .toString() unhandled argument: ", fn_or_int, "base:", base)
         return JSTop
 
-function_or_int_tostring_ref = register_preexisting_object(JSObject.simfct(function_or_int_tostring))
+function_or_int_tostring_ref = register_preexisting_object(JSObject.simfct(function_or_int_tostring, True))
 def function_hook(name):
     if name == "toString":
         return JSRef(function_or_int_tostring_ref)
@@ -589,7 +589,7 @@ def atob(state, expr, string):
         return JSPrimitive(base64.b64decode(string.val).decode("latin-1"))
     return JSTop
 
-atob_ref = register_preexisting_object(JSObject.simfct(atob))
+atob_ref = register_preexisting_object(JSObject.simfct(atob, True))
 register_global_symbol('atob', JSRef(atob_ref))
 
 def btoa(state, expr, string):
@@ -597,7 +597,7 @@ def btoa(state, expr, string):
         return JSPrimitive(base64.b64encode(str.encode(string.val)))
     return JSTop
 
-btoa_ref = register_preexisting_object(JSObject.simfct(btoa))
+btoa_ref = register_preexisting_object(JSObject.simfct(btoa, True))
 register_global_symbol('btoa', JSRef(btoa_ref))
 
 def decode_uri_component(state, expr, string):
@@ -615,8 +615,8 @@ def decode_uri(state, expr, string):
     else:
         return JSTop
 
-decode_uri_component_ref = register_preexisting_object(JSObject.simfct(decode_uri_component))
-decode_uri_ref = register_preexisting_object(JSObject.simfct(decode_uri))
+decode_uri_component_ref = register_preexisting_object(JSObject.simfct(decode_uri_component, True))
+decode_uri_ref = register_preexisting_object(JSObject.simfct(decode_uri, True))
 register_global_symbol('decodeURIComponent', JSRef(decode_uri_component_ref))
 register_global_symbol('decodeURI', JSRef(decode_uri_ref))
 register_global_symbol('unescape', JSRef(decode_uri_component_ref))
@@ -624,7 +624,7 @@ register_global_symbol('unescape', JSRef(decode_uri_component_ref))
 function_ref = register_preexisting_object(JSObject({}))
 register_global_symbol('Function', JSRef(function_ref))
 
-number_ref = register_preexisting_object(JSObject.simfct(parse_int))
+number_ref = register_preexisting_object(JSObject.simfct(parse_int, True))
 register_global_symbol('Number', JSRef(number_ref))
 
 def math_round(state, expr, this, number):
@@ -632,7 +632,7 @@ def math_round(state, expr, this, number):
         return JSPrimitive(round(number.val))
     return JSTop
 
-round_ref = register_preexisting_object(JSObject.simfct(math_round))
+round_ref = register_preexisting_object(JSObject.simfct(math_round, True))
 math_ref = register_preexisting_object(JSObject({"round": JSRef(round_ref)}))
 register_global_symbol('Math', JSRef(math_ref))
 
@@ -643,13 +643,13 @@ def regexp(state, expr, this, string):
     if isinstance(string, JSPrimitive) and type(string.val) is str:
         this.properties["regexp"] = JSPrimitive(re.compile(string.val))
         test_id = State.new_id()
-        state.objs[test_id] = JSObject.simfct(regexp_match)
+        state.objs[test_id] = JSObject.simfct(regexp_match, True)
         this.properties["test"] = JSRef(test_id)
     else:
         this.set_missing_mode(MissingMode.MISSING_IS_TOP)
         this.properties.clear()
     return JSUndefNaN
 
-regexp_ref = register_preexisting_object(JSObject.simfct(regexp))
+regexp_ref = register_preexisting_object(JSObject.simfct(regexp, True))
 register_global_symbol("RegExp", JSRef(regexp_ref))
 

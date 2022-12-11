@@ -665,6 +665,8 @@ class JSValue(object):
         return False
     def is_simfct(self):
         return False
+    def is_pure_simfct(self):
+        return False
     def is_function(self):
         return False
     def is_closure(self):
@@ -724,24 +726,24 @@ class JSObject(JSValue):
     #convenience functions to build obj/simfct/function/closure
     @classmethod
     def function(cls, body, params):
-        return cls({}, body, params, None, None)
+        return cls({}, body, params, None, None, False)
     
     @classmethod
     def closure(cls, body, params, env):
-        return cls({}, body, params, env, None)
+        return cls({}, body, params, env, None, False)
     
     @classmethod
-    def simfct(cls, simfct):
-        return cls({}, None, None, None, simfct)
-    
+    def simfct(cls, simfct, pure_simfct=False):
+        return cls({}, None, None, None, simfct, pure_simfct)
+
     @classmethod
     def object(cls):
-        return cls({}, None, None, None, None)
+        return cls({}, None, None, None, None, False)
 
     @staticmethod
     def add_hook(hook):
         JSObject.hooks.append(hook)
-    def __init__(self, properties, body=None, params=None, env=None, simfct=None):
+    def __init__(self, properties, body=None, params=None, env=None, simfct=None, pure_simfct=False):
         self.properties = properties #dict listing properties of the object / array elements
         self.body = body #if function, represents the body AST
         self.params = params #if function, represents the arguments ASTs
@@ -749,6 +751,7 @@ class JSObject(JSValue):
         self.simfct = simfct #Simulated function, if any
         self.missing_mode = MissingMode.MISSING_IS_UNDEF
         self.fn_isexpr = False
+        self.pure_simfct = pure_simfct
         self.tablength = 0
     def __str__(self):
         missing_mode = ""
@@ -765,7 +768,7 @@ class JSObject(JSValue):
             return -1
         props = "{" + l + (", ".join([(str(i) + ': ' + str(self.properties[i])) for i in sorted(self.properties, key=fn)])) + missing_mode + "} "
         if self.simfct is not None:
-            return "<simfct " + props + ">"
+            return "<simfct " + props + " pure=" + str(self.pure_simfct) + ">"
         elif self.env is not None:
             return "<closure, isexpr=" + str(self.fn_isexpr) + ", env=" + str(self.env) + " " + props + ">"
         elif self.body is not None:
@@ -778,7 +781,7 @@ class JSObject(JSValue):
     def __eq__(self, other):
         if type(self) != type(other):
             return False
-        return self.properties == other.properties and self.body == other.body and self.params == other.params and self.env == other.env and self.simfct == other.simfct and self.missing_mode == other.missing_mode and self.tablength == other.tablength and self.fn_isexpr == other.fn_isexpr
+        return self.properties == other.properties and self.body == other.body and self.params == other.params and self.env == other.env and self.simfct == other.simfct and self.missing_mode == other.missing_mode and self.tablength == other.tablength and self.fn_isexpr == other.fn_isexpr 
 
     def contains_top(self):
         return self.missing_mode == MissingMode.MISSING_IS_TOP or JSTop in self.properties.values()
@@ -792,6 +795,8 @@ class JSObject(JSValue):
         return self.env is not None
     def closure_env(self):
         return self.env
+    def is_pure_simfct(self):
+        return self.pure_simfct
 
     def assign(self, other):
         self.properties = other.properties.copy()
@@ -802,6 +807,7 @@ class JSObject(JSValue):
         self.missing_mode = other.missing_mode
         self.tablength = other.tablength
         self.fn_isexpr = other.fn_isexpr
+        self.pure_simfct = other.pure_simfct
 
     def clone(self):
         c = JSObject({})
