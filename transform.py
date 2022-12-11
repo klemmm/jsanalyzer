@@ -47,7 +47,11 @@ code_transformers.LoopUnroller(ast).run()
 code_transformers.FunctionInliner(ast).run()
 code_transformers.DeadCodeRemover(ast).run()
 code_transformers.VariableRenamer(ast).run()
-code_transformers.ExpressionSimplifier(ast, args.pure.split(',')).run()
+if args.pure is not None:
+    pures = args.pure.split(',')
+else:
+    pures = []
+code_transformers.ExpressionSimplifier(ast,pures).run()
 code_transformers.ConstantMemberSimplifier(ast).run()
 
 print("Producing JSON output file:", args.output)
