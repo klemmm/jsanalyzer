@@ -425,7 +425,9 @@ def str_to_number(s):
 
 def interpret_as_number(state, value):
     if isinstance(value, JSPrimitive):
-        if type(value.val) is int:
+        if type(value.val) is float:
+            return int(value.val)
+        elif type(value.val) is int:
             return value.val
         elif type(value.val) is str:
             result = str_to_number(value.val)
