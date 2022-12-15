@@ -15,7 +15,7 @@ if (process.argv[3] === undefined) {
 		console.log("Parsing JSON...");
 		const json = JSON.parse(data);
 		console.log("Generating JS...");
-		const js = escodegen.generate(json, {comment: true});
+		const js = escodegen.generate(json, {comment: true}) + "\n";
 		console.log("Writing to output file...");
 		fs.writeFileSync(process.argv[3], js);
 		console.log("All done!");

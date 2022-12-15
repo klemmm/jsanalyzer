@@ -22,6 +22,8 @@ register_update_handler(update_handler)
 def unary_handler(opname, state, abs_arg):
     if abs_arg is JSTop:
         return JSTop
+    if isinstance(abs_arg, JSOr):
+        return JSTop
 
     if opname == "!":
         return JSPrimitive(not to_bool(abs_arg))

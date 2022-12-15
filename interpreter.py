@@ -258,6 +258,7 @@ class Interpreter(object):
             self.pure = callee.is_pure_simfct()
             if expr is not None:
                 expr.callee_is_pure = self.pure
+                expr.notrans_resolved_call = callee.body
 
             #TODO for now, only simfct can be bound
             if this:
@@ -324,6 +325,7 @@ class Interpreter(object):
             callee.body.pure = self.pure
             if expr is not None:
                 expr.callee_is_pure = self.pure
+                expr.notrans_resolved_call = callee.body
             state.join(self.return_state)
            
             #Save function return value
@@ -359,6 +361,8 @@ class Interpreter(object):
     def eval_expr(self, state, expr):
         if state.is_bottom:
             return JSBot
+        if expr is None:
+            return JSTop
         result = yield [self.eval_expr_aux, state, expr]
         expr.notrans_static_value = State.value_join(expr.notrans_static_value, result)
 
@@ -443,7 +447,7 @@ class Interpreter(object):
             #Property name is computed (i.e. tab[x + 1])
             abs_property = yield [self.eval_expr, state, expr.property]
             state.consume_expr(abs_property, consumed_refs)
-            if abs_property is JSTop:
+            if abs_property is JSTop or isinstance(abs_property, JSOr):
                 prop = None
             elif abs_property == JSUndefNaN:
                 prop = "__undefined"
@@ -464,6 +468,8 @@ class Interpreter(object):
 
     #Takes state, expression, and returns a JSValue
     def eval_expr_aux(self, state, expr):
+        if expr is None:
+            return JSTop
         if expr.type == "Literal":
             if expr.value is None:
                 return JSPrimitive("<<NULL>>")
@@ -514,7 +520,7 @@ class Interpreter(object):
             state.consume_expr(abs_test_result, consumed_refs)
 
 
-            if abs_test_result is JSTop:
+            if abs_test_result is JSTop or isinstance(abs_test_result, JSOr):
                 state_then = state
                 state_else = state.clone()
                 expr_then = yield [self.eval_expr, state_then, expr.consequent]

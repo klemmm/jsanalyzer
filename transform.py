@@ -28,7 +28,7 @@ print("Simplify function calls:\t", not args.no_simplify_calls)
 print("Simplify control flow:\t\t", not args.no_simplify_flow)
 print("Remove dead code:\t\t", not args.no_remove_dead_code)
 print("Rename variables:\t\t", not args.no_rename_variable)
-print("Handle eval() / fn cons: \t", not args.no_rename_variable)
+print("Handle eval() / fn cons: \t", not args.no_eval_handling)
 print("Rewrite constant member access:\t", not args.no_constant_member_rewrite)
 print("=====================================\n")
 
@@ -42,17 +42,19 @@ ast = pickle.load(f)
 f.close()
 
 #Order matters, because some transformers will introduce some code that will be processed by other transformers
-code_transformers.EvalReplacer(ast).run()
-code_transformers.LoopUnroller(ast).run()
-code_transformers.FunctionInliner(ast).run()
-code_transformers.DeadCodeRemover(ast).run()
-code_transformers.VariableRenamer(ast).run()
+#code_transformers.EvalReplacer(ast).run()
+#code_transformers.LoopUnroller(ast).run()
+#code_transformers.FunctionInliner(ast).run()
+#code_transformers.DeadCodeRemover(ast).run()
+#code_transformers.VariableRenamer(ast).run()
+code_transformers.VarDefInterpreter(ast).run()
+code_transformers.UselessVarRemover(ast).run()
 if args.pure is not None:
     pures = args.pure.split(',')
 else:
     pures = []
-code_transformers.ExpressionSimplifier(ast,pures).run()
-code_transformers.ConstantMemberSimplifier(ast).run()
+#code_transformers.ExpressionSimplifier(ast,pures).run()
+#code_transformers.ConstantMemberSimplifier(ast).run()
 
 print("Producing JSON output file:", args.output)
 def myserializer(obj):
