@@ -15,7 +15,7 @@ class AbstractInterpreter(object):
     def on_statement(self, state, statement):
         pass
 
-    def on_expression(self, state, statement):
+    def on_expression(self, state, statement, test=False):
         pass
 
     def on_enter_function(self, state, statement):
@@ -29,7 +29,7 @@ class AbstractInterpreter(object):
             return
         yield [self.do_statement, state, decl]
     
-    def do_expression(self, state, expression):
+    def do_expression(self, state, expression, test=False):
         if expression.type == "CallExpression":
             if expression.notrans_resolved_call is not None:
                 self.on_enter_function(state, expression.notrans_resolved_call)
@@ -38,9 +38,9 @@ class AbstractInterpreter(object):
                     for st in expression.notrans_resolved_call.body:
                         yield [self.do_statement, state, st]
                 self.on_leave_function(state, expression.notrans_resolved_call)
-            return (yield [self.on_expression,state, expression])
+            return (yield [self.on_expression,state, expression, test])
         else:
-            return (yield [self.on_expression, state, expression])
+            return (yield [self.on_expression, state, expression, test])
 
     def do_statement(self, state, statement):
         if statement.type == "VariableDeclaration":
@@ -50,10 +50,11 @@ class AbstractInterpreter(object):
             yield [self.do_expression, state, statement.expression]
 
         elif statement.type == "IfStatement":
-            yield [self.on_expression, state, statement.test]
+            yield [self.on_expression, state, statement.test, True]
             state_else = self.domain.clone_state(state)
             yield [self.do_statement, state, statement.consequent]
-            yield [self.do_statement, state_else, statement.alternate]
+            if statement.alternate is not None:
+                yield [self.do_statement, state_else, statement.alternate]
             self.domain.join_state(state, state_else)
 
         elif statement.type == "FunctionDeclaration":
@@ -72,7 +73,7 @@ class AbstractInterpreter(object):
                 if header_state == prev_header_state:
                     break
 
-                yield [self.do_expression, state, statement.test]
+                yield [self.do_expression, state, statement.test, True]
                 yield [self.do_statement, state, statement.body]
 
         
@@ -96,7 +97,7 @@ class AbstractInterpreter(object):
                 if header_state == prev_header_state:
                     break
 
-                yield [self.do_expression, state, statement.test]
+                yield [self.do_expression, state, statement.test, True]
                 yield [self.do_statement, state, statement.body]
                 yield [self.do_expression, state, statement.test]
         
@@ -579,25 +580,7 @@ class VarDefInterpreter(AbstractInterpreter):
         self.expr_id = 0
         self.stack = []
         super().__init__(ast, self.Domain(), "Variable Definition")
-
-    def mark_expression(self, expression, is_def=False):
-        if expression.expr_id is None:
-            expression.expr_id = self.expr_id
-            self.id_to_expr[self.expr_id] = expression
-            if is_def:
-                self.defs.add(self.expr_id)
-                expression.notrans_used_by = set()
-            self.expr_id += 1
-
-    def on_statement(self, state, statement):
-        if self.domain.is_bottom(state):
-            return
-        if statement.type == "VariableDeclaration":
-            for decl in statement.declarations:
-                self.mark_expression(decl, True)
-                state.difference_update([x for x in state if x[0] == decl.id.name])
-                state.add((decl.id.name, decl.expr_id))
-
+    
     def on_enter_function(self, state, statement):
         self.stack.append(self.domain.clone_state(state))
         state.clear()
@@ -606,7 +589,36 @@ class VarDefInterpreter(AbstractInterpreter):
         p = self.stack.pop()
         self.domain.assign_state(state, p)
 
-    def on_expression(self, state, expression):
+    def mark_expression(self, expression, is_def=False):
+        if expression.expr_id is None:
+            expression.expr_id = self.expr_id
+            self.id_to_expr[self.expr_id] = expression
+            if is_def:
+                self.defs.add(self.expr_id)
+                expression.notrans_used_by = set()
+            expression.notrans_uses = set()
+            self.expr_id += 1
+        
+    def def_use_link(self, _def, _use):
+        for used_expr_id in _def:
+            used_expr = self.id_to_expr[used_expr_id]
+            for used_assignment_id in used_expr.notrans_uses:
+                used_assignment = self.id_to_expr[used_assignment_id]
+                used_assignment.notrans_used_by.add(_use.expr_id)
+
+    def define(self, state, expression, name):
+        self.mark_expression(expression, True)
+        state.difference_update([x for x in state if x[0] == name])
+        state.add((name, expression.expr_id))
+
+    def on_statement(self, state, statement):
+        if self.domain.is_bottom(state):
+            return
+        if statement.type == "VariableDeclaration":
+            for decl in statement.declarations:
+                self.define(state, decl, decl.id.name)
+
+    def on_expression(self, state, expression, test=False):
         if self.domain.is_bottom(state):
             return set()
         r = set()
@@ -614,22 +626,14 @@ class VarDefInterpreter(AbstractInterpreter):
         if expression.type == "AssignmentExpression":
             killed = [x for x in state if x[0] == expression.left.name]
             self.mark_expression(expression, len(killed) > 0)
+            if len(killed) > 0:
+                state.add((expression.left.name, expression.expr_id))
             
-            ks = set()
-            for k in killed:
-                ks.add(k[1])
-            expression.notrans_killed = ks
             expr_result = yield [self.do_expression, state, expression.right]
             r.update(expr_result[0])
             expression.notrans_uses = r.copy()
-            for used_expr_id in r:
-                used_expr = self.id_to_expr[used_expr_id]
-                for used_assignment_id in used_expr.notrans_uses:
-                    used_assignment = self.id_to_expr[used_assignment_id]
-                    used_assignment.notrans_used_by.add(expression.expr_id)
+            self.def_use_link(r, expression)
             state.difference_update(killed)
-            if len(killed) > 0:
-                state.add((expression.left.name, expression.expr_id))
             r.add(expression.expr_id)
             expression.notrans_side_effects = expr_result[1]
             return (r, True)
@@ -640,25 +644,17 @@ class VarDefInterpreter(AbstractInterpreter):
             right = yield [self.do_expression, state, expression.right]
             r.update(left[0])
             r.update(right[0])
-            if expression.expr_id is None:
-                expression.expr_id = self.expr_id
-                self.id_to_expr[self.expr_id] = expression
-                self.expr_id += 1
-            for used_expr_id in r:
-                used_expr = self.id_to_expr[used_expr_id]
-                for used_assignment_id in used_expr.notrans_uses:
-                    used_assignment = self.id_to_expr[used_assignment_id]
-                    used_assignment.notrans_used_by.add(expression.expr_id)
+            self.mark_expression(expression)
+            if test:
+                expression.notrans_test = True
+                self.def_use_link(r, expression)
             return (r, left[1] or right[1])
 
         elif expression.type == "Literal":
             return ({}, False)
+
         elif expression.type == "Identifier":
-            if expression.expr_id is None:
-                expression.expr_id = self.expr_id
-                self.id_to_expr[self.expr_id] = expression
-                expression.notrans_uses = set()
-                self.expr_id += 1
+            self.mark_expression(expression)
             used = [x for x in state if x[0] == expression.name]
             for u in used:
                 expression.notrans_uses.add(u[1])
@@ -670,16 +666,9 @@ class VarDefInterpreter(AbstractInterpreter):
             for a in expression.arguments:
                 arg_result = yield [self.do_expression, state, a]
                 r.update(arg_result[0])
-            if expression.expr_id is None:
-                expression.expr_id = self.expr_id
-                self.id_to_expr[self.expr_id] = expression
-                self.expr_id += 1
+            self.mark_expression(expression)
             if side_effects:
-                for used_expr_id in r:
-                    used_expr = self.id_to_expr[used_expr_id]
-                    for used_assignment_id in used_expr.notrans_uses:
-                        used_assignment = self.id_to_expr[used_assignment_id]
-                        used_assignment.notrans_used_by.add(expression.expr_id)
+                self.def_use_link(r, expression)
             return (r, side_effects)
 
     def on_end(self, state):
@@ -703,9 +692,13 @@ class UselessVarRemover(CodeTransform):
     def before_expression(self, o):
         if o.type == "CallExpression" and o.expr_id is not None:
             o.trailingComments = [{"type":"Block", "value":" Type: Call, ID: " + str(o.expr_id) + " "}]
+        elif o.notrans_test:
+            o.trailingComments = [{"type":"Block", "value":" Type: Test, ID: " + str(o.expr_id) + " "}]
         return True
 
     def before_statement(self, o):
+        if not o.live:
+            return
         if o.type == "ExpressionStatement" and (o.expression.type == "AssignmentExpression"):
             if o.expression.notrans_useless == True:
                 u = "Useless, "
