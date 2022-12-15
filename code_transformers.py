@@ -150,9 +150,12 @@ class CodeTransform(object):
                 results.append((yield [self.do_statement,statement]))
         
         elif statement.type == "ForStatement":
-            results.append((yield [self.do_expr_or_declaration,statement.init]))
-            results.append((yield [self.do_expr,statement.test]))
-            results.append((yield [self.do_expr_or_declaration,statement.update]))
+            if statement.init is not None:
+                results.append((yield [self.do_expr_or_declaration,statement.init]))
+            if statement.test is not None:
+                results.append((yield [self.do_expr,statement.test]))
+            if statement.update is not None:
+                results.append((yield [self.do_expr_or_declaration,statement.update]))
             results.append((yield [self.do_statement,statement.body]))
         
         elif statement.type == "ThrowStatement":

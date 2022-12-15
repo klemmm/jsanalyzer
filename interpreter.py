@@ -786,8 +786,12 @@ class Interpreter(object):
                 old = scope.pop(decl.id.name, None)
 
                 #compute new value
-                if val is not JSTop:
+                if state.objs[state.lref].missing_mode == MissingMode.MISSING_IS_TOP:
+                    if val is not JSTop:
+                        scope[decl.id.name] = val
+                else:
                     scope[decl.id.name] = val
+
         else:
             raise ValueError("Vardecl type not handled:" + decl.type)
         state.pending.difference_update(consumed_refs)
@@ -819,6 +823,8 @@ class Interpreter(object):
         if state.is_bottom:
             return
         (init, test, update, body) = (statement.init, statement.test, statement.update, statement.body.body)
+        if body is None:
+            body = [statement.body]
         consumed_refs = set()
         saved_unroll_trace = self.unroll_trace
         self.unroll_trace = []
@@ -876,7 +882,10 @@ class Interpreter(object):
             if is_for_in:
                 abs_test_result = JSTop
             else:
-                abs_test_result = yield [self.eval_expr, state, test]
+                if test is None:
+                    abs_test_result = JSPrimitive(True)
+                else:
+                    abs_test_result = yield [self.eval_expr, state, test]
                 if state.is_bottom:
                     break
             state.consume_expr(abs_test_result, consumed_refs)
