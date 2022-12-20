@@ -123,7 +123,6 @@ class Interpreter(object):
                 target.properties[prop] = list(c)[0]
                 callee_ref = list(c)[0]
 
-
         if callee_ref.is_bound() and this is None:
             #print("callee ref is bound:", callee_ref, state.objs[callee_ref.this()], expr)
             this = callee_ref.this()
@@ -244,7 +243,6 @@ class Interpreter(object):
                 args_val.append(v)
             elif isinstance(v, JSRef) and state.objs[v.target()].is_function():
                 #If the function is unknown, and closures are passed as arguments, we assume these closures will be called by the unknown function.
-                #yield [self.eval_func_call(state, state.objs[v.target, )], None]
                 if not argument.notrans_processed:
                     argument.notrans_processed = True
                     deferred_id = state.objs[state.gref].properties["___deferred"].target()
@@ -289,6 +287,7 @@ class Interpreter(object):
             saved_return = self.return_value
             saved_rstate = self.return_state
             saved_pure = self.pure
+            saved_closure = self.closure
 
             self.return_value = None
             self.return_state = State.bottom()
@@ -323,6 +322,7 @@ class Interpreter(object):
                 yield [self.do_statement, state, callee.body]
             self.need_clean = True
             callee.body.pure = self.pure
+            callee.body.closure = self.closure
             if expr is not None:
                 expr.callee_is_pure = self.pure
                 expr.notrans_resolved_call = callee.body
@@ -339,6 +339,7 @@ class Interpreter(object):
                 state.lref = state.stack_frames.pop()
             self.last = self.stack_trace.pop()
             self.pure = saved_pure and self.pure
+            self.closure = saved_closure
             
             #Attempt to compute an inlined version of the expression
             if config.simplify_function_calls and callee.body.redex and expr is not None:
@@ -480,6 +481,8 @@ class Interpreter(object):
             if expr.name == "undefined":
                 return JSUndefNaN
             scope = state.scope_lookup(expr.name)
+            if scope != state.objs[state.lref] and scope != state.objs[state.gref]:
+                self.closure = True
             if expr.name in scope.properties:
                 return scope.properties[expr.name]
             else:
@@ -1343,6 +1346,7 @@ class Interpreter(object):
         self.break_state = State.bottom()
         self.continue_state = State.bottom()
         self.pure = True
+        self.closure = False
 
         if entry_state is None:
             state = State(glob=True, bottom=False)

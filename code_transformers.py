@@ -7,9 +7,9 @@ from config import regexp_rename, rename_length, simplify_expressions, simplify_
 from functools import reduce
 from collections import namedtuple
 from node_tools import get_ann, set_ann, del_ann, node_from_id, id_from_node
-from typing import Set
+from typing import Set, List
 
-class AbstractInterpreter(object):
+class LexicalScopedAbsInt(object):
     def __init__(self, ast, domain, name):
         self.ast = ast
         self.name = name
@@ -21,12 +21,6 @@ class AbstractInterpreter(object):
     def on_expression(self, state, statement, test=False):
         pass
 
-    def on_enter_function(self, state, statement):
-        pass
-
-    def on_leave_function(self, state, statement):
-        pass
-    
     def do_declaration(self, state, decl):
         if decl is None or decl.type != "VariableDeclaration":
             return
@@ -34,14 +28,12 @@ class AbstractInterpreter(object):
     
     def do_expression(self, state, expression, test=False):
         if expression.type == "CallExpression":
-            if expression.notrans_resolved_call is not None:
-                self.on_enter_function(state, expression.notrans_resolved_call)
-                if expression.notrans_resolved_call.notrans_function_entry_state != state:
-                    expression.notrans_resolved_call.notrans_function_entry_state = self.domain.clone_state(state)
-                    for st in expression.notrans_resolved_call.body:
-                        yield [self.do_statement, state, st]
-                self.on_leave_function(state, expression.notrans_resolved_call)
+            if type(expression.arguments) is list and len(expression.arguments) == 1 and expression.arguments[0].type == "BlockStatement":
+                for st in expression.arguments[0].body:
+                    yield [self.do_statement, state, st]
             return (yield [self.on_expression,state, expression, test])
+        elif expression.type == "FunctionExpression" or expression.type == "ArrowFunctionExpression":
+            return (yield [self.on_expression, state, expression, test])
         else:
             return (yield [self.on_expression, state, expression, test])
 
@@ -89,7 +81,8 @@ class AbstractInterpreter(object):
         
         elif statement.type == "ForStatement":
 
-            yield [self.do_expression, state, statement.init]
+            if statement.init is not None:
+                yield [self.do_expression, state, statement.init]
             
             header_state = self.domain.bottom_state()
             while True:
@@ -100,9 +93,14 @@ class AbstractInterpreter(object):
                 if header_state == prev_header_state:
                     break
 
-                yield [self.do_expression, state, statement.test, True]
-                yield [self.do_statement, state, statement.body]
-                yield [self.do_expression, state, statement.test]
+                if statement.test is not None:
+                    yield [self.do_expression, state, statement.test, True]
+
+                if statement.body is not None:
+                    yield [self.do_statement, state, statement.body]
+
+                if statement.update is not None:
+                    yield [self.do_expression, state, statement.update]
         
         elif statement.type == "ThrowStatement":
             yield [self.on_statement, state, statement]
@@ -112,13 +110,13 @@ class AbstractInterpreter(object):
 
             case_states = []
             for case in statement.cases:
-                current_case = state.clone()
+                current_case = self.domain.clone_state(state)
                 case_states.append(current_case)
                 for statement in case.consequent:
-                    yield [self.do_statement, current_state, statement]
+                    yield [self.do_statement, current_case, statement]
 
             for s in case_states:
-                state.join(s)
+                self.domain.join_state(state, s)
 
         elif statement.type == "ClassDeclaration":
             yield [self.on_statement, state, statement]
@@ -134,11 +132,11 @@ class AbstractInterpreter(object):
             yield [self.on_expression, state, statement.left]
             yield [self.on_expression, state, statement.right]
             
-            header_state = self.state.bottom_state()
+            header_state = self.domain.bottom_state()
             while True:
-                prev_header_state = header_state.clone()
-                header_state.join(state)
-                state.assign(header_state)
+                prev_header_state = self.domain.clone_state(header_state)
+                self.domain.join_state(header_state, state)
+                self.domain.assign_state(state, header_state)
 
                 if header_state == prev_header_state:
                     break
@@ -149,11 +147,9 @@ class AbstractInterpreter(object):
         state = self.domain.init_state()
         for statement in prog:
             yield [self.do_statement, state, statement]
-
         self.on_end(state)
 
     def run(self):
-        print("Performing abstract interpretation on the '" + str(self.name) + "' domain.")
         call(self.do_prog, self.ast.body)
 
 class CodeTransform(object):
@@ -468,7 +464,7 @@ class FunctionInliner(CodeTransform):
 
     def before_statement(self, statement):
         if statement.type == "FunctionDeclaration":
-            statement.body.leadingComments = [{"type":"Block", "value":" Pure: " + str(statement.body.pure) + " " }]
+            statement.body.leadingComments = [{"type":"Block", "value":" Pure: " + str(statement.body.pure) + " Closure: " + str(statement.body.closure) + " "}]
         return True
 
     def before_expression(self, o):
@@ -476,7 +472,7 @@ class FunctionInliner(CodeTransform):
             o.__dict__ = o.noout_reduced.__dict__
             o.noout_reduced = None
         elif o.type == "FunctionExpression" or o.type == "ArrowFunctionExpression":
-            o.body.leadingComments = [{"type":"Block", "value":" Pure: " + str(o.body.pure) + " " }]
+            o.body.leadingComments = [{"type":"Block", "value":" Pure: " + str(o.body.pure) + " Closure: " + str(o.body.closure) + " "}]
         return True
 
 class DeadCodeRemover(CodeTransform):
@@ -556,7 +552,7 @@ class ConstantMemberSimplifier(CodeTransform):
         return True
 
 
-class VarDefInterpreter(AbstractInterpreter):
+class VarDefInterpreter(LexicalScopedAbsInt):
 
     ExprDesc = namedtuple("ExprDesc", "def_set has_side_effects")
     Def = namedtuple("Def", "name def_id")
@@ -571,7 +567,7 @@ class VarDefInterpreter(AbstractInterpreter):
         :return: new initial state
         """
         def init_state(self) -> State:
-            return self.State({None})
+            return self.State({})
 
         """
         Creates a new bottom state
@@ -627,33 +623,28 @@ class VarDefInterpreter(AbstractInterpreter):
 
     def __init__(self, ast : esprima.nodes.Node) -> None:
         self.defs = set()
-        self.stack = []
-        self.node_stack = []
+        self.free_vars = set()
+        self.inner_free_vars = set()
+        self.state_stack = []
+        self.func_stack = []
         self.current_func = None
         super().__init__(ast, self.Domain(), "Variable Definition")
-   
-    """
-    Called when the analysis enters a function
 
-    :param Domain.State state: the current state
-    :param esprima.nodes.Node statement: the function body 
-    """
-    def on_enter_function(self, state : Domain.State, statement : esprima.nodes.Node) -> None:
-        self.stack.append(self.domain.clone_state(state))
-        self.node_stack.append(self.current_func)
-        self.current_func = statement
-        state.clear()
+    def handle_function_body(self, state: Domain.State, body: esprima.nodes.Node) -> None:
+        self.free_vars = set()
+        self.func_stack.append(self.current_func)
+        self.current_func = body
+        self.state_stack.append(self.domain.clone_state(state))
+        self.domain.assign_state(state, self.domain.init_state())
+        yield [self.do_statement, state, body]
+        set_ann(body, "inner_free_vars", self.inner_free_vars.copy())
+        self.current_func = self.func_stack.pop()
+        self.inner_free_vars.difference_update(set([x.name for x in state]))
+        self.domain.assign_state(state, self.state_stack.pop())
+        self.free_vars.update(self.inner_free_vars)
+        self.inner_free_vars = self.free_vars
+        self.free_vars = set()
 
-    """
-    Called when the analysis leaves a function
-
-    :param Domain.State state: the current state
-    :param esprima.nodes.Node statement: the function body 
-    """
-    def on_leave_function(self, state : Domain.State, statement : esprima.nodes.Node) -> None:
-        p = self.stack.pop()
-        self.node_stack.pop()
-        self.domain.assign_state(state, p)
 
     """
     Create a link from a set of definitions to an use
@@ -748,10 +739,11 @@ class VarDefInterpreter(AbstractInterpreter):
                     expr_desc = yield [self.updated_expr_desc, state, expr_desc, decl.init]
                     self.link_def_set_to_use(expr_desc.def_set, id_from_node(decl))
                     set_ann(decl, "side_effects", expr_desc.has_side_effects)
+                set_ann(decl, "in_func", self.current_func)
         elif statement.type == "FunctionDeclaration":
-            if self.current_func is not None:
-                set_ann(self.current_func, "has_inner_func", True)
-
+            #if self.current_func is not None and statement.body.closure:
+            #    set_ann(self.current_func, "has_closures", True)
+            yield [self.handle_function_body, state, statement.body]
 
     """
     Called when the analysis encounters an expression
@@ -767,6 +759,8 @@ class VarDefInterpreter(AbstractInterpreter):
             return self.new_expr_desc()
 
         if expression.type == "AssignmentExpression":
+            if self.current_func is not None:
+                set_ann(expression, "function", self.current_func)
             expr_desc = self.new_expr_desc()
             if expression.left.type == "MemberExpression" or expression.operator != "=":
                 expr_desc = yield [self.updated_expr_desc, state, expr_desc, expression.left]
@@ -775,6 +769,7 @@ class VarDefInterpreter(AbstractInterpreter):
             expr_desc = yield [self.updated_expr_desc, state, expr_desc, expression.right]
             self.link_def_set_to_use(expr_desc.def_set, id_from_node(expression))
             set_ann(expression, "side_effects", expr_desc.has_side_effects)
+            set_ann(expression, "in_func", self.current_func)
             return self.new_expr_desc(expr_desc.def_set, True)
 
         elif expression.type == "BinaryExpression" or expression.type == "LogicalExpression":
@@ -824,15 +819,22 @@ class VarDefInterpreter(AbstractInterpreter):
             return self.new_expr_desc(expr_desc.def_set, True)
 
         elif expression.type == "Identifier":
-            return self.new_expr_desc(self.get_def_set_by_name(state, expression.name), False)
+            def_set = self.get_def_set_by_name(state, expression.name)
+            if len(def_set) == 0:
+                self.free_vars.add(expression.name)
+            return self.new_expr_desc(def_set, False)
 
         elif expression.type == "CallExpression":
             expr_desc = self.new_expr_desc()
+            expr_desc = yield [self.updated_expr_desc, state, expr_desc, expression.callee]
             for a in expression.arguments:
                 expr_desc = yield [self.updated_expr_desc, state, expr_desc, a]
             if not expression.callee_is_pure:
                 self.link_def_set_to_use(expr_desc.def_set, id_from_node(expression))
             return self.new_expr_desc(expr_desc.def_set, expr_desc.has_side_effects or not expression.callee_is_pure)
+        
+        elif expression.type == "ThisExpression":
+            return self.new_expr_desc()
 
         elif expression.type == "AwaitExpression":
             expr_desc = self.new_expr_desc()
@@ -845,8 +847,9 @@ class VarDefInterpreter(AbstractInterpreter):
             return expr_desc
 
         elif expression.type == "FunctionExpression" or expression.type == "ArrowFunctionExpression":
-            if self.current_func is not None:
-                set_ann(self.current_func, "has_inner_func", True)
+            yield [self.handle_function_body, state, expression.body]
+            #if self.current_func is not None and expression.body.closure:
+            #    set_ann(self.current_func, "has_closures", True)
             expr_desc = self.new_expr_desc()
             return expr_desc
 
@@ -903,24 +906,34 @@ class UselessVarRemover(CodeTransform):
                 u = "Always-Keep, "
             comm = " Type: " + _type + ", ID: " + str(id_from_node(assign)) + ", " + u + "Used-By: " + str(get_ann(assign, "used_by") or "{}") + " "
             if get_ann(assign, "side_effects"):
-                comm += "RValue-Has-Side-Effects "
+                comm += "RValue-Has-Side-Effects, "
             else:
-                comm += "RValue-Has-No-Side-Effects "
+                comm += "RValue-Has-No-Side-Effects, "
+            func = get_ann(assign, "in_func")
+            if func is None:
+                comm += "Not-In-Function "
+            else:
+                comm += "In-Function, Inner-Free-Vars=" + str(get_ann(func, "inner_free_vars") or "{}") + " "
+
             assign.trailingComments = [{"type":"Block", "value": comm}]
 
-    def process_block(self, body: [esprima.nodes.Node]) -> None:
+    def process_block(self, body: List[esprima.nodes.Node]) -> None:
         bye = []
+        if self.only_comment:
+            return
         for b in body:
             if b.type == "ExpressionStatement":
+                func = get_ann(b.expression, "in_func")
                 if b.expression.type == "AssignmentExpression":
-                    if get_ann(b.expression, "useless"):
+                    if get_ann(b.expression, "useless") and func and b.expression.left.name not in get_ann(func, "inner_free_vars"):
                         if get_ann(b.expression, "side_effects"):
                             b.expression.__dict__ = b.expression.right.__dict__
                         else:
                             bye.append(b)
             if b.type == "VariableDeclaration":
                 for decl in b.declarations:
-                    if get_ann(decl, "useless") and not get_ann(decl, "side_effects"):
+                    func = get_ann(decl, "in_func")
+                    if get_ann(decl, "useless") and not get_ann(decl, "side_effects") and func and decl.id.name not in get_ann(func, "inner_free_vars"):
                         decl.init = None
         for b in bye:
             body.remove(b)
@@ -936,9 +949,6 @@ class UselessVarRemover(CodeTransform):
         if o.type == "VariableDeclaration":
             for decl in o.declarations:
                 self.process_assignment(decl, "Declare")
-        if o.type == "FunctionDeclaration":
-            if get_ann(o.body, "has_inner_func"):
-                return False
         if o.type == "BlockStatement":
             self.process_block(o.body)
         return True
@@ -962,10 +972,6 @@ class UselessVarRemover(CodeTransform):
                 o.trailingComments = [{"type":"Block", "value":" Type: Call, ID: " + str(id_from_node(o)) + " "}]
             elif get_ann(o, "test"):
                 o.trailingComments = [{"type":"Block", "value":" Type: Test, ID: " + str(id_from_node(o)) + " "}]
-
-        if o.type == "FunctionExpression" or o.type == "ArrowFunctionExpression":
-            if get_ann(o.body, "has_inner_func"):
-                return False
         return True
 
     def run(self):
