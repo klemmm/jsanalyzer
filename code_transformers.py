@@ -1,7 +1,7 @@
 import random
 import esprima
 import re
-from abstract import JSPrimitive
+from abstract import JSPrimitive, JSRef
 from tools import call
 from config import regexp_rename, rename_length, simplify_expressions, simplify_function_calls, simplify_control_flow, max_unroll_ratio, remove_dead_code
 from functools import reduce
@@ -350,6 +350,7 @@ class ExpressionSimplifier(CodeTransform):
     def __init__(self, ast, pures):
         super().__init__(ast, "Expression Simplifier")
         self.pures = pures
+        self.id_pures = set()
 
     def after_statement(self, st, results):
         if st.type == "ExpressionStatement":
@@ -368,7 +369,10 @@ class ExpressionSimplifier(CodeTransform):
         if o.type == "AssignmentExpression" or o.type == "UpdateExpression" or o.type == "ConditionalExpression" or o.type == "LogicalExpression":
             return True
         #Test if expression has side effects
-        if o.type == "CallExpression" and not o.callee_is_pure and o.callee.name not in self.pures:
+        if o.type == "CallExpression" and o.callee.name in self.pures:
+            if isinstance(o.callee.notrans_static_value, JSRef):
+                self.id_pures.add(o.callee.notrans_static_value.target())
+        if o.type == "CallExpression" and not o.callee_is_pure and o.callee.name not in self.pures and (not isinstance(o.callee.notrans_static_value, JSRef) or o.callee.notrans_static_value.target() not in self.id_pures):
             c = esprima.nodes.CallExpression(o.callee, o.arguments)
             calls.append(c)
         if isinstance(o.notrans_static_value, JSPrimitive):
@@ -621,6 +625,8 @@ class VarDefInterpreter(AbstractInterpreter):
     def __init__(self, ast : esprima.nodes.Node) -> None:
         self.defs = set()
         self.stack = []
+        self.node_stack = []
+        self.current_func = None
         super().__init__(ast, self.Domain(), "Variable Definition")
    
     """
@@ -631,6 +637,8 @@ class VarDefInterpreter(AbstractInterpreter):
     """
     def on_enter_function(self, state : Domain.State, statement : esprima.nodes.Node) -> None:
         self.stack.append(self.domain.clone_state(state))
+        self.node_stack.append(self.current_func)
+        self.current_func = statement
         state.clear()
 
     """
@@ -641,6 +649,7 @@ class VarDefInterpreter(AbstractInterpreter):
     """
     def on_leave_function(self, state : Domain.State, statement : esprima.nodes.Node) -> None:
         p = self.stack.pop()
+        self.node_stack.pop()
         self.domain.assign_state(state, p)
 
     """
@@ -709,9 +718,11 @@ class VarDefInterpreter(AbstractInterpreter):
     :return: The updated expression descriptor
     """
     def updated_expr_desc(self, state : Domain.State, expr_desc : ExprDesc, expr : esprima.nodes.Node) -> ExprDesc:
-            sub_expr_desc = yield [self.do_expression, state, expr]
-            r = self.new_expr_desc(sub_expr_desc.def_set.union(expr_desc.def_set), sub_expr_desc.has_side_effects or expr_desc.has_side_effects)
-            return r
+        if expr.type == "BlockStatement":
+            return self.new_expr_desc() #TODO
+        sub_expr_desc = yield [self.do_expression, state, expr]
+        r = self.new_expr_desc(sub_expr_desc.def_set.union(expr_desc.def_set), sub_expr_desc.has_side_effects or expr_desc.has_side_effects)
+        return r
 
     """
     Called when the analysis encounters a statement
@@ -726,11 +737,17 @@ class VarDefInterpreter(AbstractInterpreter):
         if statement.type == "VariableDeclaration":
             for decl in statement.declarations:
                 expr_desc = self.new_expr_desc()
-                self.create_def(state, decl, decl.id.name)
+                if decl.id.type == "ObjectPattern":
+                    print(decl.id)
+                else:
+                    self.create_def(state, decl, decl.id.name)
                 if decl.init is not None:
                     expr_desc = yield [self.updated_expr_desc, state, expr_desc, decl.init]
                     self.link_def_set_to_use(expr_desc.def_set, id_from_node(decl))
-                    set_ann(decl.init, "side_effects", expr_desc.has_side_effects)
+                    set_ann(decl, "side_effects", expr_desc.has_side_effects)
+        elif statement.type == "FunctionDeclaration":
+            if self.current_func is not None:
+                set_ann(self.current_func, "has_inner_func", True)
 
 
     """
@@ -748,6 +765,8 @@ class VarDefInterpreter(AbstractInterpreter):
 
         if expression.type == "AssignmentExpression":
             expr_desc = self.new_expr_desc()
+            if expression.left.type == "MemberExpression" or expression.operator != "=":
+                expr_desc = yield [self.updated_expr_desc, state, expr_desc, expression.left]
             if bool(self.get_def_set_by_name(state, expression.left.name)):
                 self.create_def(state, expression, expression.left.name)
             expr_desc = yield [self.updated_expr_desc, state, expr_desc, expression.right]
@@ -776,9 +795,30 @@ class VarDefInterpreter(AbstractInterpreter):
             for elem in expression.elements:
                 expr_desc = yield [self.updated_expr_desc, state, expr_desc, elem]
             return expr_desc
+        
+        elif expression.type == "ObjectExpression":
+            expr_desc = self.new_expr_desc()
+            for prop in expression.properties:
+                if prop.computed:
+                    expr_desc = yield [self.updated_expr_desc, state, expr_desc, prop.key]
+                if prop.type == "Property":
+                    expr_desc = yield [self.updated_expr_desc, state, expr_desc, prop.value]
+            return expr_desc
+        
+        elif expression.type == "MemberExpression":
+            expr_desc = self.new_expr_desc()
+            expr_desc = yield [self.updated_expr_desc, state, expr_desc, expression.object]
+            if expression.computed:
+                expr_desc = yield [self.updated_expr_desc, state, expr_desc, expression.property]
+            return expr_desc
 
         elif expression.type == "Literal":
             return self.new_expr_desc()
+
+        elif expression.type == "UpdateExpression":
+            expr_desc = self.new_expr_desc()
+            expr_desc = yield [self.updated_expr_desc, state, expr_desc, expression.argument]
+            return self.new_expr_desc(expr_desc.def_set, True)
 
         elif expression.type == "Identifier":
             return self.new_expr_desc(self.get_def_set_by_name(state, expression.name), False)
@@ -791,6 +831,34 @@ class VarDefInterpreter(AbstractInterpreter):
                 self.link_def_set_to_use(expr_desc.def_set, id_from_node(expression))
             return self.new_expr_desc(expr_desc.def_set, expr_desc.has_side_effects or not expression.callee_is_pure)
 
+        elif expression.type == "AwaitExpression":
+            expr_desc = self.new_expr_desc()
+            expr_desc = yield [self.updated_expr_desc, state, expr_desc, expression.argument]
+            return expr_desc
+
+        elif expression.type == "UnaryExpression":
+            expr_desc = self.new_expr_desc()
+            expr_desc = yield [self.updated_expr_desc, state, expr_desc, expression.argument]
+            return expr_desc
+
+        elif expression.type == "FunctionExpression" or expression.type == "ArrowFunctionExpression":
+            if self.current_func is not None:
+                set_ann(self.current_func, "has_inner_func", True)
+            expr_desc = self.new_expr_desc()
+            return expr_desc
+
+        elif expression.type == "NewExpression":
+            expr_desc = self.new_expr_desc()
+            for a in expression.arguments:
+                expr_desc = yield [self.updated_expr_desc, state, expr_desc, a]
+            self.link_def_set_to_use(expr_desc.def_set, id_from_node(expression))
+            return self.new_expr_desc(expr_desc.def_set, True)
+
+        elif expression.type == "SequenceExpression":
+            expr_desc = self.new_expr_desc()
+            for elem in expression.expressions:
+                expr_desc = yield [self.updated_expr_desc, state, expr_desc, elem]
+            return expr_desc
 
     """
     Called when the analysis ends.
@@ -812,7 +880,8 @@ class VarDefInterpreter(AbstractInterpreter):
             set_ann(assign_expr, "useless", d in useless)
 
 class UselessVarRemover(CodeTransform):
-    def __init__(self, ast):
+    def __init__(self, ast, only_comment = False):
+        self.only_comment = only_comment
         super().__init__(ast, "Useless Variable Remover")
 
     """
@@ -821,17 +890,37 @@ class UselessVarRemover(CodeTransform):
     :param esprima.nodes.Node assign: The assignment
     :param str _type: The assignment type (can be "Assign" or "Declare")
     """
-    def comment_assignment(self, assign : esprima.nodes.Node, _type : str) -> None:
-        if get_ann(assign, "useless") == True:
-            u = "Useless, "
-        elif get_ann(assign, "useless") == False:
-            u = "Useful, "
-        else:
-            u = "Is-Not-Local, "
-        comm = " Type: " + _type + ", ID: " + str(id_from_node(assign)) + ", " + u + "Used-By: " + str(get_ann(assign, "used_by") or "{}") + " "
-        if get_ann(assign, "side_effects"):
-            comm += "Has-Side-Effects "
-        assign.trailingComments = [{"type":"Block", "value": comm}]
+    def process_assignment(self, assign : esprima.nodes.Node, _type : str) -> None:
+        if self.only_comment:
+            if get_ann(assign, "useless") == True:
+                u = "Useless, "
+            elif get_ann(assign, "useless") == False:
+                u = "Useful, "
+            else:
+                u = "Always-Keep, "
+            comm = " Type: " + _type + ", ID: " + str(id_from_node(assign)) + ", " + u + "Used-By: " + str(get_ann(assign, "used_by") or "{}") + " "
+            if get_ann(assign, "side_effects"):
+                comm += "RValue-Has-Side-Effects "
+            else:
+                comm += "RValue-Has-No-Side-Effects "
+            assign.trailingComments = [{"type":"Block", "value": comm}]
+
+    def process_block(self, body: [esprima.nodes.Node]) -> None:
+        bye = []
+        for b in body:
+            if b.type == "ExpressionStatement":
+                if b.expression.type == "AssignmentExpression":
+                    if get_ann(b.expression, "useless"):
+                        if get_ann(b.expression, "side_effects"):
+                            b.expression.__dict__ = b.expression.right.__dict__
+                        else:
+                            bye.append(b)
+            if b.type == "VariableDeclaration":
+                for decl in b.declarations:
+                    if get_ann(decl, "useless") and not get_ann(decl, "side_effects"):
+                        decl.init = None
+        for b in bye:
+            body.remove(b)
 
     """
     Called before we encounter a statement
@@ -843,7 +932,12 @@ class UselessVarRemover(CodeTransform):
     def before_statement(self, o : esprima.nodes.Node) -> bool:
         if o.type == "VariableDeclaration":
             for decl in o.declarations:
-                self.comment_assignment(decl, "Declare")
+                self.process_assignment(decl, "Declare")
+        if o.type == "FunctionDeclaration":
+            if get_ann(o.body, "has_inner_func"):
+                return False
+        if o.type == "BlockStatement":
+            self.process_block(o.body)
         return True
 
     """
@@ -856,12 +950,19 @@ class UselessVarRemover(CodeTransform):
     def before_expression(self, o : esprima.nodes.Node) -> bool:
         if id_from_node(o) is None:
             return True
-        elif o.type == "CallExpression" and id_from_node(o) is not None:
-            o.trailingComments = [{"type":"Block", "value":" Type: Call, ID: " + str(id_from_node(o)) + " "}]
-        elif o.type == "AssignmentExpression":
-            self.comment_assignment(o, "Assign")
-        elif get_ann(o, "test"):
-            o.trailingComments = [{"type":"Block", "value":" Type: Test, ID: " + str(id_from_node(o)) + " "}]
+
+        if o.type == "AssignmentExpression":
+            self.process_assignment(o, "Assign")
+
+        if self.only_comment:
+            if o.type == "CallExpression" and id_from_node(o) is not None:
+                o.trailingComments = [{"type":"Block", "value":" Type: Call, ID: " + str(id_from_node(o)) + " "}]
+            elif get_ann(o, "test"):
+                o.trailingComments = [{"type":"Block", "value":" Type: Test, ID: " + str(id_from_node(o)) + " "}]
+
+        if o.type == "FunctionExpression" or o.type == "ArrowFunctionExpression":
+            if get_ann(o.body, "has_inner_func"):
+                return False
         return True
 
     def run(self):
