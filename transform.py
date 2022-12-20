@@ -47,7 +47,6 @@ f.close()
 #code_transformers.FunctionInliner(ast).run()
 #code_transformers.DeadCodeRemover(ast).run()
 #code_transformers.VariableRenamer(ast).run()
-code_transformers.VarDefInterpreter(ast).run()
 code_transformers.UselessVarRemover(ast).run()
 if args.pure is not None:
     pures = args.pure.split(',')

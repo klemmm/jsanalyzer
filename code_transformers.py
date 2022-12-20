@@ -5,6 +5,9 @@ from abstract import JSPrimitive
 from tools import call
 from config import regexp_rename, rename_length, simplify_expressions, simplify_function_calls, simplify_control_flow, max_unroll_ratio, remove_dead_code
 from functools import reduce
+from collections import namedtuple
+from node_tools import get_ann, set_ann, del_ann, node_from_id, id_from_node
+from typing import Set
 
 class AbstractInterpreter(object):
     def __init__(self, ast, domain, name):
@@ -44,7 +47,7 @@ class AbstractInterpreter(object):
 
     def do_statement(self, state, statement):
         if statement.type == "VariableDeclaration":
-            self.on_statement(state, statement)
+            yield [self.on_statement, state, statement]
 
         elif statement.type == "ExpressionStatement":
             yield [self.do_expression, state, statement.expression]
@@ -58,10 +61,10 @@ class AbstractInterpreter(object):
             self.domain.join_state(state, state_else)
 
         elif statement.type == "FunctionDeclaration":
-            self.on_statement(state, statement)
+            yield [self.on_statement, state, statement]
        
         elif statement.type == "ReturnStatement":
-            self.on_statement(state, statement)
+            yield [self.on_statement, state, statement]
 
         elif statement.type == "WhileStatement":
             header_state = self.domain.bottom_state()
@@ -102,7 +105,7 @@ class AbstractInterpreter(object):
                 yield [self.do_expression, state, statement.test]
         
         elif statement.type == "ThrowStatement":
-            self.on_statement(state, statement)
+            yield [self.on_statement, state, statement]
 
         elif statement.type == "SwitchStatement":
             yield [self.on_expression, state, statement.discriminant]
@@ -118,13 +121,13 @@ class AbstractInterpreter(object):
                 state.join(s)
 
         elif statement.type == "ClassDeclaration":
-            self.on_statement(state, statement)
+            yield [self.on_statement, state, statement]
 
         elif statement.type == "ClassBody":
-            self.on_statement(state, statement)
+            yield [self.on_statement, state, statement]
 
         elif statement.type == "MethodDefinition":
-            self.on_statement(state, statement)
+            yield [self.on_statement, state, statement]
 
         elif statement.type == "ForInStatement":
 
@@ -427,7 +430,7 @@ class VariableRenamer(CodeTransform):
         return name
     
     def before_expression(self, o):
-        if o.type == "Identifier" and o.name != "undefined":
+        if o.type == "Identifier" and o.name != "uncreate_defd":
             o.name = self.rename(o.name)
         elif o.type == "AssignmentExpression":
             o.left.name = self.rename(o.left.name)
@@ -548,21 +551,56 @@ class ConstantMemberSimplifier(CodeTransform):
 
 class VarDefInterpreter(AbstractInterpreter):
 
+    ExprDesc = namedtuple("ExprDesc", "def_set has_side_effects")
+    Def = namedtuple("Def", "name def_id")
+
     class Domain(object):
+        class State(set):
+            pass
 
-        def init_state(self):
-            return set({None})
+        """
+        Creates a new initial state
 
-        def bottom_state(self):
-            return set({None})
+        :return: new initial state
+        """
+        def init_state(self) -> State:
+            return self.State({None})
 
-        def is_bottom(self, state):
-            return state == set({None})
+        """
+        Creates a new bottom state
 
-        def clone_state(self, state):
+        :return: new bottom state
+        """
+        def bottom_state(self) -> State:
+            return self.State({None})
+
+        """
+        Tells the state is bottom
+        
+        :param State state: the state to check
+        :rtype: bool
+        :return: True if the passed state is bottom
+        """
+        def is_bottom(self, state : State) -> bool:
+            return state == self.State({None})
+
+        """
+        Copy a state, returning the copy
+        
+        :param State state: the source state
+        :rtype: State
+        :return: the copied state
+        """
+        def clone_state(self, state : State) -> State:
             return state.copy()
 
-        def join_state(self, state_dest, state_source):
+        """
+        Join two states, store result in state_dest
+        
+        :param State state_dest: the dest state
+        :param State state_source: the source state
+        """
+        def join_state(self, state_dest : State, state_source : State) -> None:
             if self.is_bottom(state_source):
                 return
             elif self.is_bottom(state_dest):
@@ -570,146 +608,262 @@ class VarDefInterpreter(AbstractInterpreter):
             else:
                 state_dest.update(state_source)
 
-        def assign_state(self, state_dest, state_source):
+        """
+        Assign source state to destination state
+        
+        :param State state_dest: the dest state
+        :param State state_source: the source state
+        """
+        def assign_state(self, state_dest : State, state_source : State) -> None:
             state_dest.clear()
             state_dest.update(state_source)
 
-    def __init__(self, ast):
-        self.id_to_expr = {}
+    def __init__(self, ast : esprima.nodes.Node) -> None:
         self.defs = set()
-        self.expr_id = 0
         self.stack = []
         super().__init__(ast, self.Domain(), "Variable Definition")
-    
-    def on_enter_function(self, state, statement):
+   
+    """
+    Called when the analysis enters a function
+
+    :param Domain.State state: the current state
+    :param esprima.nodes.Node statement: the function body 
+    """
+    def on_enter_function(self, state : Domain.State, statement : esprima.nodes.Node) -> None:
         self.stack.append(self.domain.clone_state(state))
         state.clear()
 
-    def on_leave_function(self, state, statement):
+    """
+    Called when the analysis leaves a function
+
+    :param Domain.State state: the current state
+    :param esprima.nodes.Node statement: the function body 
+    """
+    def on_leave_function(self, state : Domain.State, statement : esprima.nodes.Node) -> None:
         p = self.stack.pop()
         self.domain.assign_state(state, p)
 
-    def mark_expression(self, expression, is_def=False):
-        if expression.expr_id is None:
-            expression.expr_id = self.expr_id
-            self.id_to_expr[self.expr_id] = expression
-            if is_def:
-                self.defs.add(self.expr_id)
-                expression.notrans_used_by = set()
-            expression.notrans_uses = set()
-            self.expr_id += 1
-        
-    def def_use_link(self, _def, _use):
-        for used_expr_id in _def:
-            used_expr = self.id_to_expr[used_expr_id]
-            for used_assignment_id in used_expr.notrans_uses:
-                used_assignment = self.id_to_expr[used_assignment_id]
-                used_assignment.notrans_used_by.add(_use.expr_id)
+    """
+    Create a link from a set of definitions to an use
+    
+    :param Set[int] def_set: the set of definitions (set of ids)
+    :param int use: the use (by id)
+    """
+    def link_def_set_to_use(self, def_set : Set[int], use : int) -> None:
+        for used_assignment_id in def_set:
+            used_assignment = node_from_id(used_assignment_id)
+            get_ann(used_assignment, "used_by").add(use)
 
-    def define(self, state, expression, name):
-        self.mark_expression(expression, True)
-        state.difference_update([x for x in state if x[0] == name])
-        state.add((name, expression.expr_id))
+    """
+    Get a set of definitions matching a variable name
+    
+    :param Domain.State state: the current state
+    :param str name: the variable name
+    :rtype: Set[int]
+    :return: the set of definitions (set of ids)
+    """
+    def get_def_set_by_name(self, state : Domain.State, name : str) -> Set[int]:
+        return set([x.def_id for x in state if x.name == name])
 
-    def on_statement(self, state, statement):
+    """
+    Removes definitions from state matching some variable name
+    
+    :param Domain.State state: the current state
+    :param str name: the variable name
+    """
+    def kill_def_set_by_name(self, state : Domain.State, name : str) -> None:
+        state.difference_update([x for x in state if x.name == name])
+
+    """
+    Create a definition based on the variable name and expression
+    
+    :param Domain.State state: the current state
+    :param esprima.nodes.Node expression: the expression that will be stored in the variable
+    :param str name: the variable name
+    """
+    def create_def(self, state : Domain.State, expression : esprima.nodes.Node, name : str) -> None:
+        self.defs.add(id_from_node(expression))
+        set_ann(expression, "used_by", set())
+        self.kill_def_set_by_name(state, name)
+        state.add(self.Def(name, id_from_node(expression)))
+
+    """
+    Returns a new Expression Descriptor. The Expression Descriptor contains a set of definitions used
+    by an expression, and also whether the expression has any side-effects.
+
+    :param Set[int] def_set: The set of definitions used by the expression (default: empty set)
+    :param bool has_side_effects: True if the expression has side effects (default: False)
+    :rtype: ExprDesc
+    :return: The new expression descriptor
+    """
+    def new_expr_desc(self, def_set : Set[int] = set(), has_side_effects : bool = False) -> ExprDesc:
+        return self.ExprDesc(def_set, has_side_effects)
+
+    """
+    Updates an Expression Descriptor to take into account a new expression.
+
+    :param Domain.State state: the current state
+    :param ExprDesc expr_desc: the current expression descriptor
+    :param: esprima.nodes.Node expr: the expression used to update the descriptor
+    :rtype: ExprDesc
+    :return: The updated expression descriptor
+    """
+    def updated_expr_desc(self, state : Domain.State, expr_desc : ExprDesc, expr : esprima.nodes.Node) -> ExprDesc:
+            sub_expr_desc = yield [self.do_expression, state, expr]
+            r = self.new_expr_desc(sub_expr_desc.def_set.union(expr_desc.def_set), sub_expr_desc.has_side_effects or expr_desc.has_side_effects)
+            return r
+
+    """
+    Called when the analysis encounters a statement
+
+    :param Domain.State state: the current state
+    :param esprima.nodes.Node: the current statement
+    """
+    def on_statement(self, state : Domain.State, statement : esprima.nodes.Node) -> None:
         if self.domain.is_bottom(state):
             return
+
         if statement.type == "VariableDeclaration":
             for decl in statement.declarations:
-                self.define(state, decl, decl.id.name)
+                expr_desc = self.new_expr_desc()
+                self.create_def(state, decl, decl.id.name)
+                if decl.init is not None:
+                    expr_desc = yield [self.updated_expr_desc, state, expr_desc, decl.init]
+                    self.link_def_set_to_use(expr_desc.def_set, id_from_node(decl))
+                    set_ann(decl.init, "side_effects", expr_desc.has_side_effects)
 
-    def on_expression(self, state, expression, test=False):
+
+    """
+    Called when the analysis encounters an expression
+
+    :param Domain.State state state: the current state
+    :param esprima.nodes.Node expression: the current expression
+    :param bool test: True if the expression is used as a condition (in while/for/if)
+    :rtype: ExprDesc
+    :return: the expression descriptor corresponding to the expression
+    """
+    def on_expression(self, state : Domain.State, expression : esprima.nodes.Node, test : bool = False) -> ExprDesc:
         if self.domain.is_bottom(state):
-            return set()
-        r = set()
-        expression.notrans_state = state.copy()
+            return self.new_expr_desc()
+
         if expression.type == "AssignmentExpression":
-            killed = [x for x in state if x[0] == expression.left.name]
-            self.mark_expression(expression, len(killed) > 0)
-            if len(killed) > 0:
-                state.add((expression.left.name, expression.expr_id))
-            
-            expr_result = yield [self.do_expression, state, expression.right]
-            r.update(expr_result[0])
-            expression.notrans_uses = r.copy()
-            self.def_use_link(r, expression)
-            state.difference_update(killed)
-            r.add(expression.expr_id)
-            expression.notrans_side_effects = expr_result[1]
-            return (r, True)
+            expr_desc = self.new_expr_desc()
+            if bool(self.get_def_set_by_name(state, expression.left.name)):
+                self.create_def(state, expression, expression.left.name)
+            expr_desc = yield [self.updated_expr_desc, state, expr_desc, expression.right]
+            self.link_def_set_to_use(expr_desc.def_set, id_from_node(expression))
+            set_ann(expression, "side_effects", expr_desc.has_side_effects)
+            return self.new_expr_desc(expr_desc.def_set, True)
 
         elif expression.type == "BinaryExpression" or expression.type == "LogicalExpression":
-            r = set()
-            left = yield [self.do_expression, state, expression.left]
-            right = yield [self.do_expression, state, expression.right]
-            r.update(left[0])
-            r.update(right[0])
-            self.mark_expression(expression)
+            expr_desc = self.new_expr_desc()
+            expr_desc = yield [self.updated_expr_desc, state, expr_desc, expression.left]
+            expr_desc = yield [self.updated_expr_desc, state, expr_desc, expression.right]
             if test:
-                expression.notrans_test = True
-                self.def_use_link(r, expression)
-            return (r, left[1] or right[1])
+                set_ann(expression, "test", True)
+                self.link_def_set_to_use(expr_desc.def_set, id_from_node(expression))
+            return expr_desc
+
+        elif expression.type == "ConditionalExpression":
+            expr_desc = self.new_expr_desc()
+            expr_desc = yield [self.updated_expr_desc, state, expr_desc, expression.test]
+            expr_desc = yield [self.updated_expr_desc, state, expr_desc, expression.consequent]
+            expr_desc = yield [self.updated_expr_desc, state, expr_desc, expression.alternate]
+            return expr_desc
+
+        elif expression.type == "ArrayExpression":
+            expr_desc = self.new_expr_desc()
+            for elem in expression.elements:
+                expr_desc = yield [self.updated_expr_desc, state, expr_desc, elem]
+            return expr_desc
 
         elif expression.type == "Literal":
-            return ({}, False)
+            return self.new_expr_desc()
 
         elif expression.type == "Identifier":
-            self.mark_expression(expression)
-            used = [x for x in state if x[0] == expression.name]
-            for u in used:
-                expression.notrans_uses.add(u[1])
-            return ({expression.expr_id}, False)
+            return self.new_expr_desc(self.get_def_set_by_name(state, expression.name), False)
 
         elif expression.type == "CallExpression":
-            r = set()
-            side_effects = not expression.callee_is_pure
+            expr_desc = self.new_expr_desc()
             for a in expression.arguments:
-                arg_result = yield [self.do_expression, state, a]
-                r.update(arg_result[0])
-            self.mark_expression(expression)
-            if side_effects:
-                self.def_use_link(r, expression)
-            return (r, side_effects)
+                expr_desc = yield [self.updated_expr_desc, state, expr_desc, a]
+            if not expression.callee_is_pure:
+                self.link_def_set_to_use(expr_desc.def_set, id_from_node(expression))
+            return self.new_expr_desc(expr_desc.def_set, expr_desc.has_side_effects or not expression.callee_is_pure)
 
-    def on_end(self, state):
+
+    """
+    Called when the analysis ends.
+
+    :param Domain.State state: the current (final) state
+    """
+    def on_end(self, state : Domain.State) -> None:
         useless = set()
         change = True
         while change:
             previous_useless = useless.copy()
             for d in self.defs:
-                useful_count = len([u for u in self.id_to_expr[d].notrans_used_by if u not in useless and u != d])
+                useful_count = len([u for u in get_ann(node_from_id(d), "used_by") if u not in useless and u != d])
                 if useful_count == 0:
                     useless.add(d)
             change = (useless != previous_useless)
         for d in self.defs:
-            assign_expr = self.id_to_expr[d]
-            assign_expr.notrans_useless = d in useless
+            assign_expr = node_from_id(d)
+            set_ann(assign_expr, "useless", d in useless)
 
 class UselessVarRemover(CodeTransform):
     def __init__(self, ast):
         super().__init__(ast, "Useless Variable Remover")
 
-    def before_expression(self, o):
-        if o.type == "CallExpression" and o.expr_id is not None:
-            o.trailingComments = [{"type":"Block", "value":" Type: Call, ID: " + str(o.expr_id) + " "}]
-        elif o.notrans_test:
-            o.trailingComments = [{"type":"Block", "value":" Type: Test, ID: " + str(o.expr_id) + " "}]
+    """
+    Comment the assignment
+
+    :param esprima.nodes.Node assign: The assignment
+    :param str _type: The assignment type (can be "Assign" or "Declare")
+    """
+    def comment_assignment(self, assign : esprima.nodes.Node, _type : str) -> None:
+        if get_ann(assign, "useless") == True:
+            u = "Useless, "
+        elif get_ann(assign, "useless") == False:
+            u = "Useful, "
+        else:
+            u = "Is-Not-Local, "
+        comm = " Type: " + _type + ", ID: " + str(id_from_node(assign)) + ", " + u + "Used-By: " + str(get_ann(assign, "used_by") or "{}") + " "
+        if get_ann(assign, "side_effects"):
+            comm += "Has-Side-Effects "
+        assign.trailingComments = [{"type":"Block", "value": comm}]
+
+    """
+    Called before we encounter a statement
+
+    :param esprima.nodes.Node o: The statement
+    :rtype bool:
+    :return: True if we continue to process the statement, False otherwise
+    """
+    def before_statement(self, o : esprima.nodes.Node) -> bool:
+        if o.type == "VariableDeclaration":
+            for decl in o.declarations:
+                self.comment_assignment(decl, "Declare")
         return True
 
-    def before_statement(self, o):
-        if not o.live:
-            return
-        if o.type == "ExpressionStatement" and (o.expression.type == "AssignmentExpression"):
-            if o.expression.notrans_useless == True:
-                u = "Useless, "
-            elif o.expression.notrans_useless == False:
-                u = "Useful, "
-            else:
-                u = "Is-Not-Local, "
-            comm = " Type: Assign, ID: " + str(o.expression.expr_id) + ", " + u + "Used-By: " + str(o.expression.notrans_used_by or "{}") + " "
-            if o.expression.notrans_side_effects:
-                comm += "Has-Side-Effects "
-            o.trailingComments = [{"type":"Block", "value": comm}]
-            
+    """
+    Called before we encounter an expression
+
+    :param esprima.nodes.Node o: The expression
+    :rtype bool:
+    :return: True if we continue to process the expression, False otherwise
+    """
+    def before_expression(self, o : esprima.nodes.Node) -> bool:
+        if id_from_node(o) is None:
             return True
+        elif o.type == "CallExpression" and id_from_node(o) is not None:
+            o.trailingComments = [{"type":"Block", "value":" Type: Call, ID: " + str(id_from_node(o)) + " "}]
+        elif o.type == "AssignmentExpression":
+            self.comment_assignment(o, "Assign")
+        elif get_ann(o, "test"):
+            o.trailingComments = [{"type":"Block", "value":" Type: Test, ID: " + str(id_from_node(o)) + " "}]
         return True
+
+    def run(self):
+        VarDefInterpreter(self.ast).run()
+        super().run()
