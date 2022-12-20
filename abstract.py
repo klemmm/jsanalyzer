@@ -225,7 +225,7 @@ class State(object):
                     if ref.is_bound() and type(ref.this()) is int:
                         if ref.this() not in seen:
                             seen.add(ref.this())
-                            if not eq_aux(self.objs[ref1.this()], other.objs[ref2.this()]):
+                            if not eq_aux(self.objs[ref.this()], other.objs[ref.this()]):
                                 return False
             return obj1 == obj2
 

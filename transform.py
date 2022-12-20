@@ -17,6 +17,7 @@ parser.add_argument("--no-remove-dead-code", help="Disable remove dead code", ac
 parser.add_argument("--no-eval-handling", help="Disable eval() and Function.constructor() handling", action='store_true')
 parser.add_argument("--no-rename-variable", help="Disable variable renaming", action='store_true')
 parser.add_argument("--no-constant-member-rewrite", help="Do not rewrite constant member access", action='store_true')
+parser.add_argument("--no-remove-dead-variables", help="Disable remove dead variable", action='store_true')
 parser.add_argument("--pure", help="comma-separated list of pure functions")
 parser.add_argument("input", help="input file")
 parser.add_argument("output", help="output file")
@@ -27,8 +28,9 @@ print("Simplify expressions:\t\t", not args.no_simplify_expr)
 print("Simplify function calls:\t", not args.no_simplify_calls)
 print("Simplify control flow:\t\t", not args.no_simplify_flow)
 print("Remove dead code:\t\t", not args.no_remove_dead_code)
+print("Remove dead variables:\t\t", not args.no_remove_dead_variables)
 print("Rename variables:\t\t", not args.no_rename_variable)
-print("Handle eval() / fn cons: \t", not args.no_rename_variable)
+print("Handle eval() / fn cons: \t", not args.no_eval_handling)
 print("Rewrite constant member access:\t", not args.no_constant_member_rewrite)
 print("=====================================\n")
 
@@ -41,18 +43,35 @@ f = open(args.input, "rb")
 ast = pickle.load(f)
 f.close()
 
-#Order matters, because some transformers will introduce some code that will be processed by other transformers
-code_transformers.EvalReplacer(ast).run()
-code_transformers.LoopUnroller(ast).run()
-code_transformers.FunctionInliner(ast).run()
-code_transformers.DeadCodeRemover(ast).run()
-code_transformers.VariableRenamer(ast).run()
 if args.pure is not None:
     pures = args.pure.split(',')
 else:
     pures = []
-code_transformers.ExpressionSimplifier(ast,pures).run()
-code_transformers.ConstantMemberSimplifier(ast).run()
+
+#Order matters, because some transformers will introduce some code that will be processed by other transformers
+if not args.no_eval_handling:
+    code_transformers.EvalReplacer(ast).run()
+
+if not args.no_simplify_flow:
+    code_transformers.LoopUnroller(ast).run()
+
+if not args.no_simplify_calls:
+    code_transformers.FunctionInliner(ast).run()
+
+if not args.no_remove_dead_code:
+    code_transformers.DeadCodeRemover(ast).run()
+
+if not args.no_rename_variable:
+    code_transformers.VariableRenamer(ast).run()
+
+if not args.no_simplify_expr:
+    code_transformers.ExpressionSimplifier(ast, pures).run()
+
+if not args.no_remove_dead_variables:
+    code_transformers.UselessVarRemover(ast).run()
+
+if not args.no_constant_member_rewrite:
+    code_transformers.ConstantMemberSimplifier(ast).run()
 
 print("Producing JSON output file:", args.output)
 def myserializer(obj):
