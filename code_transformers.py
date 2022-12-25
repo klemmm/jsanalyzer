@@ -687,6 +687,7 @@ class VarDefInterpreter(LexicalScopedAbsInt):
     def create_def(self, state : Domain.State, expression : esprima.nodes.Node, name : str) -> None:
         self.defs.add(id_from_node(expression))
         set_ann(expression, "used_by", set())
+        set_ann(expression, "decl_used_by", set())
         self.kill_def_set_by_name(state, name)
         state.add(self.Def(name, id_from_node(expression)))
 
@@ -732,7 +733,8 @@ class VarDefInterpreter(LexicalScopedAbsInt):
             for decl in statement.declarations:
                 expr_desc = self.new_expr_desc()
                 if decl.id.type == "ObjectPattern":
-                    print(decl.id)
+                    #TODO, todoo, todoooo🎵 🎵dooo dooo🎵 dooo🎵 🎵
+                    pass        
                 else:
                     self.create_def(state, decl, decl.id.name)
                 if decl.init is not None:
@@ -741,8 +743,6 @@ class VarDefInterpreter(LexicalScopedAbsInt):
                     set_ann(decl, "side_effects", expr_desc.has_side_effects)
                 set_ann(decl, "in_func", self.current_func)
         elif statement.type == "FunctionDeclaration":
-            #if self.current_func is not None and statement.body.closure:
-            #    set_ann(self.current_func, "has_closures", True)
             yield [self.handle_function_body, state, statement.body]
 
     """
@@ -764,8 +764,12 @@ class VarDefInterpreter(LexicalScopedAbsInt):
             expr_desc = self.new_expr_desc()
             if expression.left.type == "MemberExpression" or expression.operator != "=":
                 expr_desc = yield [self.updated_expr_desc, state, expr_desc, expression.left]
-            if bool(self.get_def_set_by_name(state, expression.left.name)):
+            existing_defs = self.get_def_set_by_name(state, expression.left.name)
+            if bool(existing_defs):
                 self.create_def(state, expression, expression.left.name)
+            for d in existing_defs:
+                if node_from_id(d).type == "VariableDeclarator":
+                    get_ann(node_from_id(d), "decl_used_by").add(id_from_node(expression))                               
             expr_desc = yield [self.updated_expr_desc, state, expr_desc, expression.right]
             self.link_def_set_to_use(expr_desc.def_set, id_from_node(expression))
             set_ann(expression, "side_effects", expr_desc.has_side_effects)
@@ -848,8 +852,6 @@ class VarDefInterpreter(LexicalScopedAbsInt):
 
         elif expression.type == "FunctionExpression" or expression.type == "ArrowFunctionExpression":
             yield [self.handle_function_body, state, expression.body]
-            #if self.current_func is not None and expression.body.closure:
-            #    set_ann(self.current_func, "has_closures", True)
             expr_desc = self.new_expr_desc()
             return expr_desc
 
@@ -881,9 +883,16 @@ class VarDefInterpreter(LexicalScopedAbsInt):
                 if useful_count == 0:
                     useless.add(d)
             change = (useless != previous_useless)
+        decl_useless = set()
+        for d in self.defs:
+            useful_count = len([u for u in get_ann(node_from_id(d), "decl_used_by") if u not in useless and u != d])
+            if useful_count == 0:
+                decl_useless.add(d)
         for d in self.defs:
             assign_expr = node_from_id(d)
             set_ann(assign_expr, "useless", d in useless)
+            set_ann(assign_expr, "decl_useless", d in decl_useless)
+
 
 class UselessVarRemover(CodeTransform):
     def __init__(self, ast, only_comment = False):
@@ -899,12 +908,18 @@ class UselessVarRemover(CodeTransform):
     def process_assignment(self, assign : esprima.nodes.Node, _type : str) -> None:
         if self.only_comment:
             if get_ann(assign, "useless") == True:
-                u = "Useless, "
+                u = "Val-Unused-locally, "
             elif get_ann(assign, "useless") == False:
-                u = "Useful, "
+                u = "Val-Used-locally, "
             else:
                 u = "Always-Keep, "
-            comm = " Type: " + _type + ", ID: " + str(id_from_node(assign)) + ", " + u + "Used-By: " + str(get_ann(assign, "used_by") or "{}") + " "
+            comm = " Type: " + _type + ", ID: " + str(id_from_node(assign)) + ", " + u + "Locally-Used-By: " + str(get_ann(assign, "used_by") or "{}") + ", "
+            if _type == "Declare":
+                if get_ann(assign, "decl_useless"):
+                    comm += "Decl-Unused, "
+                else:
+                    comm += "Decl-Used, "
+                comm += "Decl-Used-By: " + str(get_ann(assign, "decl_used_by") or "{}") + ", "
             if get_ann(assign, "side_effects"):
                 comm += "RValue-Has-Side-Effects, "
             else:
@@ -913,7 +928,15 @@ class UselessVarRemover(CodeTransform):
             if func is None:
                 comm += "Not-In-Function "
             else:
-                comm += "In-Function, Inner-Free-Vars=" + str(get_ann(func, "inner_free_vars") or "{}") + " "
+                comm += "In-Function, "
+                if _type == "Declare":
+                    name = assign.id.name
+                else:
+                    name = assign.left.name
+                if name in get_ann(func, "inner_free_vars"):
+                    comm += "Used-By-Closures"
+                else:
+                    comm += "Unused-By-Closures"
 
             assign.trailingComments = [{"type":"Block", "value": comm}]
 
@@ -931,10 +954,22 @@ class UselessVarRemover(CodeTransform):
                         else:
                             bye.append(b)
             if b.type == "VariableDeclaration":
+                decl_bye = []
                 for decl in b.declarations:
-                    func = get_ann(decl, "in_func")
-                    if get_ann(decl, "useless") and not get_ann(decl, "side_effects") and func and decl.id.name not in get_ann(func, "inner_free_vars"):
-                        decl.init = None
+                    if decl.id.type == "ObjectPattern":
+                        pass #TODO
+                    else:
+                        func = get_ann(decl, "in_func")
+                        if get_ann(decl, "useless") and func and decl.id.name not in get_ann(func, "inner_free_vars"):
+                            if get_ann(decl, "decl_useless") and not get_ann(decl, "side_effects"):
+                                decl_bye.append(decl)
+                            elif not get_ann(decl, "decl_useless") and not get_ann(decl, "side_effects"):
+                                decl.init = None
+                for db in decl_bye:
+                    b.declarations.remove(db)
+                if len(b.declarations) == 0:
+                    bye.append(b)
+
         for b in bye:
             body.remove(b)
 
