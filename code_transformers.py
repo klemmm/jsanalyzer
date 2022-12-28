@@ -45,6 +45,7 @@ class LexicalScopedAbsInt(object):
             yield [self.do_expression, state, statement.expression]
 
         elif statement.type == "IfStatement":
+            yield [self.on_statement, state, statement]
             yield [self.on_expression, state, statement.test, True]
             state_else = self.domain.clone_state(state)
             yield [self.do_statement, state, statement.consequent]
@@ -59,6 +60,7 @@ class LexicalScopedAbsInt(object):
             yield [self.on_statement, state, statement]
 
         elif statement.type == "WhileStatement":
+            yield [self.on_statement, state, statement]
             header_state = self.domain.bottom_state()
             while True:
                 prev_header_state = self.domain.clone_state(header_state)
@@ -80,6 +82,7 @@ class LexicalScopedAbsInt(object):
                 yield [self.do_statement, state, st]
         
         elif statement.type == "ForStatement":
+            yield [self.on_statement, state, statement]
 
             if statement.init is not None:
                 yield [self.do_expression, state, statement.init]
@@ -106,6 +109,7 @@ class LexicalScopedAbsInt(object):
             yield [self.on_statement, state, statement]
 
         elif statement.type == "SwitchStatement":
+            yield [self.on_statement, state, statement]
             yield [self.on_expression, state, statement.discriminant]
 
             case_states = []
@@ -742,6 +746,19 @@ class VarDefInterpreter(LexicalScopedAbsInt):
                     self.link_def_set_to_use(expr_desc.def_set, id_from_node(decl))
                     set_ann(decl, "side_effects", expr_desc.has_side_effects)
                 set_ann(decl, "in_func", self.current_func)
+
+        elif statement.type == "ReturnStatement":
+            expr_desc = yield [self.updated_expr_desc, state, self.new_expr_desc(), statement.argument]
+            self.link_def_set_to_use(expr_desc.def_set, id_from_node(statement.argument))
+
+        elif statement.type in ["ForStatement", "WhileStatement", "IfStatement"]:
+            expr_desc = yield [self.updated_expr_desc, state, self.new_expr_desc(), statement.test]
+            self.link_def_set_to_use(expr_desc.def_set, id_from_node(statement.test))
+
+        elif statement.type in ["SwitchStatement"]:
+            expr_desc = yield [self.updated_expr_desc, state, self.new_expr_desc(), statement.discriminant]
+            self.link_def_set_to_use(expr_desc.def_set, id_from_node(statement.discriminant))
+
         elif statement.type == "FunctionDeclaration":
             yield [self.handle_function_body, state, statement.body]
 
@@ -780,9 +797,6 @@ class VarDefInterpreter(LexicalScopedAbsInt):
             expr_desc = self.new_expr_desc()
             expr_desc = yield [self.updated_expr_desc, state, expr_desc, expression.left]
             expr_desc = yield [self.updated_expr_desc, state, expr_desc, expression.right]
-            if test:
-                set_ann(expression, "test", True)
-                self.link_def_set_to_use(expr_desc.def_set, id_from_node(expression))
             return expr_desc
 
         elif expression.type == "ConditionalExpression":
