@@ -5,6 +5,8 @@ import config
 import copy
 from debug import debug
 from enum import Enum
+from typing import Set, Union
+import re
 
 class MissingMode(Enum):
     """
@@ -91,48 +93,62 @@ class State(object):
         State.next_id = next_id
 
     @staticmethod
-    def dict_join(d1, d2, missing_mode):
-        if missing_mode == MissingMode.MISSING_IS_TOP:
-            bye = []
-            for k in d1:
-                if not k in d2:
-                    bye.append(k)
-                else:
-                    if not State.value_equal(d1[k], d2[k]):
-                        d1[k] = State.value_join(d1[k], d2[k])
-            for k in bye:
-                del d1[k]
-            return d1
-        else:
-            for k in d1:
-                if not k in d2:
-                    d1[k] = State.value_join(JSUndefNaN, d1[k])
-                else:
-                    if not State.value_equal(d1[k], d2[k]):
-                        d1[k] = State.value_join(d1[k], d2[k])
-            for k in d2:
-                if not k in d1:
-                    d1[k] = State.value_join(JSUndefNaN, d2[k])
-            return d1
+    def object_join(obj1 : 'JSObject', obj2 : 'JSObject') -> None:
+        """
+        Joins two JSObjects, storing the result in the first argument
 
-    @staticmethod
-    def object_join(obj1, obj2):
+        :param JSObject obj1: The first object to join (will be modified to store the join result)
+        :param JSObject obj2: The second object (will not be modified)
+        """
         if obj1.missing_mode == obj2.missing_mode:
             if obj1.tablength != obj2.tablength:
                 obj1.tablength = None
-            return State.dict_join(obj1.properties, obj2.properties, obj1.missing_mode)
         else:
             obj1.set_missing_mode(MissingMode.MISSING_IS_TOP)
-            obj2_copy = obj2.clone()
-            obj2_copy.set_missing_mode(MissingMode.MISSING_IS_TOP)
-            return State.dict_join(obj1.properties, obj2_copy.properties, MissingMode.MISSING_IS_TOP)
 
+        if obj1.missing_mode == MissingMode.MISSING_IS_TOP:
+            bye = []
+            for k in obj1.properties:
+                if not k in obj2.properties:
+                    bye.append(k)
+                else:
+                    if not State.value_equal(obj1.properties[k], obj2.properties[k]):
+                        obj1.properties[k] = State.value_join(obj1.properties[k], obj2.properties[k])
+            for k in bye:
+                del obj1.properties[k]
+        else:
+            for k in obj1.properties:
+                if not k in obj2.properties:
+                    obj1.properties[k] = State.value_join(JSUndefNaN, obj1.properties[k])
+                else:
+                    if not State.value_equal(obj1.properties[k], obj2.properties[k]):
+                        obj1.properties[k] = State.value_join(obj1.properties[k], obj2.properties[k])
+            for k in obj2.properties:
+                if not k in obj1.properties:
+                    obj1.properties[k] = State.value_join(JSUndefNaN, obj2.properties[k])
+        
     @staticmethod
-    def value_equal(v1, v2):
+    def value_equal(v1 : 'JSValue', v2 : 'JSValue') -> bool:
+        """
+        Compare two abstract values
+
+        :param JSVal v1: First abstract value
+        :param JSVal v2: Second abstract value
+        :rtype: bool
+        :return: Comparison result
+        """
         return type(v1) == type(v2) and v1 == v2
 
     @staticmethod
-    def keep_or(s):
+    def keep_or(s : Set['JSValue']) -> bool:
+        """
+        Heuristic used to determine, when a variable / field / ... can have multiple values, if we
+        keep all of them using a JSOr, or not.
+
+        :param Set[JSValue] s: Set of values
+        :rtype bool:
+        :return: True if we keep the multiple values, False if we discard them
+        """
         if not config.use_or:
             return False
         if len(s) > 2:
@@ -140,7 +156,15 @@ class State(object):
         return JSUndefNaN in s
 
     @staticmethod
-    def value_join(v1, v2):
+    def value_join(v1 : 'JSValue', v2 : 'JSValue') -> 'JSValue':
+        """
+        Join two jsvalues, returning the result
+
+        :param JSValue v1: First value
+        :param JSValue v2: Second value
+        :rtype: JSValue
+        :return: The join result
+        """
         if v1 is None or v1 is JSBot:
             return v2
         if v2 is None or v2 is JSBot:
@@ -164,7 +188,10 @@ class State(object):
                 return JSTop
 
     # Instance methods
-    def set_to_bottom(self):
+    def set_to_bottom(self) -> None:
+        """
+        Convert this state to the bottom state
+        """
         self.objs.clear()
         self.gref = None
         self.lref = None
@@ -173,12 +200,27 @@ class State(object):
         self.pending = set()
         self.value = JSBot
 
-    def clone(self):
+    def clone(self) -> 'State':
+        """
+        Clone this state
+
+        :rtype: State
+        :return: State copy
+        """
         c = State()
         c.assign(self)
         return c
 
-    def __eq__(self, other):
+
+    # TODO rewrite/revert
+    def __eq__(self, other : 'State') -> bool:
+        """
+        Test state equality. The two states must have been garbage-collected before test.
+
+        :param State other: the other state
+        :rtype: bool
+        :return: True if equal, False otherwise
+        """
         if self.is_bottom != other.is_bottom:
             return False
         if self.gref != other.gref:
@@ -241,7 +283,13 @@ class State(object):
 
         return True
 
-    def assign(self, other):
+    #TODO revert/rewrite
+    def assign(self, other : 'State') -> None:
+        """
+        Do state assignment (self <- other)
+
+        :param State other: the other state
+        """
         if other.is_bottom:
             self.set_to_bottom()
             return
@@ -382,15 +430,19 @@ class State(object):
         for o, p, v in modify:
             o.properties[p] = v
 
-    def unify(self, other):
+
+    #TODO cleanup
+    def unify(self, other : 'State') -> None:
+        """
+        Remap self state to use IDs from other state
+
+        :param State other: the other state
+        """        
         if not config.use_unify:
             return
         if self.lref != other.lref or self.stack_frames != other.stack_frames:
             return 
        
-        #print("\n\nUnifying...")
-        #print("self: ", self)
-        #print("other:", other)
         seen = set()
         def extract_ref(val):
             if isinstance(val, JSRef):
@@ -450,8 +502,14 @@ class State(object):
         for old, new in remap.items():
             self.objs[new] = self.objs.pop(old)
 
+    #TODO rewrite/revert
     #In case of join on recursion state, other is the state of the greater recursion depth, self is the state of lesser recursion depth
-    def join(self, other):
+    def join(self, other : 'State') -> None:
+        """
+        Perform join between two states, modify self to store result
+
+        :param State other: the other state
+        """          
         if other.is_bottom:
             return
         if self.is_bottom:
@@ -530,7 +588,15 @@ class State(object):
         elif not State.value_equal(self.value, other.value):
             self.value = JSTop
 
-    def scope_lookup(self, name):
+    def scope_lookup(self, name : str) -> 'JSObject':
+        """
+        Search for a variable with the given name in local scope, then closure scopes, and global scope.
+        Returns the JSObject representing the scope where the variable was found, otherwise returns the JSObject representing the global scope.
+
+        :param str name: The variable name
+        :rtype: JSObject
+        :return: The JSObject representing the scope containing the variable
+        """
         if name in self.objs[self.lref].properties:
             return self.objs[self.lref]
 
@@ -543,16 +609,36 @@ class State(object):
             return current_scope
         return self.objs[self.gref]
 
-    def __str__(self):
+    def __str__(self) -> str:
+        """
+        Gives string representation of state
+
+        :rtype: str
+        :return: String representation
+        """
         if self.is_bottom:
             return "Bottom";
         return("frames=" + str(self.stack_frames) + " gref=" + str(self.gref) + ", lref=" + str(self.lref) +", objs=" + str(self.objs) + ", pending="+ str(self.pending) + ", endval=" + str(self.value))
 
-    def __repr__(self):
+    def __repr__(self) -> str:
+        """
+        Gives string representation of state
+
+        :rtype: str
+        :return: String representation
+        """        
         return self.__str__()
 
-    def consume_expr(self, expr, consumed_refs=None):
+    def consume_expr(self, expr : 'JSValue', consumed_refs:Set[int]=None) -> None:
+        """
+        Look for references in value, and remove them from pending set.
+        If consumed_refs is not None, defer the removal and put ref id in consumed_refs instead
 
+        :param JSValue expr: The value to examine
+        :param Set[int] consumed_refs: Store removed ref-id here if not None, instead of removing from pending
+        """
+
+        #TODO faire une fonction pour recuperer les ref id
         refs_to_add = set()
         if isinstance(expr, JSRef):
             refs_to_add.add(expr)
@@ -564,20 +650,20 @@ class State(object):
         if consumed_refs is None:
             for expr in refs_to_add:
                 self.pending.discard(expr.target())
-                #print("PEND discard: ", expr.target())
                 if expr.is_bound() and type(expr.this()) is int:
                     self.pending.discard(expr.this())
-                    #print("PEND discard: ", expr.this())
         else:
             for expr in refs_to_add:
                 consumed_refs.add(expr.target())
-                #print("PEND consume: ", expr.target())
                 if expr.is_bound() and type(expr.this()) is int:
                     consumed_refs.add(expr.this())
-                    #print("PEND consume: ", expr.this())
 
+    def cleanup(self, verbose : bool = False) -> None:
+        """
+        Garbage-collect state
 
-    def cleanup(self, verbose=False):
+        :param bool verbose: Display debug info
+        """
         debug("State before GC: ", self)
 
         if self.is_bottom:
@@ -657,27 +743,103 @@ class State(object):
 ## Classes for wrapping JS values
 
 class JSValue(object):
-    def is_callable(self):
+    """
+    This is an abstract class representing any abstract JS value
+    """
+    def is_callable(self) -> bool:
+        """
+        Is this value a callable? (function or simfct)
+
+        :rtype bool:
+        :return: True if the value is a callable 
+        """
         return False
-    def is_simfct(self):
+
+    def is_simfct(self) -> bool:
+        """
+        Is this value a simfct?
+
+        :rtype bool:
+        :return: True if the value is a simfct 
+        """        
         return False
-    def is_pure_simfct(self):
+
+    def is_pure_simfct(self) -> bool:
+        """
+        Is this value a simfct without side effects?
+
+        :rtype bool:
+        :return: True if the value is a simfct without side effects
+        """        
         return False
-    def is_function(self):
+
+    def is_function(self) -> bool:
+        """
+        Is this value a function ? (a real function, not a simfct)
+
+        :rtype bool:
+        :return: True if the value is a function 
+        """        
         return False
-    def is_closure(self):
+
+    def is_closure(self) -> bool:
+        """
+        Is this value a closure ? (i.e. a function with captured environment)
+
+        :rtype bool:
+        :return: True if the value is a closure 
+        """        
         return False
-    def is_bound(self):
+
+    def is_bound(self) -> bool:
+        """
+        Is this value a reference to a function bound to an object?
+
+        :rtype bool:
+        :return: True if the value is bound 
+        """        
         return False
-    def contains_top(self):
+
+    def contains_top(self) -> bool:
+        """
+        Test if this value contains top (i.e.: array containing a TOP value)
+
+        :rtype bool:
+        :return: True if the value contains top
+        """        
         return False
-    def target(self):
+
+    def target(self) -> int:
+        """
+        If this value is a reference, returns ref-id
+
+        :rtype int:
+        :return: the ref-id
+        """        
+        return None
+
+    def this(self) -> Union[int, str]:
+        """
+        If this value is a bound reference, returns ref-id (if bound to object) or string (if bound to string)
+
+        :rtype Union[int, str]:
+        :return: the ref-id or string
+        """        
         return None
 
 # Represents any simple type (for example: a number)
 class JSPrimitive(JSValue):
-    def __init__(self, val):
+    """
+    This class represent any simple (scalar) type.
+    """
+    def __init__(self, val : Union[int, str, float, re.Pattern]) -> None:
+        """
+        Class constructor
+
+        :param Union[int, str, float, re.Pattern]: The concrete value
+        """
         self.val = val
+    
     def __eq__(self, other):
         if type(self) != type(other):
             return False
