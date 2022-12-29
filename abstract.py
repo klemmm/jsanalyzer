@@ -7,14 +7,30 @@ from debug import debug
 from enum import Enum
 
 class MissingMode(Enum):
+    """
+    This enum is associated to each JSObject class. MISSING_IS_UNDEF means that a field not represented
+    in the JSObject's properties is assumed to be undefined. Otherwise, it is assumed to be JSTop (any value)
+    """
     MISSING_IS_UNDEF = 0
     MISSING_IS_TOP = 1
 
 class GCConfig:
+    """
+    This class contains various fields useful to control the behavior of the garbage collector
+    """
     pass
 
 class State(object):
-    def __init__(self, glob=False, bottom=False):
+    """
+    This class represents an abstract state (i.e. an over-approximation of possible concrete states at some point in the program)
+    """
+    def __init__(self, glob : bool = False, bottom : bool = False) -> None:
+        """
+        Class constructor
+
+        :param bool glob: True to create State in global scope, False otherwise (local scope)
+        :param bool bottom: True to create a bottom state (i.e. corresponding to no concrete state), False otherwise
+        """
         if bottom:
             self.objs = {}
             self.gref = None
@@ -44,22 +60,34 @@ class State(object):
 
     # Class methods
     @staticmethod
-    def bottom():
+    def bottom() -> 'State':
+        """'
+        Returns a new bottom state
+
+        :rtype State:
+        :return: a bottom state
+        """
         st = State(glob=False, bottom=True)
         return st
     
     @staticmethod
-    def top():
-        st = State(glob=False, bottom=False)
-        return st
-    
-    @staticmethod
-    def new_id():
+    def new_id() -> int:
+        """
+        Returns a analysis-wide unique ID 
+
+        :rtype int:
+        :return: the ID
+        """
         State.next_id += 1
         return State.next_id - 1
 
     @staticmethod
-    def set_next_id(next_id):
+    def set_next_id(next_id : int) -> None:
+        """
+        Set the next id counter
+
+        :param int next_id: The next ID
+        """
         State.next_id = next_id
 
     @staticmethod
@@ -98,37 +126,6 @@ class State(object):
             obj2_copy = obj2.clone()
             obj2_copy.set_missing_mode(MissingMode.MISSING_IS_TOP)
             return State.dict_join(obj1.properties, obj2_copy.properties, MissingMode.MISSING_IS_TOP)
-    
-    @staticmethod
-    def dict_permissive_join(d1, d2):
-        topify = []
-        adds = []
-        for k in d1:
-            if k in d2 and not State.value_equal(d1[k], d2[k]) and not d1[k] is JSUndefNaN and not d2[k] is JSUndefNaN:
-                topify.append(k)
-        for k in d2:
-            if not k in d1:
-                adds.append((k, d2[k]))
-        for k in topify:
-            d1[k] = JSTop
-        for k, v in adds:
-            d1[k] = v
-        return d1
-    
-    @staticmethod
-    def object_permissive_join(obj1, obj2):
-        if obj1.missing_mode != MissingMode.MISSING_IS_UNDEF or obj2.missing_mode != MissingMode.MISSING_IS_UNDEF:
-            State.object_join(obj1, obj2)
-
-        if obj1.tablength != obj2.tablength:
-            obj1.tablength = None
-        return State.dict_permissive_join(obj1.properties, obj2.properties)
-
-    @staticmethod
-    def dict_assign(d1, d2):
-        d1.clear()
-        for k in d2:
-            d1[k] = d2[k].clone()
 
     @staticmethod
     def value_equal(v1, v2):
@@ -141,7 +138,6 @@ class State(object):
         if len(s) > 2:
             return False
         return JSUndefNaN in s
-
 
     @staticmethod
     def value_join(v1, v2):

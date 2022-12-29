@@ -565,49 +565,54 @@ class VarDefInterpreter(LexicalScopedAbsInt):
         class State(set):
             pass
 
-        """
-        Creates a new initial state
-
-        :return: new initial state
-        """
+        
         def init_state(self) -> State:
+            """
+            Creates a new initial state
+
+            :return: new initial state
+            """
             return self.State({})
 
-        """
-        Creates a new bottom state
 
-        :return: new bottom state
-        """
         def bottom_state(self) -> State:
+            """
+            Creates a new bottom state
+
+            :return: new bottom state
+            """
             return self.State({None})
 
-        """
-        Tells the state is bottom
-        
-        :param State state: the state to check
-        :rtype: bool
-        :return: True if the passed state is bottom
-        """
+
         def is_bottom(self, state : State) -> bool:
+            """
+            Tells the state is bottom
+            
+            :param State state: the state to check
+            :rtype: bool
+            :return: True if the passed state is bottom
+            """
             return state == self.State({None})
 
-        """
-        Copy a state, returning the copy
-        
-        :param State state: the source state
-        :rtype: State
-        :return: the copied state
-        """
+
         def clone_state(self, state : State) -> State:
+            """
+            Copy a state, returning the copy
+            
+            :param State state: the source state
+            :rtype: State
+            :return: the copied state
+            """            
             return state.copy()
 
-        """
-        Join two states, store result in state_dest
-        
-        :param State state_dest: the dest state
-        :param State state_source: the source state
-        """
+
         def join_state(self, state_dest : State, state_source : State) -> None:
+            """
+            Join two states, store result in state_dest
+            
+            :param State state_dest: the dest state
+            :param State state_source: the source state
+            """
             if self.is_bottom(state_source):
                 return
             elif self.is_bottom(state_dest):
@@ -615,17 +620,23 @@ class VarDefInterpreter(LexicalScopedAbsInt):
             else:
                 state_dest.update(state_source)
 
-        """
-        Assign source state to destination state
-        
-        :param State state_dest: the dest state
-        :param State state_source: the source state
-        """
+
         def assign_state(self, state_dest : State, state_source : State) -> None:
+            """
+            Assign source state to destination state
+            
+            :param State state_dest: the dest state
+            :param State state_source: the source state
+            """            
             state_dest.clear()
             state_dest.update(state_source)
 
     def __init__(self, ast : esprima.nodes.Node) -> None:
+        """
+        Class constructor
+
+        :param esprima.nodes.Node ast: The AST to process.
+        """
         self.defs = set()
         self.free_vars = set()
         self.inner_free_vars = set()
@@ -635,6 +646,12 @@ class VarDefInterpreter(LexicalScopedAbsInt):
         super().__init__(ast, self.Domain(), "Variable Definition")
 
     def handle_function_body(self, state: Domain.State, body: esprima.nodes.Node) -> None:
+        """
+        Called whenever we enter a function
+
+        :param State state: The current state
+        :param esprima.nodes.Node body: The function body
+        """
         self.free_vars = set()
         self.func_stack.append(self.current_func)
         self.current_func = body
@@ -650,86 +667,93 @@ class VarDefInterpreter(LexicalScopedAbsInt):
         self.free_vars = set()
 
 
-    """
-    Create a link from a set of definitions to an use
-    
-    :param Set[int] def_set: the set of definitions (set of ids)
-    :param int use: the use (by id)
-    """
+
     def link_def_set_to_use(self, def_set : Set[int], use : int) -> None:
+        """
+        Create a link from a set of definitions to an use
+        
+        :param Set[int] def_set: the set of definitions (set of ids)
+        :param int use: the use (by id)
+        """        
         for used_assignment_id in def_set:
             used_assignment = node_from_id(used_assignment_id)
             get_ann(used_assignment, "used_by").add(use)
 
-    """
-    Get a set of definitions matching a variable name
-    
-    :param Domain.State state: the current state
-    :param str name: the variable name
-    :rtype: Set[int]
-    :return: the set of definitions (set of ids)
-    """
+
     def get_def_set_by_name(self, state : Domain.State, name : str) -> Set[int]:
+        """
+        Get a set of definitions matching a variable name
+        
+        :param Domain.State state: the current state
+        :param str name: the variable name
+        :rtype: Set[int]
+        :return: the set of definitions (set of ids)
+        """        
         return set([x.def_id for x in state if x.name == name])
 
-    """
-    Removes definitions from state matching some variable name
-    
-    :param Domain.State state: the current state
-    :param str name: the variable name
-    """
+
     def kill_def_set_by_name(self, state : Domain.State, name : str) -> None:
+        """
+        Removes definitions from state matching some variable name
+        
+        :param Domain.State state: the current state
+        :param str name: the variable name
+        """        
         state.difference_update([x for x in state if x.name == name])
 
-    """
-    Create a definition based on the variable name and expression
-    
-    :param Domain.State state: the current state
-    :param esprima.nodes.Node expression: the expression that will be stored in the variable
-    :param str name: the variable name
-    """
+
     def create_def(self, state : Domain.State, expression : esprima.nodes.Node, name : str) -> None:
+        """
+        Create a definition based on the variable name and expression
+        
+        :param Domain.State state: the current state
+        :param esprima.nodes.Node expression: the expression that will be stored in the variable
+        :param str name: the variable name
+        """        
         self.defs.add(id_from_node(expression))
         set_ann(expression, "used_by", set())
         set_ann(expression, "decl_used_by", set())
         self.kill_def_set_by_name(state, name)
         state.add(self.Def(name, id_from_node(expression)))
 
-    """
-    Returns a new Expression Descriptor. The Expression Descriptor contains a set of definitions used
-    by an expression, and also whether the expression has any side-effects.
 
-    :param Set[int] def_set: The set of definitions used by the expression (default: empty set)
-    :param bool has_side_effects: True if the expression has side effects (default: False)
-    :rtype: ExprDesc
-    :return: The new expression descriptor
-    """
     def new_expr_desc(self, def_set : Set[int] = set(), has_side_effects : bool = False) -> ExprDesc:
+        """
+        Returns a new Expression Descriptor. The Expression Descriptor contains a set of definitions used
+        by an expression, and also whether the expression has any side-effects.
+
+        :param Set[int] def_set: The set of definitions used by the expression (default: empty set)
+        :param bool has_side_effects: True if the expression has side effects (default: False)
+        :rtype: ExprDesc
+        :return: The new expression descriptor
+        """        
         return self.ExprDesc(def_set, has_side_effects)
 
-    """
-    Updates an Expression Descriptor to take into account a new expression.
-
-    :param Domain.State state: the current state
-    :param ExprDesc expr_desc: the current expression descriptor
-    :param: esprima.nodes.Node expr: the expression used to update the descriptor
-    :rtype: ExprDesc
-    :return: The updated expression descriptor
-    """
+ 
     def updated_expr_desc(self, state : Domain.State, expr_desc : ExprDesc, expr : esprima.nodes.Node) -> ExprDesc:
+        """
+            Updates an Expression Descriptor to take into account a new expression.
+
+            :param Domain.State state: the current state
+            :param ExprDesc expr_desc: the current expression descriptor
+            :param: esprima.nodes.Node expr: the expression used to update the descriptor
+            :rtype: ExprDesc
+            :return: The updated expression descriptor
+            """        
         if expr.type == "BlockStatement":
             return self.new_expr_desc() #TODO
         sub_expr_desc = yield [self.do_expression, state, expr]
         r = self.new_expr_desc(sub_expr_desc.def_set.union(expr_desc.def_set), sub_expr_desc.has_side_effects or expr_desc.has_side_effects)
         return r
 
-    """
-    Called when the analysis encounters a statement
 
-    :param Domain.State state: the current state
-    :param esprima.nodes.Node: the current statement
-    """
     def on_statement(self, state : Domain.State, statement : esprima.nodes.Node) -> None:
+        """
+        Called when the analysis encounters a statement
+
+        :param Domain.State state: the current state
+        :param esprima.nodes.Node: the current statement
+        """        
         if self.domain.is_bottom(state):
             return
 
@@ -762,16 +786,17 @@ class VarDefInterpreter(LexicalScopedAbsInt):
         elif statement.type == "FunctionDeclaration":
             yield [self.handle_function_body, state, statement.body]
 
-    """
-    Called when the analysis encounters an expression
 
-    :param Domain.State state state: the current state
-    :param esprima.nodes.Node expression: the current expression
-    :param bool test: True if the expression is used as a condition (in while/for/if)
-    :rtype: ExprDesc
-    :return: the expression descriptor corresponding to the expression
-    """
     def on_expression(self, state : Domain.State, expression : esprima.nodes.Node, test : bool = False) -> ExprDesc:
+        """
+        Called when the analysis encounters an expression
+
+        :param Domain.State state state: the current state
+        :param esprima.nodes.Node expression: the current expression
+        :param bool test: True if the expression is used as a condition (in while/for/if)
+        :rtype: ExprDesc
+        :return: the expression descriptor corresponding to the expression
+        """        
         if self.domain.is_bottom(state):
             return self.new_expr_desc()
 
@@ -882,12 +907,13 @@ class VarDefInterpreter(LexicalScopedAbsInt):
                 expr_desc = yield [self.updated_expr_desc, state, expr_desc, elem]
             return expr_desc
 
-    """
-    Called when the analysis ends.
 
-    :param Domain.State state: the current (final) state
-    """
     def on_end(self, state : Domain.State) -> None:
+        """
+        Called when the analysis ends.
+
+        :param Domain.State state: the current (final) state
+        """        
         useless = set()
         change = True
         while change:
@@ -913,13 +939,14 @@ class UselessVarRemover(CodeTransform):
         self.only_comment = only_comment
         super().__init__(ast, "Useless Variable Remover")
 
-    """
-    Comment the assignment
 
-    :param esprima.nodes.Node assign: The assignment
-    :param str _type: The assignment type (can be "Assign" or "Declare")
-    """
     def process_assignment(self, assign : esprima.nodes.Node, _type : str) -> None:
+        """
+        Comment the assignment
+
+        :param esprima.nodes.Node assign: The assignment
+        :param str _type: The assignment type (can be "Assign" or "Declare")
+        """        
         if self.only_comment:
             if get_ann(assign, "useless") == True:
                 u = "Val-Unused-locally, "
@@ -987,14 +1014,15 @@ class UselessVarRemover(CodeTransform):
         for b in bye:
             body.remove(b)
 
-    """
-    Called before we encounter a statement
 
-    :param esprima.nodes.Node o: The statement
-    :rtype bool:
-    :return: True if we continue to process the statement, False otherwise
-    """
     def before_statement(self, o : esprima.nodes.Node) -> bool:
+        """
+        Called before we encounter a statement
+
+        :param esprima.nodes.Node o: The statement
+        :rtype bool:
+        :return: True if we continue to process the statement, False otherwise
+        """        
         if o.type == "VariableDeclaration":
             for decl in o.declarations:
                 self.process_assignment(decl, "Declare")
@@ -1002,14 +1030,15 @@ class UselessVarRemover(CodeTransform):
             self.process_block(o.body)
         return True
 
-    """
-    Called before we encounter an expression
 
-    :param esprima.nodes.Node o: The expression
-    :rtype bool:
-    :return: True if we continue to process the expression, False otherwise
-    """
     def before_expression(self, o : esprima.nodes.Node) -> bool:
+        """
+        Called before we encounter an expression
+
+        :param esprima.nodes.Node o: The expression
+        :rtype bool:
+        :return: True if we continue to process the expression, False otherwise
+        """        
         if id_from_node(o) is None:
             return True
 
