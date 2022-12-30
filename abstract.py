@@ -5,8 +5,9 @@ import config
 import copy
 from debug import debug
 from enum import Enum
-from typing import Set, Union
+from typing import Set, Union, List, Dict, Optional, Callable
 import re
+import esprima
 
 class MissingMode(Enum):
     """
@@ -34,13 +35,27 @@ class State(object):
         :param bool bottom: True to create a bottom state (i.e. corresponding to no concrete state), False otherwise
         """
         if bottom:
-            self.objs = {}
-            self.gref = None
-            self.lref = None
-            self.pending = set()
-            self.is_bottom = True
-            self.stack_frames = []
-            self.value = JSBot
+            self.objs : Dict[int, 'JSObject']= {}
+            """Dict from ref-ids to JSObjects, represents the "heap" """
+
+            self.gref : int = None
+            """ref-id to the JSObject representing global context"""
+
+            self.lref : int = None
+            """ref-id to the JSObject representing local context"""
+
+            self.pending : Set[int]= set()
+            """set of ref-ids representing newly-created objects that are not yet referenced"""
+
+            self.is_bottom : bool = True
+            """True if this is a bottom state"""
+
+            self.stack_frames : List[int] = []
+            """Stack of ref-ids, each element is a ref-id to the JSObject representing the stack frame local context"""
+
+            self.value : 'JSValue' = JSBot
+            """Represents the value computed by the current statement"""
+
         else:
             self.is_bottom = False
             self.objs = {} 
@@ -827,6 +842,34 @@ class JSValue(object):
         """        
         return None
 
+    def clone(self) -> 'JSValue':
+        """
+        Returns a copy of the JSValue. Note that this may return either a shallow copy or a deep copy.
+        A shallow copy is returned if the JSValue is immutable, otherwise a deep copy is performed.
+
+        :rtype: JSValue
+        :return: The copy
+        """
+        raise NotImplementedError
+
+    def __hash__(self) -> int:
+        """
+        Returns hash value of the object
+
+        :rtype: int
+        :return: the hash value
+        """
+        raise NotImplementedError   
+
+    def closure_env(self) -> int:
+        """
+        If this value is a closure, returns the ref-id to the closure environment
+
+        :rtype int:
+        :return: the ref-id
+        """        
+        return None           
+
 # Represents any simple type (for example: a number)
 class JSPrimitive(JSValue):
     """
@@ -838,80 +881,172 @@ class JSPrimitive(JSValue):
 
         :param Union[int, str, float, re.Pattern]: The concrete value
         """
-        self.val = val
-    
-    def __eq__(self, other):
+        self.val : Union[int, str, float, re.Pattern] = val
+        """The concrete value"""
+        
+    def __eq__(self, other : JSValue) -> bool:
         if type(self) != type(other):
             return False
         return self.val == other.val
-    def __str__(self):
+
+    def __str__(self) -> str:
         return repr(self.val)
-    def __repr__(self):
+
+    def __repr__(self) -> str:
         return self.__str__()
-    def __hash__(self):
+
+    def __hash__(self) -> int:
         return self.val.__hash__()
-    def clone(self):
+
+    def clone(self) -> 'JSPrimitive':
         return self
 
-#Represents any special value (like undefined or NaN or Top)
 class JSSpecial(JSValue):
-    def __init__(self, name):
-        self.name = name
-    def clone(self):
+    """
+    Represents special values, such as Top (i.e. any/unknown value), Bottom (no value), undefined, or NaN
+    """
+    def __init__(self, name : str) -> None:
+        """
+        Class constructor
+
+        :param str name: Either "Top", "Bot" or "JSUndefNaN"
+        """
+        self.name : str = name
+        """ Either "Top", "Bot" or "JSUndefNaN" """
+
+    def clone(self) -> 'JSSpecial':
         return self
-    def __str__(self):
+
+    def __str__(self) -> str:
         return self.name
-    def __repr__(self):
+
+    def __repr__(self) -> str:
         return self.__str__()
-    def __eq__(self, other):
+
+    def __eq__(self, other : JSValue) -> bool:
         if type(self) != type(other):
             return False
         return self.name == other.name
-    def __hash__(self):
+
+    def __hash__(self) -> int:
         return self.name.__hash__()
-    def contains_top(self):
+
+    def contains_top(self) -> bool:
         return self.name == "Top"
 
 JSUndefNaN = JSSpecial("Undef/NaN") #represents NaN or undefined
 JSTop = JSSpecial("Top")
 JSBot = JSSpecial("Bot")
 
-# Represents an object or array
+# 
 class JSObject(JSValue):
-    hooks = []
-    GC_IGNORE = -1
+    """
+    This class represents an object, array, or callable (simfct, or real function)
+
+    :members: hooks
+    """
+
+    hooks : List[Callable] = []
+    """
+    List of hooks, i.e. functions that returns methods that are available in any object
+    """
 
     #convenience functions to build obj/simfct/function/closure
     @classmethod
-    def function(cls, body, params):
+    def function(cls, body : esprima.nodes.Node, params : esprima.nodes.Node) -> 'JSObject':
+        """
+        Build a JSObject for a function
+        
+        :param esprima.nodes.Node body: The function's body
+        :param esprima.nodes.Node params: The function's formal args
+        :rtype JSObject:
+        :return: The JSObject representing the function
+        """
         return cls({}, body, params, None, None, False)
     
     @classmethod
-    def closure(cls, body, params, env):
+    def closure(cls, body : esprima.nodes.Node, params : esprima.nodes.Node, env : int) -> 'JSObject':
+        """
+        Build a JSObject for a closure
+        
+        :param esprima.nodes.Node body: The function's body
+        :param esprima.nodes.Node params: The function's formal args
+        :param env int: The ref-id to the closure environment
+        :rtype JSObject:
+        :return: The JSObject representing the closure
+        """        
         return cls({}, body, params, env, None, False)
     
     @classmethod
-    def simfct(cls, simfct, pure_simfct=False):
+    def simfct(cls, simfct : function, pure_simfct : bool =False) -> 'JSObject':
+        """ 
+        Build a JSObject for a simfct
+        
+        :param function simfct: A python function to simulate the JS function
+        :param bool pure_simfct: True if the function is pure (i.e. no side effects)
+        :rtype JSObject:
+        :return: The JSObject representing the simfct
+        """        
         return cls({}, None, None, None, simfct, pure_simfct)
 
     @classmethod
-    def object(cls):
+    def object(cls) -> 'JSObject':
+        """
+        Builds an empty JSObject (for object or array, for example)
+
+        :rtype JSObject:
+        :return: The JSObject
+        """
         return cls({}, None, None, None, None, False)
 
     @staticmethod
-    def add_hook(hook):
+    def add_hook(hook : List[Callable]) -> None:
+        """
+        Register new hook
+        
+        :param List[Callable] hook: The hook to add
+        """
         JSObject.hooks.append(hook)
-    def __init__(self, properties, body=None, params=None, env=None, simfct=None, pure_simfct=False):
-        self.properties = properties #dict listing properties of the object / array elements
-        self.body = body #if function, represents the body AST
-        self.params = params #if function, represents the arguments ASTs
-        self.env = env #if function, this is the ID of object representing closure-captured environment, if any
-        self.simfct = simfct #Simulated function, if any
-        self.missing_mode = MissingMode.MISSING_IS_UNDEF
-        self.fn_isexpr = False
-        self.pure_simfct = pure_simfct
-        self.tablength = 0
-    def __str__(self):
+
+    def __init__(self, properties: Dict[Union[str, int], JSValue], body : esprima.nodes.Node = None, params : esprima.nodes.Node = None, env : Optional[int] = None, simfct : Optional[Callable] = None, pure_simfct : bool = False) -> None:
+        """
+        Class constructor (avoid direct use, instead use convenience functions simfct/function/closure/object)
+        
+        :param Dict[Union[str, int], JSValue] properties: Dictionary representing properties of the object
+        :param esprima.nodes.Node body: The function's body
+        :param esprima.nodes.Node params: The function's formal args
+        :param env Optional[int]: The ref-id to the closure environment
+        :param Optional[Callable] simfct: A python function to simulate the JS function
+        :param bool pure_simfct: True if the function is pure (i.e. no side effects)
+        """
+        self.properties : Dict[Union[str, int], JSValue] = properties #dict listing properties of the object / array elements
+        """Dictionary representing properties of the object"""
+
+        self.body : esprima.nodes.Node = body #if function, represents the body AST
+        """The function's body"""
+
+        self.params : esprima.nodes.Node = params #if function, represents the arguments ASTs
+        """The function's formal args"""
+
+        self.env : Optional[int] = env #if function, this is the ID of object representing closure-captured environment, if any
+        """The ref-id to the closure environment"""
+
+        self.simfct : Optional[Callable] = simfct #Simulated function, if any
+        """A python function to simulate the JS function"""
+
+        self.missing_mode : MissingMode = MissingMode.MISSING_IS_UNDEF
+        """The object's missing-mode (how to interpret absent properties"""
+
+        self.fn_isexpr : bool = False
+        """True if this JSObject represents an arrow-function containing only an expression"""
+
+        self.pure_simfct : bool = pure_simfct
+        """True if this simfct is pure"""
+
+        self.tablength : Optional[int] = 0
+        """Represents the array length, or None if unknown"""
+
+    def __str__(self) -> str:
         missing_mode = ""
         if self.missing_mode == MissingMode.MISSING_IS_UNDEF:
             missing_mode = " ...undefined"
@@ -934,29 +1069,41 @@ class JSObject(JSValue):
         else:
             return "<object " + props + ">"
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return self.__str__()
-    def __eq__(self, other):
+
+    def __eq__(self, other) -> str:
         if type(self) != type(other):
             return False
         return self.properties == other.properties and self.body == other.body and self.params == other.params and self.env == other.env and self.simfct == other.simfct and self.missing_mode == other.missing_mode and self.tablength == other.tablength and self.fn_isexpr == other.fn_isexpr 
 
-    def contains_top(self):
+    def contains_top(self) -> str:
         return self.missing_mode == MissingMode.MISSING_IS_TOP or JSTop in self.properties.values()
-    def is_callable(self):
+
+    def is_callable(self) -> bool:
         return not (self.body is None and self.simfct is None)
-    def is_simfct(self):
+
+    def is_simfct(self) -> bool:
         return self.simfct is not None
-    def is_function(self):
+
+    def is_function(self) -> bool:
         return self.body is not None
-    def is_closure(self):
+
+    def is_closure(self) -> bool:
         return self.env is not None
-    def closure_env(self):
+
+    def closure_env(self) -> bool:
         return self.env
-    def is_pure_simfct(self):
+
+    def is_pure_simfct(self) -> bool:
         return self.pure_simfct
 
-    def assign(self, other):
+    def assign(self, other : 'JSObject') -> None:
+        """
+        Do object assignment
+
+        :param JSObject other: The source JSObject        
+        """
         self.properties = other.properties.copy()
         self.body = other.body
         self.params = other.params
@@ -967,18 +1114,30 @@ class JSObject(JSValue):
         self.fn_isexpr = other.fn_isexpr
         self.pure_simfct = other.pure_simfct
 
-    def clone(self):
+    def clone(self) -> 'JSObject':
         c = JSObject({})
         c.assign(self)
         return c
 
-    def set_missing_mode(self, missing_mode):
+    def set_missing_mode(self, missing_mode : MissingMode) -> None:
+        """
+        Sets the object's missing-mode. When we set the missing-mode to MISSING_IS_TOP, we
+        remove all JSTop properties and set tablength to None
+
+        :param MissingMode missing_mode: The new missing mode
+        """
         if self.missing_mode == MissingMode.MISSING_IS_UNDEF and missing_mode == MissingMode.MISSING_IS_TOP:
             self.properties = {k: v for k,v in self.properties.items() if v is not JSTop}
             self.tablength = None
         self.missing_mode = missing_mode 
+    
+    def set_member(self, name : Optional[Union[str, int]], value : JSValue) -> None:
+        """
+        Set object member (i.e. field/attribute/property...). Also updates tablength.
 
-    def set_member(self, name, value):
+        :param str name: The member name, or None to represent writing to an unknown field
+        :param JSValue value: The member value
+        """
         if name is None:
             self.missing_mode = MissingMode.MISSING_IS_TOP
             self.properties.clear()
@@ -990,8 +1149,12 @@ class JSObject(JSValue):
                 self.properties[name] = value
                 if type(name) is int and self.tablength is not None:
                     self.tablength = max(self.tablength, name + 1)
+    """
+    Get object member. Tries hooks if member cannot be found.
 
-    def member(self, name):
+    :param str name: The member name.
+    """
+    def member(self, name : str) -> JSValue:
         for h in JSObject.hooks:
             r = h(name)
             if r is not JSTop:
@@ -1006,45 +1169,79 @@ class JSObject(JSValue):
                 return JSUndefNaN
         return r
 
-# Represents a reference to an object or array
 class JSRef(JSValue):
-    def __init__(self, ref_id, this=None):
-        self.ref_id = ref_id
-        self._this = this
-    def __str__(self):
+    """
+    Class to represent a reference. It wraps a ref-id (i.e. an integer) that allows retrieval of the referenced JSObject
+    """
+    def __init__(self, ref_id : int, this : Optional[int] = None) -> None:
+        """
+        Class constructor
+
+        :param int ref_id: The ref-id for retrieving the referenced JSObject
+        :param Optional[int] this: If the referenced JSObject is a bound function, this contains the ref-id for the "this" JSObject (otherwise, is None)
+        """
+
+        self.ref_id : int = ref_id
+        """The ref-id for retrieving the referenced JSObject"""
+
+        self._this : Optional[int] = this
+        """If the referenced JSObject is a bound function, this contains the ref-id for the "this" JSObject (otherwise, is None)"""
+
+    def __str__(self) -> str:
         if type(self._this) is int:
             return "<ref: " + str(self.ref_id) + " bound:" + str(self._this) + ">"
         else:
             return "<ref: " + str(self.ref_id) + ">"
-    def __repr__(self):
+
+    def __repr__(self) -> str:
         return self.__str__() 
-    def __eq__(self, other):
+
+    def __eq__(self, other) -> bool:
         if type(self) != type(other):
             return False
         return self.ref_id == other.ref_id and self._this == other._this
-    def target(self):
+
+    def target(self) -> int:
         return self.ref_id
-    def clone(self):
+
+    def clone(self) -> 'JSRef':
         return self
-    def is_bound(self):
+
+    def is_bound(self) -> bool:
         return self._this is not None
-    def this(self):
+
+    def this(self) -> Optional[int]:
         return self._this
-    def __hash__(self):
+
+    def __hash__(self) -> int:
         return self.ref_id.__hash__()
 
-# Represent a choice between values
+#TODO remplacer par une classe Maybe() ou qqch comme ca... jsp
 class JSOr(JSValue):
-    def __init__(self, choices):
-        self.choices = set(choices)
-    def __str__(self):
+    """
+    This class represent a value with multiple, enumarated, possibilities
+    """
+
+    def __init__(self, choices : Set[JSValue]) -> None:
+        """
+        Class constructor
+        
+        :param Set[JSValue] choices: The set of possibilities for this value
+        """
+        self.choices : Set[JSValue] = set(choices)
+        """The set of possibilities for this value"""
+
+    def __str__(self) -> str:
         return "Or(" + ",".join([str(c) for c in self.choices]) + ")"
-    def __eq__(self, other):
+
+    def __eq__(self, other) -> bool:
         if type(self) != type(other):
             return False
         return self.choices == other.choices
-    def __repr__(self):
-        return self.__str__() 
-    def clone(self):
+
+    def __repr__(self) -> str:
+        return self.__str__()
+
+    def clone(self) -> 'JSOr':
         return self
 
