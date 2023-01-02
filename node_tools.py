@@ -1,3 +1,5 @@
+import esprima
+
 annotations = {}
 nodes = {}
 node_id = 0
@@ -8,7 +10,7 @@ def mark_node(node):
         node.node_id = node_id
         annotations[node_id] = {}
         nodes[node_id] = node
-        node_id += 1
+        node_id += 1        
 
 def get_ann(node, name, default=None):
     mark_node(node)
@@ -32,3 +34,31 @@ def node_from_id(node_id):
 def id_from_node(node):
     mark_node(node)
     return node.node_id
+
+
+def dump_ann(name):
+    for n in annotations.keys():
+        for a in annotations[n].keys():
+            if a == name:
+                print(name, n, "-->", annotations[n][a]) 
+
+def clear_ann(name):
+        for n in annotations.keys():
+            if name in annotations[n]:
+                del annotations[n][name]
+
+def node_copy(node):
+    if isinstance(node, esprima.nodes.Node):
+        nc = esprima.nodes.Node()
+        for k in node.__dict__.keys():
+            if k == "notrans_static_value":
+                continue
+            nc.__dict__[k] = node_copy(node.__dict__[k])
+        return nc
+    elif isinstance(node, list):
+        lc = []
+        for e in node:
+            lc.append(node_copy(e))
+        return lc
+    else:
+        return node     

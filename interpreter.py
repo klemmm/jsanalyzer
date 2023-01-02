@@ -2,6 +2,8 @@ import esprima
 from abstract import State, JSObject, JSUndefNaN, JSTop, JSBot, JSRef, JSPrimitive, JSValue, MissingMode, JSOr, GCConfig
 from debug import debug
 from tools import call, Try, Raise, Except
+from node_tools import node_copy
+
 import re
 SITE = 0
 
@@ -59,6 +61,8 @@ class Interpreter(object):
     def offset2line(self, offset):
         return bisect.bisect_left(self.lines, offset) + 1
        
+
+    #TODO mettre ca dans un code transform
     @staticmethod
     def beta_reduction(expression, formal_args, effective_args):
         if expression.noout_reduced is not None:
@@ -104,6 +108,8 @@ class Interpreter(object):
             #print("beta_reduction: unhandled expression type " + str(expression.type))
             return expression
 
+    #TODO reorganiser eval_func_helper / eval_func_call
+    #TODO utiliser les annotations au lieu de .notrans_bidule_trucs
     def eval_func_helper(self, state, expr, consumed_refs, this=None):
 
         called_with_new = this is not None
@@ -359,6 +365,7 @@ class Interpreter(object):
         return JSTop
        
     #Evaluate expression and annotate AST in case of statically known value. Return abstract value.
+    #TODO faire une fonction pour gerer les refs & pending
     def eval_expr(self, state, expr):
         if state.is_bottom:
             return JSBot
@@ -473,7 +480,7 @@ class Interpreter(object):
             return JSTop
         if expr.type == "Literal":
             if expr.value is None:
-                return JSPrimitive("<<NULL>>")
+                return JSPrimitive("<<NULL>>") #TODO
                 #return JSUndefNaN
             return JSPrimitive(expr.value)
 
@@ -810,6 +817,11 @@ class Interpreter(object):
             return (yield [self.do_statement, state, exprdecl])
 
         discarded = yield [self.eval_expr, state, exprdecl]
+        exprdecl_copy = esprima.nodes.Node()
+        exprdecl_copy.__dict__ = exprdecl.__dict__.copy()
+        exprdecl_statement = esprima.nodes.ExpressionStatement(exprdecl_copy)
+        exprdecl_statement.range = exprdecl_copy.range
+        self.trace(exprdecl_statement)           
         state.consume_expr(discarded)
 
     def do_exprstat(self, state, expr):
@@ -828,6 +840,7 @@ class Interpreter(object):
     def do_while(self, state, statement):
         yield [self.do_for, state, statement]
 
+    #TODO faire un truc un peu plus élégant pour les loop unrolling etc()
     def do_for(self, state, statement, is_for_in=False):
         if state.is_bottom:
             return
@@ -847,6 +860,7 @@ class Interpreter(object):
         exit = False
         if init is not None:
             yield [self.do_expr_or_declaration, state, init]
+
 
         if is_for_in:
             pass
@@ -895,6 +909,15 @@ class Interpreter(object):
                     abs_test_result = JSPrimitive(True)
                 else:
                     abs_test_result = yield [self.eval_expr, state, test]
+                    test_copy = esprima.nodes.Node()
+                    test_copy.__dict__ = test.__dict__.copy()
+                    if isinstance(abs_test_result, JSPrimitive):
+                        test_copy.notrans_static_value = abs_test_result
+                    else:
+                        test_copy.notrans_static_value = None
+                    test_statement = esprima.nodes.ExpressionStatement(test_copy)
+                    test_statement.range = test_copy.range
+                    self.trace(test_statement)                    
                 if state.is_bottom:
                     break
             state.consume_expr(abs_test_result, consumed_refs)
@@ -962,6 +985,7 @@ class Interpreter(object):
         saved_unroll_trace = self.unroll_trace
         self.unroll_trace = None
         abs_discr = yield [self.eval_expr, state, discriminant]
+        stclone = state.clone() #TODO
         self.unroll_trace = saved_unroll_trace
         state.consume_expr(abs_discr, consumed_refs)
         if config.merge_switch:
@@ -970,6 +994,13 @@ class Interpreter(object):
         has_maybe = False
         states_after = []
         ncase = 0
+
+        discriminant_copy = node_copy(discriminant)
+        yield [self.eval_expr, stclone, discriminant_copy]
+        statement_discr = esprima.nodes.ExpressionStatement(discriminant_copy)
+        statement_discr.range = discriminant_copy.range
+        self.trace(statement_discr)
+
         for case in cases:
             saved_unroll_trace = self.unroll_trace
             self.unroll_trace = None
@@ -980,7 +1011,11 @@ class Interpreter(object):
                 pass #No
             elif isinstance(abs_test, JSPrimitive) and isinstance(abs_discr, JSPrimitive) and abs_test.val == abs_discr.val:
                 for i in range(0, ncase + 1):
-                    self.trace(cases[i].test)
+                    test_copy = esprima.nodes.Node()
+                    test_copy.__dict__ = cases[i].test.__dict__.copy()                        
+                    test_statement = esprima.nodes.ExpressionStatement(test_copy)
+                    test_statement.range = test_copy.range
+                    self.trace(test_statement)                    
                 has_true = True
                 state_clone = state.clone()
                 saved_state = self.break_state
@@ -1011,7 +1046,11 @@ class Interpreter(object):
                 self.trace(statement)
             else:
                 for case in cases:
-                    self.trace(case.test)
+                    test_copy = esprima.nodes.Node()
+                    test_copy.__dict__ = case.test.__dict__.copy()                        
+                    test_statement = esprima.nodes.ExpressionStatement(test_copy)
+                    test_statement.range = test_copy.range
+                    self.trace(test_statement) 
         if has_true:
             state.set_to_bottom()
         for s in states_after:
@@ -1081,8 +1120,17 @@ class Interpreter(object):
             self.unroll_trace = saved_unroll_trace
             state.pending.difference_update(consumed_refs)
             return
+        
+        test_copy = esprima.nodes.Node()
+        test_copy.__dict__ = test.__dict__.copy()
+        if type(abs_bool) is not bool:
+            test_copy.notrans_static_value = None
+        else:
+            test_copy.notrans_static_value = JSPrimitive(abs_bool)
             
-        self.trace(test)
+        test_statement = esprima.nodes.ExpressionStatement(test_copy)
+        test_statement.range = test_copy.range
+        self.trace(test_statement)
 
         if abs_bool is True:
             yield [self.do_statement, state, consequent]

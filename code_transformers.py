@@ -6,8 +6,10 @@ from tools import call
 from config import regexp_rename, rename_length, simplify_expressions, simplify_function_calls, simplify_control_flow, max_unroll_ratio, remove_dead_code
 from functools import reduce
 from collections import namedtuple
-from node_tools import get_ann, set_ann, del_ann, node_from_id, id_from_node
+from node_tools import get_ann, set_ann, del_ann, node_from_id, id_from_node, clear_ann
 from typing import Set, List
+
+gg = []
 
 class LexicalScopedAbsInt(object):
     def __init__(self, ast, domain, name):
@@ -42,7 +44,7 @@ class LexicalScopedAbsInt(object):
             yield [self.on_statement, state, statement]
 
         elif statement.type == "ExpressionStatement":
-            yield [self.do_expression, state, statement.expression]
+            yield [self.on_statement, state, statement]
 
         elif statement.type == "IfStatement":
             yield [self.on_statement, state, statement]
@@ -160,6 +162,7 @@ class CodeTransform(object):
     def __init__(self, ast, name):
         self.ast = ast
         self.name = name
+        self.pass_num = 1
 
     def before_expression(self, expr):
         return True
@@ -171,6 +174,9 @@ class CodeTransform(object):
         return None
 
     def after_statement(self, expr, results):
+        return None
+
+    def after_program(self, results):
         return None
 
     def do_expr_or_declaration(self, exprdecl):
@@ -261,9 +267,12 @@ class CodeTransform(object):
         return self.after_expression(expr, results)
 
     def do_statement(self, statement, end="\n"):
+
         if not self.before_statement(statement):
             return
+
         results = []
+
         if statement.type == "VariableDeclaration":
             for decl in statement.declarations:
                 if decl.id.type == "ObjectPattern":
@@ -300,8 +309,8 @@ class CodeTransform(object):
             results.append((yield [self.do_statement,statement.block]))
         
         elif statement.type == "BlockStatement":
-            for statement in statement.body:
-                results.append((yield [self.do_statement,statement]))
+            for st in statement.body:
+                results.append((yield [self.do_statement, st]))
         
         elif statement.type == "ForStatement":
             if statement.init is not None:
@@ -342,12 +351,20 @@ class CodeTransform(object):
         return self.after_statement(statement, results)
 
     def do_prog(self, prog):
+        results = []
         for statement in prog:
-            yield [self.do_statement, statement]
+            results.append((yield [self.do_statement, statement]))
+        self.after_program(results)
 
     def run(self):
-        print("Applying code transform: " + str(self.name))
+        if self.name is not None:
+            print("Applying code transform: " + str(self.name), end="")
+            if self.pass_num > 1:
+                print(" (pass " + str(self.pass_num) + ")")
+            else:
+                print("")
         call(self.do_prog, self.ast.body)
+        self.pass_num += 1
 
 class ExpressionSimplifier(CodeTransform):
     def __init__(self, ast, pures):
@@ -359,8 +376,24 @@ class ExpressionSimplifier(CodeTransform):
         if st.type == "ExpressionStatement":
             st.expression.notrans_static_value = None
 
-    def after_expression(self, o, side_effects):
+
+    def before_expression(self, o):
+        if o.type == "UpdateExpression":
+            set_ann(o.argument, "is_updated", True)
+            return True
+        return True
+
+    def after_expression(self, o, side_effects): #TODO nettoyer
+        """
+        Process expression.
+        
+        :param o esprima.nodes.Node: An expression node
+        :param List[Union[bool, esprima.nodes.Node]] side_effects: For all subexpressions: True if has side effects not related to functions. False if has no side effects. List of function calls if only side-effects related to functions.
+        """
+
+
         calls = []
+        #Collect side-effects call for any sub-expression. If we encounter side effects not releted to function call, return True
         for s in side_effects:
             if s is True:
                 return True
@@ -368,17 +401,36 @@ class ExpressionSimplifier(CodeTransform):
                 continue
             elif type(s) is list:
                 for c in s:
-                    calls.append(c)
-        if o.type == "AssignmentExpression" or o.type == "UpdateExpression" or o.type == "ConditionalExpression" or o.type == "LogicalExpression":
+                    calls.append(c)        
+        #If we reach here, sub-expressions have either no side effects, or side effects related to function calls
+
+
+        if o.type == "AssignmentExpression" or o.type == "ConditionalExpression" or o.type == "LogicalExpression":
+            return True #Report side effects not related to function call
+
+        if o.type == "UpdateExpression" and isinstance(o.notrans_static_value, JSPrimitive):
+            if (type(o.notrans_static_value.val) is int or type(o.notrans_static_value.val) is float) and o.notrans_static_value.val < 0:
+                return True
+                
+            n = esprima.nodes.AssignmentExpression("=", o.argument, esprima.nodes.Literal(o.notrans_static_value.val, None))
+            o.__dict__ = n.__dict__
             return True
-        #Test if expression has side effects
+
+        #If we reach here, this expression either have either no side effects, or side effects related to function calls
+
+        #Find out if this expression references a function that has been declared as pure on the command line arguments
         if o.type == "CallExpression" and o.callee.name in self.pures:
             if isinstance(o.callee.notrans_static_value, JSRef):
                 self.id_pures.add(o.callee.notrans_static_value.target())
+
+        #Find out if this is a call with side effects
         if o.type == "CallExpression" and not o.callee_is_pure and o.callee.name not in self.pures and (not isinstance(o.callee.notrans_static_value, JSRef) or o.callee.notrans_static_value.target() not in self.id_pures):
             c = esprima.nodes.CallExpression(o.callee, o.arguments)
             calls.append(c)
-        if isinstance(o.notrans_static_value, JSPrimitive):
+
+        #Find out if expression has a statically-known value
+        if isinstance(o.notrans_static_value, JSPrimitive) and not get_ann(o, "is_updated"):
+            #TODO should put an UnaryExpression here in case of negative value
             if (type(o.notrans_static_value.val) is int or type(o.notrans_static_value.val) is float) and o.notrans_static_value.val < 0:
                 return calls
             else:
@@ -395,7 +447,6 @@ class ExpressionSimplifier(CodeTransform):
                     o.__dict__ = seq_node.__dict__
                     o.notrans_static_value = static_value
                     o.notrans_impure = True
-
         return calls
 
 class VariableRenamer(CodeTransform):
@@ -504,10 +555,9 @@ class LoopUnroller(CodeTransform):
                 o.type = "BlockStatement"
                 o.body = []
                 for st in o.noout_unrolled:
-                    if st.type != "Literal" and st.type != "Identifier":
-                        o.body.append(st)
+                    o.body.append(st)
                 o.leadingComments = [{"type":"Block", "value":" Begin unrolled loop "}]
-                o.trailingComments = [{"type":"Block", "value":" End unrolled loop "}]
+                o.trailingComments = [{"type":"Block", "value":" End unrolled loop "}]                                
             o.noout_unrolled = None
         return True
 
@@ -753,7 +803,8 @@ class VarDefInterpreter(LexicalScopedAbsInt):
 
         :param Domain.State state: the current state
         :param esprima.nodes.Node: the current statement
-        """        
+        """
+
         if self.domain.is_bottom(state):
             return
 
@@ -768,8 +819,12 @@ class VarDefInterpreter(LexicalScopedAbsInt):
                 if decl.init is not None:
                     expr_desc = yield [self.updated_expr_desc, state, expr_desc, decl.init]
                     self.link_def_set_to_use(expr_desc.def_set, id_from_node(decl))
-                    set_ann(decl, "side_effects", expr_desc.has_side_effects)
+                    set_ann(decl, "rhs_side_effects", expr_desc.has_side_effects)
                 set_ann(decl, "in_func", self.current_func)
+
+        elif statement.type == "ExpressionStatement":
+            expr_desc = yield [self.updated_expr_desc, state, self.new_expr_desc(), statement.expression]
+            self.link_def_set_to_use(expr_desc.def_set, id_from_node(statement.expression)) 
 
         elif statement.type == "ReturnStatement":
             expr_desc = yield [self.updated_expr_desc, state, self.new_expr_desc(), statement.argument]
@@ -801,21 +856,31 @@ class VarDefInterpreter(LexicalScopedAbsInt):
             return self.new_expr_desc()
 
         if expression.type == "AssignmentExpression":
-            if self.current_func is not None:
-                set_ann(expression, "function", self.current_func)
+            global gg
             expr_desc = self.new_expr_desc()
+
+            #In these cases, LHS is read, so we need to register the uses for LHS in the expr desc
             if expression.left.type == "MemberExpression" or expression.operator != "=":
                 expr_desc = yield [self.updated_expr_desc, state, expr_desc, expression.left]
+            
+            #Register the declaration associated to the LHS as useful: we track declarations and values separately because it's possible that a variable declaration is useful even if the initialization isn't
             existing_defs = self.get_def_set_by_name(state, expression.left.name)
-            if bool(existing_defs):
-                self.create_def(state, expression, expression.left.name)
             for d in existing_defs:
                 if node_from_id(d).type == "VariableDeclarator":
-                    get_ann(node_from_id(d), "decl_used_by").add(id_from_node(expression))                               
+                    get_ann(node_from_id(d), "decl_used_by").add(id_from_node(expression))               
+            
+            #register the uses for RHS in expr desc
             expr_desc = yield [self.updated_expr_desc, state, expr_desc, expression.right]
+
+            #We only handle local variables for now, so we create a DEF only if this variable was locally declared
+            if bool(existing_defs):
+                self.create_def(state, expression, expression.left.name)            
+            
+            #Store results in annotations
             self.link_def_set_to_use(expr_desc.def_set, id_from_node(expression))
-            set_ann(expression, "side_effects", expr_desc.has_side_effects)
+            set_ann(expression, "rhs_side_effects", expr_desc.has_side_effects)
             set_ann(expression, "in_func", self.current_func)
+          
             return self.new_expr_desc(expr_desc.def_set, True)
 
         elif expression.type == "BinaryExpression" or expression.type == "LogicalExpression":
@@ -859,6 +924,16 @@ class VarDefInterpreter(LexicalScopedAbsInt):
         elif expression.type == "UpdateExpression":
             expr_desc = self.new_expr_desc()
             expr_desc = yield [self.updated_expr_desc, state, expr_desc, expression.argument]
+
+            if expression.argument.type == "Identifier": #For now, only handle updates to identifiers
+                existing_defs = self.get_def_set_by_name(state, expression.argument.name)
+                if bool(existing_defs):
+                    self.create_def(state, expression, expression.argument.name)
+
+                self.link_def_set_to_use(expr_desc.def_set, id_from_node(expression))
+                set_ann(expression, "in_func", self.current_func)
+
+
             return self.new_expr_desc(expr_desc.def_set, True)
 
         elif expression.type == "Identifier":
@@ -961,7 +1036,7 @@ class UselessVarRemover(CodeTransform):
                 else:
                     comm += "Decl-Used, "
                 comm += "Decl-Used-By: " + str(get_ann(assign, "decl_used_by") or "{}") + ", "
-            if get_ann(assign, "side_effects"):
+            if get_ann(assign, "rhs_side_effects"):
                 comm += "RValue-Has-Side-Effects, "
             else:
                 comm += "RValue-Has-No-Side-Effects, "
@@ -972,6 +1047,8 @@ class UselessVarRemover(CodeTransform):
                 comm += "In-Function, "
                 if _type == "Declare":
                     name = assign.id.name
+                elif _type == "Update":
+                    name = assign.argument.name
                 else:
                     name = assign.left.name
                 if name in get_ann(func, "inner_free_vars"):
@@ -980,6 +1057,10 @@ class UselessVarRemover(CodeTransform):
                     comm += "Unused-By-Closures"
 
             assign.trailingComments = [{"type":"Block", "value": comm}]
+        elif assign.type == "AssignmentExpression":
+            func = get_ann(assign, "in_func")
+            if get_ann(assign, "useless") and func and assign.left.name not in get_ann(func, "inner_free_vars") and not get_ann(assign, "rhs_side_effects"):
+                assign.__dict__ = assign.right.__dict__
 
     def process_block(self, body: List[esprima.nodes.Node]) -> None:
         bye = []
@@ -990,10 +1071,15 @@ class UselessVarRemover(CodeTransform):
                 func = get_ann(b.expression, "in_func")
                 if b.expression.type == "AssignmentExpression":
                     if get_ann(b.expression, "useless") and func and b.expression.left.name not in get_ann(func, "inner_free_vars"):
-                        if get_ann(b.expression, "side_effects"):
+                        if get_ann(b.expression, "rhs_side_effects"):
                             b.expression.__dict__ = b.expression.right.__dict__
                         else:
                             bye.append(b)
+                if b.expression.type == "UpdateExpression":
+                    if get_ann(b.expression, "useless") and func and b.expression.argument.name not in get_ann(func, "inner_free_vars"):
+                        bye.append(b)
+
+
             if b.type == "VariableDeclaration":
                 decl_bye = []
                 for decl in b.declarations:
@@ -1002,9 +1088,9 @@ class UselessVarRemover(CodeTransform):
                     else:
                         func = get_ann(decl, "in_func")
                         if get_ann(decl, "useless") and func and decl.id.name not in get_ann(func, "inner_free_vars"):
-                            if get_ann(decl, "decl_useless") and not get_ann(decl, "side_effects"):
+                            if get_ann(decl, "decl_useless") and not get_ann(decl, "rhs_side_effects"):
                                 decl_bye.append(decl)
-                            elif not get_ann(decl, "decl_useless") and not get_ann(decl, "side_effects"):
+                            elif not get_ann(decl, "decl_useless") and not get_ann(decl, "rhs_side_effects"):
                                 decl.init = None
                 for db in decl_bye:
                     b.declarations.remove(db)
@@ -1044,6 +1130,8 @@ class UselessVarRemover(CodeTransform):
 
         if o.type == "AssignmentExpression":
             self.process_assignment(o, "Assign")
+        elif o.type == "UpdateExpression":
+            self.process_assignment(o, "Update")
 
         if self.only_comment:
             if o.type == "CallExpression" and id_from_node(o) is not None:
@@ -1055,3 +1143,57 @@ class UselessVarRemover(CodeTransform):
     def run(self):
         VarDefInterpreter(self.ast).run()
         super().run()
+
+class SideEffectMarker(CodeTransform):
+    def run(self) -> None:
+        clear_ann("side_effects")
+        super().run()
+        
+    def __init__(self, ast : esprima.nodes.Node, pures : List[str]= []) -> None:
+        self.pures = pures
+        self.id_pures = set()        
+        super().__init__(ast, None)
+
+    def after_expression(self, expr, side_effects : List[bool]) -> bool:
+        if expr.type == "AssignmentExpression" or expr.type == "UpdateExpression":
+            r = True
+        elif expr.type == "CallExpression":
+            if expr.callee.name in self.pures:
+                r = False
+                if expr.callee.notrans_static_value.target():
+                    self.id_pures.add(expr.callee.notrans_static_value.target())
+            elif expr.callee.notrans_static_value.target() in self.id_pures:
+                r = False
+            elif expr.callee_is_pure:
+                r = False
+            else:
+                r = True
+        else:
+            r = reduce(lambda x,y : x or y, side_effects, False)
+        set_ann(expr, "side_effects", r)
+        return r
+            
+class UselessStatementRemover(CodeTransform):
+    def run(self) -> None:
+        super().run()
+        
+    def __init__(self, ast : esprima.nodes.Node, pures : List[str]= []) -> None:
+        self.pures = pures
+        self.id_pures = set()        
+        super().__init__(ast, "Useless Statement Remover")
+
+    def process_statement_list(self, statement_list):
+            bye = []
+            for st in statement_list:
+                if st.type == "ExpressionStatement" and not get_ann(st.expression, "side_effects"):
+                    bye.append(st)
+            for b in bye:
+                statement_list.remove(b)
+
+    def after_statement(self, statement, unused):
+        if statement.type == "BlockStatement":
+            self.process_statement_list(statement.body)
+
+    def after_program(self, unused):
+        self.process_statement_list(self.ast.body)
+
