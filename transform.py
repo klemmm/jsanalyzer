@@ -7,7 +7,8 @@ import pickle
 import json
 import code_transformers
 import argparse
-import node_tools
+from node_tools import mark_node_recursive, load_annotations
+
 sys.setrecursionlimit(1000000)
 
 parser = argparse.ArgumentParser()
@@ -44,13 +45,18 @@ if args.pure is not None:
 
 print("Opening input file:", args.input)
 f = open(args.input, "rb")
-ast = pickle.load(f)
+(ast, annotation_state) = pickle.load(f)
 f.close()
+
+load_annotations(*annotation_state)
 
 if args.pure is not None:
     pures = args.pure.split(',')
 else:
     pures = []
+
+print("Pre-processing...")
+mark_node_recursive(ast)
 
 #Order matters, because some transformers will introduce some code that will be processed by other transformers
 if not args.no_eval_handling:

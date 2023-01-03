@@ -9,8 +9,6 @@ from collections import namedtuple
 from node_tools import get_ann, set_ann, del_ann, node_from_id, id_from_node, clear_ann
 from typing import Set, List
 
-gg = []
-
 class LexicalScopedAbsInt(object):
     def __init__(self, ast, domain, name):
         self.ast = ast
@@ -374,8 +372,7 @@ class ExpressionSimplifier(CodeTransform):
 
     def after_statement(self, st, results):
         if st.type == "ExpressionStatement":
-            st.expression.notrans_static_value = None
-
+            set_ann(st.expression, "static_value", None)
 
     def before_expression(self, o):
         if o.type == "UpdateExpression":
@@ -408,11 +405,11 @@ class ExpressionSimplifier(CodeTransform):
         if o.type == "AssignmentExpression" or o.type == "ConditionalExpression" or o.type == "LogicalExpression":
             return True #Report side effects not related to function call
 
-        if o.type == "UpdateExpression" and isinstance(o.notrans_static_value, JSPrimitive):
-            if (type(o.notrans_static_value.val) is int or type(o.notrans_static_value.val) is float) and o.notrans_static_value.val < 0:
+        if o.type == "UpdateExpression" and isinstance(get_ann(o, "static_value"), JSPrimitive):
+            if (type(get_ann(o, "static_value").val) is int or type(get_ann(o, "static_value").val) is float) and get_ann(o, "static_value").val < 0:
                 return True
                 
-            n = esprima.nodes.AssignmentExpression("=", o.argument, esprima.nodes.Literal(o.notrans_static_value.val, None))
+            n = esprima.nodes.AssignmentExpression("=", o.argument, esprima.nodes.Literal(get_ann(o, "static_value").val, None))
             o.__dict__ = n.__dict__
             return True
 
@@ -420,22 +417,22 @@ class ExpressionSimplifier(CodeTransform):
 
         #Find out if this expression references a function that has been declared as pure on the command line arguments
         if o.type == "CallExpression" and o.callee.name in self.pures:
-            if isinstance(o.callee.notrans_static_value, JSRef):
-                self.id_pures.add(o.callee.notrans_static_value.target())
+            if isinstance(get_ann(o.callee, "static_value"), JSRef):
+                self.id_pures.add(get_ann(o.callee, "static_value").target())
 
         #Find out if this is a call with side effects
-        if o.type == "CallExpression" and not o.callee_is_pure and o.callee.name not in self.pures and (not isinstance(o.callee.notrans_static_value, JSRef) or o.callee.notrans_static_value.target() not in self.id_pures):
+        if o.type == "CallExpression" and not o.callee_is_pure and o.callee.name not in self.pures and (not isinstance(get_ann(o.callee, "static_value"), JSRef) or get_ann(o.callee, "static_value").target() not in self.id_pures):
             c = esprima.nodes.CallExpression(o.callee, o.arguments)
             calls.append(c)
 
         #Find out if expression has a statically-known value
-        if isinstance(o.notrans_static_value, JSPrimitive) and not get_ann(o, "is_updated"):
+        if isinstance(get_ann(o, "static_value"), JSPrimitive) and not get_ann(o, "is_updated"):
             #TODO should put an UnaryExpression here in case of negative value
-            if (type(o.notrans_static_value.val) is int or type(o.notrans_static_value.val) is float) and o.notrans_static_value.val < 0:
+            if (type(get_ann(o, "static_value").val) is int or type(get_ann(o, "static_value").val) is float) and get_ann(o, "static_value").val < 0:
                 return calls
             else:
                 o.type = "Literal"
-                o.value = o.notrans_static_value.val
+                o.value = get_ann(o, "static_value").val
                 if o.value == "<<NULL>>":
                     o.value = None
                 if len(calls) > 0:
@@ -443,10 +440,10 @@ class ExpressionSimplifier(CodeTransform):
                     sequence = calls.copy()
                     sequence.append(o_copy)
                     seq_node = esprima.nodes.SequenceExpression(sequence)
-                    static_value = o.notrans_static_value
+                    static_value = get_ann(o, "static_value")
                     o.__dict__ = seq_node.__dict__
-                    o.notrans_static_value = static_value
-                    o.notrans_impure = True
+                    set_ann(o, "static_value", static_value)
+                    set_ann(o, "impure", True)
         return calls
 
 class VariableRenamer(CodeTransform):
@@ -523,9 +520,9 @@ class FunctionInliner(CodeTransform):
         return True
 
     def before_expression(self, o):
-        if o.type == "CallExpression" and o.noout_reduced is not None:
-            o.__dict__ = o.noout_reduced.__dict__
-            o.noout_reduced = None
+        if o.type == "CallExpression" and get_ann(o, "reduced") is not None:
+            o.__dict__ = get_ann(o, "reduced").__dict__            
+            set_ann(o, "reduced", None)
         elif o.type == "FunctionExpression" or o.type == "ArrowFunctionExpression":
             o.body.leadingComments = [{"type":"Block", "value":" Pure: " + str(o.body.pure) + " Closure: " + str(o.body.closure) + " "}]
         return True
@@ -546,19 +543,19 @@ class LoopUnroller(CodeTransform):
         super().__init__(ast, "Loop Unroller")
 
     def before_statement(self, o):
-        if (o.type == "WhileStatement" or o.type == "ForStatement") and type(o.noout_unrolled) is list:
+        if (o.type == "WhileStatement" or o.type == "ForStatement") and type(get_ann(o, "unroled")) is list:
             unrolled_size = 0
-            for st in o.noout_unrolled:
+            for st in get_ann(o, "unrolled"):                
                 unrolled_size += st.range[1] - st.range[0]
 
             if unrolled_size / (o.range[1] - o.range[0]) < max_unroll_ratio:
                 o.type = "BlockStatement"
                 o.body = []
-                for st in o.noout_unrolled:
+                for st in get_ann(o, "unrolled"):                    
                     o.body.append(st)
                 o.leadingComments = [{"type":"Block", "value":" Begin unrolled loop "}]
                 o.trailingComments = [{"type":"Block", "value":" End unrolled loop "}]                                
-            o.noout_unrolled = None
+            get_ann(o, "unrolled", None)
         return True
 
 class EvalReplacer(CodeTransform):
@@ -568,13 +565,13 @@ class EvalReplacer(CodeTransform):
     def before_expression(self, o):
         if o is None:
             return False
-        if o.noout_eval is not None:
-            block = esprima.nodes.BlockStatement(o.noout_eval)
+        if get_ann(o, "eval") is not None:
+            block = esprima.nodes.BlockStatement(get_ann(o, "eval"))            
             block.live = True
             o.arguments = [block] #TODO not valid JS 
-            o.noout_eval = None
-        if o.noout_fn_cons is not None:
-            o.__dict__ = o.noout_fn_cons[0].expression.__dict__
+            set_ann(o, "eval", None)
+        if get_ann(o, "fn_cons") is not None:            
+            o.__dict__ = get_ann(o, "fn_cons")[0].expression.__dict__
         return True
 
 class ConstantMemberSimplifier(CodeTransform):
@@ -584,20 +581,20 @@ class ConstantMemberSimplifier(CodeTransform):
     def before_expression(self, expr):
         if expr.type == "AssignmentExpression":
             if expr.left.type == "MemberExpression":
-                if expr.left.computed and isinstance(expr.left.property.notrans_static_value, JSPrimitive) and type(expr.left.property.notrans_static_value.val) is str:
+                if expr.left.computed and isinstance(get_ann(expr.left.property, "static_value"), JSPrimitive) and type(get_ann(expr.left.property, "static_value").val) is str:
                     expr.left.computed = False
-                    expr.left.property.name = expr.left.property.notrans_static_value.val
-                    if expr.left.property.notrans_impure:
+                    expr.left.property.name = get_ann(expr.left.property, "static_value").val
+                    if get_ann(expr.left.property, "impure"):
                         expr_copy = esprima.nodes.AssignmentExpression(expr.operator, expr.left, expr.right)
                         sequence = expr.left.property.expressions[:-1]
                         sequence.append(expr_copy)
                         result = esprima.nodes.SequenceExpression(sequence)
                         expr.__dict__ = result.__dict__
         elif expr.type == "MemberExpression":
-            if expr.computed and isinstance(expr.property.notrans_static_value, JSPrimitive) and type(expr.property.notrans_static_value.val) is str:
+            if expr.computed and isinstance(get_ann(expr.property, "static_value"), JSPrimitive) and type(get_ann(expr.property, "static_value").val) is str:
                 expr.computed = False
-                expr.property.name = expr.property.notrans_static_value.val
-                if expr.property.notrans_impure:
+                expr.property.name = get_ann(expr.property, "static_value").val
+                if -get_ann(expr.property, "impure"):
                     expr_copy = esprima.nodes.StaticMemberExpression(expr.object, expr.property)
                     sequence = expr.property.expressions[:-1]
                     sequence.append(expr_copy)
@@ -856,7 +853,6 @@ class VarDefInterpreter(LexicalScopedAbsInt):
             return self.new_expr_desc()
 
         if expression.type == "AssignmentExpression":
-            global gg
             expr_desc = self.new_expr_desc()
 
             #In these cases, LHS is read, so we need to register the uses for LHS in the expr desc
@@ -1160,9 +1156,9 @@ class SideEffectMarker(CodeTransform):
         elif expr.type == "CallExpression":
             if expr.callee.name in self.pures:
                 r = False
-                if expr.callee.notrans_static_value.target():
-                    self.id_pures.add(expr.callee.notrans_static_value.target())
-            elif expr.callee.notrans_static_value.target() in self.id_pures:
+                if get_ann(expr.callee, "static_value") and get_ann(expr.callee, "static_value").target():
+                    self.id_pures.add(get_ann(expr.callee, "static_value").target())
+            elif get_ann(expr.callee, "static_value") and get_ann(expr.callee, "static_value").target() in self.id_pures:
                 r = False
             elif expr.callee_is_pure:
                 r = False

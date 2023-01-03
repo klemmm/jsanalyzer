@@ -7,6 +7,7 @@ from interpreter import Interpreter
 from debug import set_debug
 import cProfile
 import resource
+from node_tools import mark_node_recursive, save_annotations
 
 sys.setrecursionlimit(1000000)
 resource.setrlimit(resource.RLIMIT_STACK, (2**29,-1))
@@ -31,6 +32,9 @@ f.close()
 print("Parsing file into abstract syntax tree...")
 ast = esprima.parse(data, options={ 'range': True})
 
+print("Pre-processing...")
+mark_node_recursive(ast)
+
 i = Interpreter(ast, data)
 #cProfile.run("i.run()")
 i.run()
@@ -38,7 +42,7 @@ i.run()
 print("Producing out file...")
 delattr(esprima.nodes.Object, "__getattr__") # To allow pickling
 f = open(sys.argv[2], "wb")
-pickle.dump(ast, f)
+pickle.dump((ast, save_annotations()), f)
 f.close()
 print("All done.")
 

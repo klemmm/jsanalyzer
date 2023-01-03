@@ -8,9 +8,11 @@ def mark_node(node):
     global node_id
     if node.node_id is None:
         node.node_id = node_id
-        annotations[node_id] = {}
-        nodes[node_id] = node
-        node_id += 1        
+        node_id += 1
+
+    if node.node_id not in nodes: 
+        annotations[node.node_id] = {}
+        nodes[node.node_id] = node
 
 def get_ann(node, name, default=None):
     mark_node(node)
@@ -51,9 +53,10 @@ def node_copy(node):
     if isinstance(node, esprima.nodes.Node):
         nc = esprima.nodes.Node()
         for k in node.__dict__.keys():
-            if k == "notrans_static_value":
+            if k == "notrans_static_value" or k == "node_id":
                 continue
             nc.__dict__[k] = node_copy(node.__dict__[k])
+        mark_node(nc)
         return nc
     elif isinstance(node, list):
         lc = []
@@ -61,4 +64,25 @@ def node_copy(node):
             lc.append(node_copy(e))
         return lc
     else:
-        return node     
+        return node
+
+def mark_node_recursive(node):
+    if isinstance(node, esprima.nodes.Node):
+        for k in node.__dict__.keys():
+            mark_node_recursive(node.__dict__[k])
+        mark_node(node)
+    elif isinstance(node, list):
+        for e in node:
+            mark_node_recursive(e)
+
+
+def save_annotations():
+    return (annotations, nodes, node_id) 
+
+def load_annotations(_annotations, _nodes, _node_id):
+    global annotations, nodes, node_id
+    annotations = _annotations
+    nodes = _nodes
+    node_id = _node_id
+    
+    
