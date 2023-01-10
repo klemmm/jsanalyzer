@@ -131,7 +131,7 @@ class Interpreter(object):
             assert get_ann(expr, "recursion_state") is None
 #            if callee is not JSTop:
 #                print("[warning] Recursion inlining stopped at depth=", expr.active, "function=", callee.body.name, site)
-            set_ann(expr, "recursion_state", state.clone)
+            set_ann(expr, "recursion_state", state.clone())
 
         if get_ann(expr, "active") == config.max_recursion + 1:
 #            if callee is not JSTop:

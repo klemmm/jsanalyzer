@@ -67,6 +67,8 @@ def node_copy(node, ann_skip=[], mapping=None):
             nc.__dict__[k] = node_copy(node.__dict__[k], ann_skip, mapping)
         nc.node_id = None
         mark_node(nc)
+        if node.node_id is None:
+            mark_node(node)
         if mapping is not None:
             mapping[nc.node_id] = node.node_id
       
