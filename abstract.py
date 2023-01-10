@@ -115,6 +115,16 @@ class State(object):
         :param JSObject obj1: The first object to join (will be modified to store the join result)
         :param JSObject obj2: The second object (will not be modified)
         """
+
+        if obj1.simfct != obj2.simfct:
+            obj1.simfct = None
+        
+        if obj1.body != obj2.body:
+            obj1.body = None
+        
+        if obj1.env != obj2.env:
+            obj1.env = None        
+            
         if obj1.missing_mode == obj2.missing_mode:
             if obj1.tablength != obj2.tablength:
                 obj1.tablength = None

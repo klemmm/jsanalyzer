@@ -6,7 +6,7 @@ from tools import call
 from config import regexp_rename, rename_length, simplify_expressions, simplify_function_calls, simplify_control_flow, max_unroll_ratio, remove_dead_code
 from functools import reduce
 from collections import namedtuple
-from node_tools import get_ann, set_ann, del_ann, node_from_id, id_from_node, clear_ann
+from node_tools import get_ann, set_ann, del_ann, node_from_id, id_from_node, clear_ann, node_assign, node_copy
 from typing import Set, List
 
 class LexicalScopedAbsInt(object):
@@ -157,10 +157,13 @@ class LexicalScopedAbsInt(object):
         call(self.do_prog, self.ast.body)
 
 class CodeTransform(object):
-    def __init__(self, ast, name):
+    def __init__(self, ast=None, name=None):
         self.ast = ast
         self.name = name
         self.pass_num = 1
+
+    def bite(self, blah):
+        return self.do_expr(blah)
 
     def before_expression(self, expr):
         return True
@@ -354,7 +357,7 @@ class CodeTransform(object):
             results.append((yield [self.do_statement, statement]))
         self.after_program(results)
 
-    def run(self):
+    def run(self):       
         if self.name is not None:
             print("Applying code transform: " + str(self.name), end="")
             if self.pass_num > 1:
@@ -388,6 +391,7 @@ class ExpressionSimplifier(CodeTransform):
         :param List[Union[bool, esprima.nodes.Node]] side_effects: For all subexpressions: True if has side effects not related to functions. False if has no side effects. List of function calls if only side-effects related to functions.
         """
 
+        #print("simplify expression", o.node_id)
 
         calls = []
         #Collect side-effects call for any sub-expression. If we encounter side effects not releted to function call, return True
@@ -421,7 +425,7 @@ class ExpressionSimplifier(CodeTransform):
                 self.id_pures.add(get_ann(o.callee, "static_value").target())
 
         #Find out if this is a call with side effects
-        if o.type == "CallExpression" and not o.callee_is_pure and o.callee.name not in self.pures and (not isinstance(get_ann(o.callee, "static_value"), JSRef) or get_ann(o.callee, "static_value").target() not in self.id_pures):
+        if o.type == "CallExpression" and not get_ann(o, "callee_is_pure") and o.callee.name not in self.pures and (not isinstance(get_ann(o.callee, "static_value"), JSRef) or get_ann(o.callee, "static_value").target() not in self.id_pures):
             c = esprima.nodes.CallExpression(o.callee, o.arguments)
             calls.append(c)
 
@@ -510,21 +514,44 @@ class VariableRenamer(CodeTransform):
                 a.name = self.rename(a.name)
         return True
 
+class IdentSubst(CodeTransform):
+    def __init__(self):
+        super().__init__()
+
+    def set_args(self, formal, effective):
+        self.formal = formal
+        self.effective = effective
+
+    def after_expression(self, expr, results):
+        if expr.type == "Identifier":
+            if expr.name in self.formal:
+                i = self.formal.index(expr.name)
+                node_assign(expr, self.effective[i])
+        return None
+
 class FunctionInliner(CodeTransform):
     def __init__(self, ast):
         super().__init__(ast, "Function Inliner")
+        self.subst = IdentSubst()
 
-    def before_statement(self, statement):
-        if statement.type == "FunctionDeclaration":
-            statement.body.leadingComments = [{"type":"Block", "value":" Pure: " + str(statement.body.pure) + " Closure: " + str(statement.body.closure) + " "}]
-        return True
+    def get_return_expression(self, body):
+            if body.type == "ReturnStatement":
+                return body.argument
+
+            if body.type == "BlockStatement" and len(body.body) > 0 and body.body[0].type == "ReturnStatement":
+                return body.body[0].argument
+            return None
 
     def before_expression(self, o):
-        if o.type == "CallExpression" and get_ann(o, "reduced") is not None:
-            o.__dict__ = get_ann(o, "reduced").__dict__            
-            set_ann(o, "reduced", None)
-        elif o.type == "FunctionExpression" or o.type == "ArrowFunctionExpression":
-            o.body.leadingComments = [{"type":"Block", "value":" Pure: " + str(o.body.pure) + " Closure: " + str(o.body.closure) + " "}]
+        if o.type == "CallExpression" and get_ann(o, "call_target.body"):
+            body = node_from_id(get_ann(o, "call_target.body"))
+            ret_expr = self.get_return_expression(body)
+            if ret_expr is not None:
+                ret_expr_copy = node_copy(ret_expr)
+                self.subst.formal = get_ann(o, "call_target.params")
+                self.subst.effective = o.arguments
+                call(self.subst.do_expr, ret_expr_copy)                
+                node_assign(o, ret_expr_copy) #, ["static_value"])
         return True
 
 class DeadCodeRemover(CodeTransform):
@@ -543,19 +570,22 @@ class LoopUnroller(CodeTransform):
         super().__init__(ast, "Loop Unroller")
 
     def before_statement(self, o):
-        if (o.type == "WhileStatement" or o.type == "ForStatement") and type(get_ann(o, "unroled")) is list:
-            unrolled_size = 0
-            for st in get_ann(o, "unrolled"):                
-                unrolled_size += st.range[1] - st.range[0]
+        if (o.type == "WhileStatement" or o.type == "ForStatement") and type(get_ann(o, "unrolled")) is list:
+            u = get_ann(o, "unrolled")
 
-            if unrolled_size / (o.range[1] - o.range[0]) < max_unroll_ratio:
+            unrolled_size = 0
+            for i in u:
+                st = node_from_id(i)                
+                unrolled_size += st.range[1] - st.range[0]  
+
+            if True or unrolled_size / (o.range[1] - o.range[0]) < max_unroll_ratio:
                 o.type = "BlockStatement"
                 o.body = []
-                for st in get_ann(o, "unrolled"):                    
-                    o.body.append(st)
+                for i in u:                    
+                    o.body.append(node_from_id(i))
                 o.leadingComments = [{"type":"Block", "value":" Begin unrolled loop "}]
-                o.trailingComments = [{"type":"Block", "value":" End unrolled loop "}]                                
-            get_ann(o, "unrolled", None)
+                o.trailingComments = [{"type":"Block", "value":" End unrolled loop "}]
+                del_ann(o, "unrolled")
         return True
 
 class EvalReplacer(CodeTransform):
@@ -594,7 +624,7 @@ class ConstantMemberSimplifier(CodeTransform):
             if expr.computed and isinstance(get_ann(expr.property, "static_value"), JSPrimitive) and type(get_ann(expr.property, "static_value").val) is str:
                 expr.computed = False
                 expr.property.name = get_ann(expr.property, "static_value").val
-                if -get_ann(expr.property, "impure"):
+                if get_ann(expr.property, "impure"):
                     expr_copy = esprima.nodes.StaticMemberExpression(expr.object, expr.property)
                     sequence = expr.property.expressions[:-1]
                     sequence.append(expr_copy)
@@ -787,7 +817,7 @@ class VarDefInterpreter(LexicalScopedAbsInt):
             :rtype: ExprDesc
             :return: The updated expression descriptor
             """        
-        if expr.type == "BlockStatement":
+        if expr is None or expr.type == "BlockStatement" :
             return self.new_expr_desc() #TODO
         sub_expr_desc = yield [self.do_expression, state, expr]
         r = self.new_expr_desc(sub_expr_desc.def_set.union(expr_desc.def_set), sub_expr_desc.has_side_effects or expr_desc.has_side_effects)
@@ -804,7 +834,7 @@ class VarDefInterpreter(LexicalScopedAbsInt):
 
         if self.domain.is_bottom(state):
             return
-
+        
         if statement.type == "VariableDeclaration":
             for decl in statement.declarations:
                 expr_desc = self.new_expr_desc()
@@ -825,7 +855,8 @@ class VarDefInterpreter(LexicalScopedAbsInt):
 
         elif statement.type == "ReturnStatement":
             expr_desc = yield [self.updated_expr_desc, state, self.new_expr_desc(), statement.argument]
-            self.link_def_set_to_use(expr_desc.def_set, id_from_node(statement.argument))
+            if statement.argument is not None:
+                self.link_def_set_to_use(expr_desc.def_set, id_from_node(statement.argument))
 
         elif statement.type in ["ForStatement", "WhileStatement", "IfStatement"]:
             expr_desc = yield [self.updated_expr_desc, state, self.new_expr_desc(), statement.test]
@@ -943,9 +974,9 @@ class VarDefInterpreter(LexicalScopedAbsInt):
             expr_desc = yield [self.updated_expr_desc, state, expr_desc, expression.callee]
             for a in expression.arguments:
                 expr_desc = yield [self.updated_expr_desc, state, expr_desc, a]
-            if not expression.callee_is_pure:
+            if not get_ann(expression, "callee_is_pure"):                
                 self.link_def_set_to_use(expr_desc.def_set, id_from_node(expression))
-            return self.new_expr_desc(expr_desc.def_set, expr_desc.has_side_effects or not expression.callee_is_pure)
+            return self.new_expr_desc(expr_desc.def_set, expr_desc.has_side_effects or not get_ann(expression, "callee_is_pure"))
         
         elif expression.type == "ThisExpression":
             return self.new_expr_desc()
@@ -1160,7 +1191,7 @@ class SideEffectMarker(CodeTransform):
                     self.id_pures.add(get_ann(expr.callee, "static_value").target())
             elif get_ann(expr.callee, "static_value") and get_ann(expr.callee, "static_value").target() in self.id_pures:
                 r = False
-            elif expr.callee_is_pure:
+            elif get_ann(expr, "callee_is_pure"):                
                 r = False
             else:
                 r = True

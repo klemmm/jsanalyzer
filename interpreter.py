@@ -1,8 +1,9 @@
 import esprima
-from abstract import State, JSObject, JSUndefNaN, JSTop, JSBot, JSRef, JSPrimitive, JSValue, MissingMode, JSOr, GCConfig
+from abstract import State, JSObject, JSUndefNaN, JSTop, JSBot, JSRef, JSPrimitive, JSValue, MissingMode, JSOr, JSSpecial, GCConfig
 from debug import debug
 from tools import call, Try, Raise, Except
-from node_tools import node_copy, mark_node, get_ann, set_ann
+from node_tools import node_copy, get_ann, set_ann, id_from_node, del_ann, copy_all_ann, node_from_id, node_equals
+from typing import Set, Union, List, Dict, Optional, Callable
 
 import re
 SITE = 0
@@ -60,52 +61,19 @@ class Interpreter(object):
 
     def offset2line(self, offset):
         return bisect.bisect_left(self.lines, offset) + 1
-       
 
-    #TODO mettre ca dans un code transform
-    @staticmethod
-    def beta_reduction(expression, formal_args, effective_args):
-        if get_ann(expression, "reduced") is not None:
-            return Interpreter.beta_reduction(get_ann(expression, "reduced"), formal_args, effective_args)
 
-        if expression.type == "BinaryExpression":
-            l = Interpreter.beta_reduction(expression.left, formal_args, effective_args)
-            r = Interpreter.beta_reduction(expression.right, formal_args, effective_args)
-            return esprima.nodes.BinaryExpression(expression.operator, l, r)
-        elif expression.type == "Identifier":
-            i = 0
-            found = False
-            for a in formal_args:
-                if a.name ==  expression.name:
-                    found = True
-                    break
-                i += 1
-            if found:
-                return effective_args[i]
-            else:
-                return expression
-
-        elif expression.type == "AwaitExpression":
-            return Interpreter.beta_reduction(expression.argument, formal_args, effective_args)
-
-        elif expression.type == "CallExpression":
-            args = []
-            for a in expression.arguments:
-
-                reduced_arg = Interpreter.beta_reduction(a, formal_args, effective_args)
-                if reduced_arg is None:
-                    raise ValueError
-                args.append(reduced_arg)
-
-            ret = esprima.nodes.CallExpression(Interpreter.beta_reduction(expression.callee, formal_args, effective_args), args)
-            set_ann(ret, "pure", get_ann(expression, "pure"))
-            set_ann(ret, "static_value", get_ann(expression, "static_value"))
-            return ret
-        elif expression.type == "Literal":
-            return expression
-        else:
-            #print("beta_reduction: unhandled expression type " + str(expression.type))
-            return expression
+    def eval_expr_contextual(self, state, expr):
+        #result = yield [self.eval_expr, state, expr]
+        #return (result, expr)
+        mapping = {}
+        expr_copy = node_copy(expr, ["static_value"], mapping)
+        result = yield [self.eval_expr, state, expr_copy]
+        for k in mapping.keys():
+            joined = State.value_join(get_ann(node_from_id(mapping[k]), "static_value"), get_ann(node_from_id(k), "static_value"))
+            set_ann(node_from_id(mapping[k]), "static_value", joined)
+            copy_all_ann(node_from_id(mapping[k]), node_from_id(k), "static_value")
+        return (result, expr_copy)     
 
     #TODO reorganiser eval_func_helper / eval_func_call
     def eval_func_helper(self, state, expr, consumed_refs, this=None):
@@ -230,7 +198,7 @@ class Interpreter(object):
     #state (mutable): takes abstract state used to perform the evaluation
     #callee (callable JSObject, or JSTop): represent callee object
     #expr (AST node, or None): represent call expression, if any
-    def eval_func_call(self, state, callee, expr, this=None, consumed_refs=None):
+    def eval_func_call(self, state, callee:Union[JSObject, JSSpecial], expr, this=None, consumed_refs=None):
         if expr is None:
             arguments = []
         else:
@@ -275,17 +243,17 @@ class Interpreter(object):
         elif callee.is_function():
             callee.body.used = True
 
-            #enable inlining if the function consists of only one return statement
-            if callee.body.type == "ReturnStatement":
-                callee.body.redex = True
-                return_statement = callee.body
+            #mark call target to help code transforms later
+            if expr is not None and expr.type == "CallExpression":
+                if get_ann(expr, "callee_target.body") is None:
+                    set_ann(expr, "call_target.body", id_from_node(callee.body))
+                    set_ann(expr, "call_target.params", [param.name for param in callee.params])
 
-            #same, for a block statement containing a single return statement
-            if callee.body.type == "BlockStatement" and len(callee.body.body) > 0 and callee.body.body[0].type == "ReturnStatement":
-                callee.body.redex = True
-                return_statement = callee.body.body[0]
-
-        
+                if get_ann(expr, "callee_target.body") != id_from_node(callee.body):
+                    if get_ann(expr, "callee_target.body") is not False:
+                        print("unresolved", get_ann(expr, "callee_target.body"), id_from_node(callee.body))
+                    set_ann(expr, "callee_target.body", False)
+                    
             #Enter callee context 
             saved_return = self.return_value
             saved_rstate = self.return_state
@@ -343,10 +311,6 @@ class Interpreter(object):
             self.pure = saved_pure and self.pure
             self.closure = saved_closure
             
-            #Attempt to compute an inlined version of the expression
-            if config.simplify_function_calls and callee.body.redex and expr is not None:
-                set_ann(expr, "reduced", Interpreter.beta_reduction(return_statement.argument, callee.params, arguments))
-
             if return_value is None:
                 return JSUndefNaN
 
@@ -369,7 +333,7 @@ class Interpreter(object):
             return JSTop
         result = yield [self.eval_expr_aux, state, expr]
         set_ann(expr, "static_value", State.value_join(get_ann(expr, "static_value"), result))        
-
+        
         refs_to_add = set()
         if isinstance(result, JSRef):
             refs_to_add.add(result)
@@ -443,8 +407,6 @@ class Interpreter(object):
             target = state.objs[abs_target.target()]
         elif isinstance(abs_target, JSPrimitive):
             target = abs_target
-
-
 
         #Now, try to find the property name, it can be directly given, or computed.
         if expr.computed:
@@ -808,16 +770,18 @@ class Interpreter(object):
             raise ValueError("Vardecl type not handled:" + decl.type)
         state.pending.difference_update(consumed_refs)
 
-    def do_expr_or_declaration(self, state, exprdecl):
+    def wrap_in_statement(self, expr):
+        statement = esprima.nodes.ExpressionStatement(expr)
+        statement.range = expr.range
+        return statement      
+
+    def do_for_init_update(self, state, exprdecl):
         if exprdecl.type == "VariableDeclaration":
             return (yield [self.do_statement, state, exprdecl])
 
-        discarded = yield [self.eval_expr, state, exprdecl]
-        exprdecl_copy = esprima.nodes.Node()
-        exprdecl_copy.__dict__ = exprdecl.__dict__.copy()
-        exprdecl_statement = esprima.nodes.ExpressionStatement(exprdecl_copy)
-        exprdecl_statement.range = exprdecl_copy.range
-        self.trace(exprdecl_statement)           
+        (discarded, exprdecl_copy) = yield [self.eval_expr_contextual, state, exprdecl]
+        exprdecl_statement = self.wrap_in_statement(exprdecl_copy)
+        self.trace(exprdecl_statement)
         state.consume_expr(discarded)
 
     def do_exprstat(self, state, expr):
@@ -835,6 +799,22 @@ class Interpreter(object):
     
     def do_while(self, state, statement):
         yield [self.do_for, state, statement]
+    
+    def compare_trace(self, trace1, trace2):
+        if trace1 is False or trace2 is False:
+            return False
+
+        if len(trace1) != len(trace2):
+            return False
+
+        for i in range(len(trace1)):
+            if trace1[i] == trace2[i]:
+                continue
+            if not node_equals(node_from_id(trace1[i]), node_from_id(trace2[i])):                
+                return False
+            
+            
+        return True
 
     #TODO faire un truc un peu plus élégant pour les loop unrolling etc()
     def do_for(self, state, statement, is_for_in=False):
@@ -855,7 +835,7 @@ class Interpreter(object):
         self.break_state = State.bottom()
         exit = False
         if init is not None:
-            yield [self.do_expr_or_declaration, state, init]
+            yield [self.do_for_init_update, state, init]
 
 
         if is_for_in:
@@ -904,15 +884,8 @@ class Interpreter(object):
                 if test is None:
                     abs_test_result = JSPrimitive(True)
                 else:
-                    abs_test_result = yield [self.eval_expr, state, test]
-                    test_copy = esprima.nodes.Node()
-                    test_copy.__dict__ = test.__dict__.copy()
-                    if isinstance(abs_test_result, JSPrimitive):
-                        set_ann(test_copy, "static_value", abs_test_result)
-                    else:
-                        set_ann(test_copy, "static_value", None)
-                    test_statement = esprima.nodes.ExpressionStatement(test_copy)
-                    test_statement.range = test_copy.range
+                    (abs_test_result, test_copy) = yield [self.eval_expr_contextual, state, test]
+                    test_statement = self.wrap_in_statement(test_copy)
                     self.trace(test_statement)                    
                 if state.is_bottom:
                     break
@@ -931,7 +904,7 @@ class Interpreter(object):
                 statement.body.live = True
                 yield [self.do_sequence, state, body]
                 if update:
-                    yield [self.do_expr_or_declaration, state, update]
+                    yield [self.do_for_init_update, state, update]
                 state.join(self.continue_state)
                 self.continue_state = saved_loopcont
 
@@ -955,9 +928,9 @@ class Interpreter(object):
 
         state.join(self.break_state)
         if unrolling and not (state.is_bottom and self.return_state.is_bottom):
-            if get_ann(statement, "unrolled") is None:
+            if get_ann(statement, "unrolled") is None: #TODO
                 set_ann(statement, "unrolled", self.unroll_trace)
-            elif get_ann(statement, "unrolled") != self.unroll_trace:
+            elif not self.compare_trace(get_ann(statement, "unrolled"), self.unroll_trace):
                 set_ann(statement, "unrolled", False)
                 set_ann(statement, "reason", "not stable")
         else:
@@ -981,8 +954,7 @@ class Interpreter(object):
         (discriminant, cases) = (statement.discriminant, statement.cases)
         saved_unroll_trace = self.unroll_trace
         self.unroll_trace = None
-        abs_discr = yield [self.eval_expr, state, discriminant]
-        stclone = state.clone() #TODO
+        (abs_discr, discriminant_copy) = yield [self.eval_expr_contextual, state, discriminant]
         self.unroll_trace = saved_unroll_trace
         state.consume_expr(abs_discr, consumed_refs)
         if config.merge_switch:
@@ -992,10 +964,7 @@ class Interpreter(object):
         states_after = []
         ncase = 0
 
-        discriminant_copy = node_copy(discriminant)
-        yield [self.eval_expr, stclone, discriminant_copy]
-        statement_discr = esprima.nodes.ExpressionStatement(discriminant_copy)
-        statement_discr.range = discriminant_copy.range
+        statement_discr = self.wrap_in_statement(discriminant_copy)        
         self.trace(statement_discr)
 
         for case in cases:
@@ -1008,11 +977,7 @@ class Interpreter(object):
                 pass #No
             elif isinstance(abs_test, JSPrimitive) and isinstance(abs_discr, JSPrimitive) and abs_test.val == abs_discr.val:
                 for i in range(0, ncase + 1):
-                    test_copy = esprima.nodes.Node()
-                    test_copy.__dict__ = cases[i].test.__dict__.copy()                        
-                    test_statement = esprima.nodes.ExpressionStatement(test_copy)
-                    test_statement.range = test_copy.range
-                    self.trace(test_statement)                    
+                    self.trace(self.wrap_in_statement(node_copy(cases[i].test)))                 
                 has_true = True
                 state_clone = state.clone()
                 saved_state = self.break_state
@@ -1043,11 +1008,8 @@ class Interpreter(object):
                 self.trace(statement)
             else:
                 for case in cases:
-                    test_copy = esprima.nodes.Node()
-                    test_copy.__dict__ = case.test.__dict__.copy()                        
-                    test_statement = esprima.nodes.ExpressionStatement(test_copy)
-                    test_statement.range = test_copy.range
-                    self.trace(test_statement) 
+                    self.trace(self.wrap_in_statement(node_copy(case.test)))
+
         if has_true:
             state.set_to_bottom()
         for s in states_after:
@@ -1125,9 +1087,7 @@ class Interpreter(object):
         else:
             set_ann(test_copy, "static_value", JSPrimitive(abs_bool))
             
-        test_statement = esprima.nodes.ExpressionStatement(test_copy)
-        test_statement.range = test_copy.range
-        self.trace(test_statement)
+        self.trace(self.wrap_in_statement(node_copy(test)))
 
         if abs_bool is True:
             yield [self.do_statement, state, consequent]
@@ -1217,10 +1177,7 @@ class Interpreter(object):
         if unroll_trace is None:
             unroll_trace = self.unroll_trace
         if unroll_trace is not None:
-            if statement.trace_id is None:
-                newid = State.new_id()
-                statement.trace_id = newid
-            unroll_trace.append(statement)
+            unroll_trace.append(id_from_node(statement))
         return
 
     def do_statement(self, state, statement, hoisting=False):
@@ -1284,7 +1241,7 @@ class Interpreter(object):
         elif statement.type == "ExpressionStatement":
             self.trace(statement)
             saved_unroll_trace = self.unroll_trace
-            self.unroll_trace = None
+            self.unroll_trace = None            
             yield [self.do_exprstat, state, statement.expression]
             self.unroll_trace = saved_unroll_trace
 
