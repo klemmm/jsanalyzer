@@ -64,8 +64,8 @@ class Interpreter(object):
 
 
     def eval_expr_contextual(self, state, expr):
-        #result = yield [self.eval_expr, state, expr]
-        #return (result, expr)
+        result = yield [self.eval_expr, state, expr]
+        return (result, expr)
         mapping = {}
         expr_copy = node_copy(expr, ["static_value"], mapping)
         result = yield [self.eval_expr, state, expr_copy]
@@ -250,8 +250,6 @@ class Interpreter(object):
                     set_ann(expr, "call_target.params", [param.name for param in callee.params])
 
                 if get_ann(expr, "callee_target.body") != id_from_node(callee.body):
-                    if get_ann(expr, "callee_target.body") is not False:
-                        print("unresolved", get_ann(expr, "callee_target.body"), id_from_node(callee.body))
                     set_ann(expr, "callee_target.body", False)
                     
             #Enter callee context 
@@ -780,8 +778,8 @@ class Interpreter(object):
             return (yield [self.do_statement, state, exprdecl])
 
         (discarded, exprdecl_copy) = yield [self.eval_expr_contextual, state, exprdecl]
-        exprdecl_statement = self.wrap_in_statement(exprdecl_copy)
-        self.trace(exprdecl_statement)
+        #exprdecl_statement = self.wrap_in_statement(exprdecl_copy)
+        #self.trace(exprdecl_statement)
         state.consume_expr(discarded)
 
     def do_exprstat(self, state, expr):
@@ -885,8 +883,8 @@ class Interpreter(object):
                     abs_test_result = JSPrimitive(True)
                 else:
                     (abs_test_result, test_copy) = yield [self.eval_expr_contextual, state, test]
-                    test_statement = self.wrap_in_statement(test_copy)
-                    self.trace(test_statement)                    
+                    #test_statement = self.wrap_in_statement(test_copy)
+                    #self.trace(test_statement)                    
                 if state.is_bottom:
                     break
             state.consume_expr(abs_test_result, consumed_refs)
@@ -927,18 +925,19 @@ class Interpreter(object):
             state.set_to_bottom()
 
         state.join(self.break_state)
-        if unrolling and not (state.is_bottom and self.return_state.is_bottom):
-            if get_ann(statement, "unrolled") is None: #TODO
-                set_ann(statement, "unrolled", self.unroll_trace)
-            elif not self.compare_trace(get_ann(statement, "unrolled"), self.unroll_trace):
-                set_ann(statement, "unrolled", False)
-                set_ann(statement, "reason", "not stable")
-        else:
-            set_ann(statement, "unrolled", False)
-            if not unrolling:
-                set_ann(statement, "reason", "abstract test")
+        if False:
+            if unrolling and not (state.is_bottom and self.return_state.is_bottom):
+                if get_ann(statement, "unrolled") is None: #TODO
+                    set_ann(statement, "unrolled", self.unroll_trace)
+                elif not self.compare_trace(get_ann(statement, "unrolled"), self.unroll_trace):
+                    set_ann(statement, "unrolled", False)
+                    set_ann(statement, "reason", "not stable")
             else:
-                set_ann(statement, "reason", "infinite loop")
+                set_ann(statement, "unrolled", False)
+                if not unrolling:
+                    set_ann(statement, "reason", "abstract test")
+                else:
+                    set_ann(statement, "reason", "infinite loop")
 
         #print("loop exit:", header_state)
         #print("loop exit:", state)
@@ -964,8 +963,8 @@ class Interpreter(object):
         states_after = []
         ncase = 0
 
-        statement_discr = self.wrap_in_statement(discriminant_copy)        
-        self.trace(statement_discr)
+        #statement_discr = self.wrap_in_statement(discriminant_copy)        
+        #self.trace(statement_discr)
 
         for case in cases:
             saved_unroll_trace = self.unroll_trace
@@ -977,7 +976,8 @@ class Interpreter(object):
                 pass #No
             elif isinstance(abs_test, JSPrimitive) and isinstance(abs_discr, JSPrimitive) and abs_test.val == abs_discr.val:
                 for i in range(0, ncase + 1):
-                    self.trace(self.wrap_in_statement(node_copy(cases[i].test)))                 
+                    #self.trace(self.wrap_in_statement(node_copy(cases[i].test)))                 
+                    pass
                 has_true = True
                 state_clone = state.clone()
                 saved_state = self.break_state
@@ -1008,7 +1008,8 @@ class Interpreter(object):
                 self.trace(statement)
             else:
                 for case in cases:
-                    self.trace(self.wrap_in_statement(node_copy(case.test)))
+                    #self.trace(self.wrap_in_statement(node_copy(case.test)))
+                    pass
 
         if has_true:
             state.set_to_bottom()
@@ -1080,14 +1081,7 @@ class Interpreter(object):
             state.pending.difference_update(consumed_refs)
             return
         
-        test_copy = esprima.nodes.Node()
-        test_copy.__dict__ = test.__dict__.copy()
-        if type(abs_bool) is not bool:
-            set_ann(test_copy, "static_value", None)
-        else:
-            set_ann(test_copy, "static_value", JSPrimitive(abs_bool))
-            
-        self.trace(self.wrap_in_statement(node_copy(test)))
+        #self.trace(self.wrap_in_statement(node_copy(test)))
 
         if abs_bool is True:
             yield [self.do_statement, state, consequent]
