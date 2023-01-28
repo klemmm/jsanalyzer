@@ -14,6 +14,15 @@ import config
 import sys
 import bisect
 
+glob_log = set()
+
+class LoopContext(list):
+    def __hash__(self):
+        return hash(tuple(self))
+
+    def copy(self):
+        return LoopContext(self)
+
 def fn_cons(state, expr, this, *args):
     raw_body = args[-1]
     fn_args = args[0:-1] #TODO
@@ -53,6 +62,8 @@ class Interpreter(object):
         self.deferred = []
         self.need_clean = False
         self.unroll_trace = None
+        self.loop_context = LoopContext()
+
         i = 0
         while i < len(self.data):
             if self.data[i] == '\n':
@@ -61,19 +72,6 @@ class Interpreter(object):
 
     def offset2line(self, offset):
         return bisect.bisect_left(self.lines, offset) + 1
-
-
-    def eval_expr_contextual(self, state, expr):
-        result = yield [self.eval_expr, state, expr]
-        return (result, expr)
-        mapping = {}
-        expr_copy = node_copy(expr, ["static_value"], mapping)
-        result = yield [self.eval_expr, state, expr_copy]
-        for k in mapping.keys():
-            joined = State.value_join(get_ann(node_from_id(mapping[k]), "static_value"), get_ann(node_from_id(k), "static_value"))
-            set_ann(node_from_id(mapping[k]), "static_value", joined)
-            copy_all_ann(node_from_id(mapping[k]), node_from_id(k), "static_value")
-        return (result, expr_copy)     
 
     #TODO reorganiser eval_func_helper / eval_func_call
     def eval_func_helper(self, state, expr, consumed_refs, this=None):
@@ -85,7 +83,6 @@ class Interpreter(object):
             return JSBot
         callee_ref = yield [self.eval_expr, state, expr.callee]
         state.consume_expr(callee_ref, consumed_refs)
-
 
         if isinstance(callee_ref, JSOr) and config.use_filtering_err:
             #print("Or in call:", callee_ref)
@@ -209,7 +206,9 @@ class Interpreter(object):
         args_val = []
         for argument in arguments:
             #We evaluate arguments even if callee is not callable, to handle argument-evaluation side effects
+        
             v = yield [self.eval_expr, state, argument]
+            #print("arg:", get_ann(argument, "contextual_static_value"))
             state.consume_expr(v, consumed_refs)
             if callee.is_callable():
                 args_val.append(v)
@@ -257,6 +256,7 @@ class Interpreter(object):
             saved_rstate = self.return_state
             saved_pure = self.pure
             saved_closure = self.closure
+            saved_loop_context = self.loop_context
 
             self.return_value = None
             self.return_state = State.bottom()
@@ -308,6 +308,7 @@ class Interpreter(object):
             self.last = self.stack_trace.pop()
             self.pure = saved_pure and self.pure
             self.closure = saved_closure
+            self.loop_context = saved_loop_context
             
             if return_value is None:
                 return JSUndefNaN
@@ -330,8 +331,18 @@ class Interpreter(object):
         if expr is None:
             return JSTop
         result = yield [self.eval_expr_aux, state, expr]
-        set_ann(expr, "static_value", State.value_join(get_ann(expr, "static_value"), result))        
-        
+        set_ann(expr, "static_value", State.value_join(get_ann(expr, "static_value"), result))
+        if len(self.loop_context) > 0:
+            csv = get_ann(expr, "contextual_static_value")
+            if csv is None:
+                csv = {}
+            c = LoopContext(self.loop_context[-config.max_loop_context_nesting:])
+            if c not in csv:
+                csv[c] = None
+            csv[c] = State.value_join(csv[c], result)
+            set_ann(expr, "contextual_static_value", csv)
+            
+
         refs_to_add = set()
         if isinstance(result, JSRef):
             refs_to_add.add(result)
@@ -776,10 +787,8 @@ class Interpreter(object):
     def do_for_init_update(self, state, exprdecl):
         if exprdecl.type == "VariableDeclaration":
             return (yield [self.do_statement, state, exprdecl])
-
-        (discarded, exprdecl_copy) = yield [self.eval_expr_contextual, state, exprdecl]
-        #exprdecl_statement = self.wrap_in_statement(exprdecl_copy)
-        #self.trace(exprdecl_statement)
+        discarded = yield [self.eval_expr, state, exprdecl]
+        self.trace(exprdecl)
         state.consume_expr(discarded)
 
     def do_exprstat(self, state, expr):
@@ -836,8 +845,8 @@ class Interpreter(object):
             yield [self.do_for_init_update, state, init]
 
 
-        if is_for_in:
-            pass
+        self.loop_context.append((id_from_node(statement), 0))
+        #print("debut boucle, contextes: ", self.loop_context)
 
         #Unrolling is performed as long as the test condition is true, and the maximum iteration count has not been reached
         unrolling = True
@@ -846,7 +855,10 @@ class Interpreter(object):
         # - the header state is stable
         # - the loop condition is proven false
         header_state = State.bottom()
+        context_iter = 0
         while True:
+            self.unroll_trace.append("START_ITER")
+            context_iter += 1
             if unrolling: #If we are unrolling, header_state saves current state
                 if i & 31 == 0:
                     if header_state == state:
@@ -882,9 +894,8 @@ class Interpreter(object):
                 if test is None:
                     abs_test_result = JSPrimitive(True)
                 else:
-                    (abs_test_result, test_copy) = yield [self.eval_expr_contextual, state, test]
-                    #test_statement = self.wrap_in_statement(test_copy)
-                    #self.trace(test_statement)                    
+                    abs_test_result= yield [self.eval_expr, state, test]
+                    self.trace(test)                    
                 if state.is_bottom:
                     break
             state.consume_expr(abs_test_result, consumed_refs)
@@ -921,26 +932,33 @@ class Interpreter(object):
             else:
                 break #stop because loop condition is proven false
 
+            context_iter += 1
+            self.loop_context[-1] = (self.loop_context[-1][0], min(config.max_loop_context, self.loop_context[-1][1] + 1))
+            #print("fin itération, contextes: ", self.loop_context)
+
+
         if lastcond_is_true: #Loop state stabilized and last test condition is true: this is an infinite loop
             state.set_to_bottom()
 
         state.join(self.break_state)
-        if False:
-            if unrolling and not (state.is_bottom and self.return_state.is_bottom):
-                if get_ann(statement, "unrolled") is None: #TODO
-                    set_ann(statement, "unrolled", self.unroll_trace)
-                elif not self.compare_trace(get_ann(statement, "unrolled"), self.unroll_trace):
-                    set_ann(statement, "unrolled", False)
-                    set_ann(statement, "reason", "not stable")
-            else:
+        if unrolling and not (state.is_bottom and self.return_state.is_bottom):
+            if get_ann(statement, "unrolled") is None: #TODO
+                set_ann(statement, "unrolled", self.unroll_trace)
+            elif not self.compare_trace(get_ann(statement, "unrolled"), self.unroll_trace):
                 set_ann(statement, "unrolled", False)
-                if not unrolling:
-                    set_ann(statement, "reason", "abstract test")
-                else:
-                    set_ann(statement, "reason", "infinite loop")
+                set_ann(statement, "reason", "not stable")
+        else:
+            set_ann(statement, "unrolled", False)
+            if not unrolling:
+                set_ann(statement, "reason", "abstract test")
+            else:
+                set_ann(statement, "reason", "infinite loop")
 
         #print("loop exit:", header_state)
         #print("loop exit:", state)
+        self.loop_context.pop()
+        #print("fin boucle, contextes: ", self.loop_context)
+
         self.break_state = saved_loopexit
 
         self.return_state.join(saved_return_state)
@@ -953,7 +971,7 @@ class Interpreter(object):
         (discriminant, cases) = (statement.discriminant, statement.cases)
         saved_unroll_trace = self.unroll_trace
         self.unroll_trace = None
-        (abs_discr, discriminant_copy) = yield [self.eval_expr_contextual, state, discriminant]
+        abs_discr = yield [self.eval_expr, state, discriminant]
         self.unroll_trace = saved_unroll_trace
         state.consume_expr(abs_discr, consumed_refs)
         if config.merge_switch:
@@ -964,7 +982,7 @@ class Interpreter(object):
         ncase = 0
 
         #statement_discr = self.wrap_in_statement(discriminant_copy)        
-        #self.trace(statement_discr)
+        self.trace(discriminant)
 
         for case in cases:
             saved_unroll_trace = self.unroll_trace

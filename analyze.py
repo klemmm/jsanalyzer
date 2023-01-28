@@ -8,9 +8,9 @@ from debug import set_debug
 import cProfile
 import resource
 from node_tools import mark_node_recursive, save_annotations
-
 sys.setrecursionlimit(1000000)
 resource.setrlimit(resource.RLIMIT_STACK, (2**29,-1))
+
 
 set_debug(config.debug)
 if (len(sys.argv) < 3):

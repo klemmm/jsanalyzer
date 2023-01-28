@@ -1,13 +1,20 @@
 import random
 import esprima
 import re
-from abstract import JSPrimitive, JSRef
+from abstract import JSPrimitive, JSRef, State, JSOr
 from tools import call
 from config import regexp_rename, rename_length, simplify_expressions, simplify_function_calls, simplify_control_flow, max_unroll_ratio, remove_dead_code
 from functools import reduce
 from collections import namedtuple
-from node_tools import get_ann, set_ann, del_ann, node_from_id, id_from_node, clear_ann, node_assign, node_copy
+from node_tools import get_ann, set_ann, del_ann, node_from_id, id_from_node, clear_ann, node_assign, node_copy,  dump_ann
 from typing import Set, List
+from interpreter import LoopContext
+
+EXPRESSIONS = ["Literal", "ArrayExpression", "ArrowFunctionExpression", "AssignmentExpression", "AwaitExpression", "BinaryExpression", "CallExpression", "ConditionalExpression", "FunctionExpression", "LogicalExpression", "MemberExpression", "NewExpression", "ObjectExpression", "SequenceExpression", "ThisExpression", "UnaryExpression", "UpdateExpression"]
+def wrap_in_statement(expr):
+    statement = esprima.nodes.ExpressionStatement(expr)
+    statement.range = expr.range
+    return statement
 
 class LexicalScopedAbsInt(object):
     def __init__(self, ast, domain, name):
@@ -43,6 +50,7 @@ class LexicalScopedAbsInt(object):
 
         elif statement.type == "ExpressionStatement":
             yield [self.on_statement, state, statement]
+            yield [self.on_expression, state, statement.expression, False]
 
         elif statement.type == "IfStatement":
             yield [self.on_statement, state, statement]
@@ -368,9 +376,10 @@ class CodeTransform(object):
         self.pass_num += 1
 
 class ExpressionSimplifier(CodeTransform):
-    def __init__(self, ast, pures):
+    def __init__(self, ast, pures, simplify_undefs):
         super().__init__(ast, "Expression Simplifier")
         self.pures = pures
+        self.simplify_undefs = simplify_undefs
         self.id_pures = set()
 
     def after_statement(self, st, results):
@@ -430,13 +439,21 @@ class ExpressionSimplifier(CodeTransform):
             calls.append(c)
 
         #Find out if expression has a statically-known value
-        if isinstance(get_ann(o, "static_value"), JSPrimitive) and not get_ann(o, "is_updated"):
+        static_value = get_ann(o, "static_value")
+        if self.simplify_undefs and isinstance(static_value, JSOr):
+            for c in static_value.choices:
+                if isinstance(c, JSPrimitive):
+                    static_value = c
+                    break
+            set_ann(o, "static_value", static_value)
+
+        if isinstance(static_value, JSPrimitive) and not get_ann(o, "is_updated"):
             #TODO should put an UnaryExpression here in case of negative value
-            if (type(get_ann(o, "static_value").val) is int or type(get_ann(o, "static_value").val) is float) and get_ann(o, "static_value").val < 0:
+            if (type(static_value.val) is int or type(static_value.val) is float) and static_value.val < 0:
                 return calls
             else:
                 o.type = "Literal"
-                o.value = get_ann(o, "static_value").val
+                o.value = static_value.val
                 if o.value == "<<NULL>>":
                     o.value = None
                 if len(calls) > 0:
@@ -444,7 +461,6 @@ class ExpressionSimplifier(CodeTransform):
                     sequence = calls.copy()
                     sequence.append(o_copy)
                     seq_node = esprima.nodes.SequenceExpression(sequence)
-                    static_value = get_ann(o, "static_value")
                     o.__dict__ = seq_node.__dict__
                     set_ann(o, "static_value", static_value)
                     set_ann(o, "impure", True)
@@ -514,6 +530,44 @@ class VariableRenamer(CodeTransform):
                 a.name = self.rename(a.name)
         return True
 
+
+class LoopContextSelector(CodeTransform):
+    def __init__(self):
+        super().__init__()
+
+    def set_args(self, loop_id, loop_iter):
+        self.loop_id = loop_id
+        self.loop_iter = loop_iter
+
+    def after_expression(self, expr, results):
+        csv = get_ann(expr, "contextual_static_value")        
+
+        if csv is not None:
+            csv = csv.copy()
+            merged_value = None
+            bye=[]
+            add=[]
+            for context, contextual_value in csv.items():
+                if self.loop_id == context[-1][0]:                           
+                    if self.loop_iter == context[-1][1]:
+                        merged_value = State.value_join(merged_value, contextual_value)
+                        if len(context) > 1:
+                            add.append((context[0:-1], contextual_value))
+                    bye.append(context)
+            for context, contextual_value in add:
+                csv[LoopContext(context)] = contextual_value                
+
+            for b in bye:
+                del csv[b]        
+                
+            if csv == {}:
+                csv = None
+
+            set_ann(expr, "contextual_static_value", csv)
+            set_ann(expr, "static_value", merged_value)
+        return None
+
+
 class IdentSubst(CodeTransform):
     def __init__(self):
         super().__init__()
@@ -533,6 +587,13 @@ class FunctionInliner(CodeTransform):
     def __init__(self, ast):
         super().__init__(ast, "Function Inliner")
         self.subst = IdentSubst()
+        self.count = 0
+
+    def set_count(self, count):
+        self.count = count
+    
+    def get_count(self):
+        return self.count
 
     def get_return_expression(self, body):
             if body.type == "ReturnStatement":
@@ -543,15 +604,26 @@ class FunctionInliner(CodeTransform):
             return None
 
     def before_expression(self, o):
+        if o.type == "CallExpression" and not get_ann(o, "call_target.body"):
+             #o.leadingComments = [{"type":"Block", "value":" Unresolved "}]
+             pass
+            
         if o.type == "CallExpression" and get_ann(o, "call_target.body"):
             body = node_from_id(get_ann(o, "call_target.body"))
             ret_expr = self.get_return_expression(body)
+            
             if ret_expr is not None:
                 ret_expr_copy = node_copy(ret_expr)
                 self.subst.formal = get_ann(o, "call_target.params")
                 self.subst.effective = o.arguments
                 call(self.subst.do_expr, ret_expr_copy)                
                 node_assign(o, ret_expr_copy) #, ["static_value"])
+                #o.leadingComments = [{"type":"Block", "value":" Inlined "}]
+                self.count += 1
+            else:
+                pass
+                #o.leadingComments = [{"type":"Block", "value":" NotInlined "}]
+
         return True
 
 class DeadCodeRemover(CodeTransform):
@@ -568,21 +640,35 @@ class DeadCodeRemover(CodeTransform):
 class LoopUnroller(CodeTransform):
     def __init__(self, ast):
         super().__init__(ast, "Loop Unroller")
+        self.fixer = LoopContextSelector()
 
-    def before_statement(self, o):
+    def after_statement(self, o, dummy):
+        
         if (o.type == "WhileStatement" or o.type == "ForStatement") and type(get_ann(o, "unrolled")) is list:
+            loop_id = id_from_node(o)
             u = get_ann(o, "unrolled")
 
             unrolled_size = 0
-            for i in u:
-                st = node_from_id(i)                
+            for i in u:   
+                if i == "START_ITER":
+                    continue
+                st = node_from_id(i)                                
                 unrolled_size += st.range[1] - st.range[0]  
 
-            if True or unrolled_size / (o.range[1] - o.range[0]) < max_unroll_ratio:
+            if unrolled_size / (o.range[1] - o.range[0]) < max_unroll_ratio:
                 o.type = "BlockStatement"
                 o.body = []
-                for i in u:                    
-                    o.body.append(node_from_id(i))
+                loop_iter = -1       
+                for i in u:
+                    if i == "START_ITER":
+                        loop_iter += 1
+                        continue
+                    st = node_copy(node_from_id(i))
+                    if st.type in EXPRESSIONS:
+                        st = wrap_in_statement(st)                    
+                    self.fixer.set_args(loop_id, loop_iter)
+                    call(self.fixer.do_statement, st)                                                
+                    o.body.append(st)
                 o.leadingComments = [{"type":"Block", "value":" Begin unrolled loop "}]
                 o.trailingComments = [{"type":"Block", "value":" End unrolled loop "}]
                 del_ann(o, "unrolled")

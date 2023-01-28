@@ -24,3 +24,7 @@ process_not_taken = False #workaround for probably incorrect boolean evaluation
 merge_switch = False #force switch discriminant to be JSTop
 regexp_rename = ['_0x', '............................', '_____*']
 rename_length = 3
+
+max_loop_context = 32
+max_loop_context_nesting = 1
+
