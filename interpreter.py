@@ -6,12 +6,9 @@ from node_tools import node_copy, get_ann, set_ann, id_from_node, del_ann, copy_
 from typing import Set, Union, List, Dict, Optional, Callable
 
 import re
-SITE = 0
-
 import esprima
 import plugin_manager
 import config
-import sys
 import bisect
 
 glob_log = set()
@@ -22,32 +19,6 @@ class LoopContext(list):
 
     def copy(self):
         return LoopContext(self)
-
-def fn_cons(state, expr, this, *args):
-    raw_body = args[-1]
-    fn_args = args[0:-1] #TODO
-    if raw_body is JSTop:
-        return JSTop #TODO should clear entire state here
-    if isinstance(raw_body, JSPrimitive) and type(raw_body.val) is str:
-        fn_body = "(function() {" + raw_body.val + "})"
-        ast = esprima.parse(fn_body, options={ 'range': True})
-        i = Interpreter(ast, fn_body, True)
-        i.run(state)
-        set_ann(expr, "fn_cons", ast.body)
-        return state.value
-    else:
-        return JSTop
-def eval_fct(state, expr, target):
-    if target is JSTop:
-        return JSTop #TODO should clear entire state here
-    if isinstance(target, JSPrimitive) and type(target.val) is str:
-        ast = esprima.parse(target.val, options={ 'range': True})
-        i = Interpreter(ast, target.val, True)
-        i.run(state)
-        set_ann(expr, "eval", ast.body)
-        return state.value
-    else:
-        return target
 
 class Interpreter(object):
     def __init__(self, ast, data, quiet=False):
@@ -1363,27 +1334,19 @@ class Interpreter(object):
         self.closure = False
 
         if entry_state is None:
+            plugin_manager.initialize()
             state = State(glob=True, bottom=False)
-
-            
-            eval_obj = plugin_manager.register_preexisting_object(JSObject.simfct(eval_fct))
-            plugin_manager.register_global_symbol("eval", JSRef(eval_obj))
 
             deferred_obj = plugin_manager.register_preexisting_object(JSObject({}))
             plugin_manager.register_global_symbol("___deferred", JSRef(deferred_obj))
             
-            fn_cons_obj = plugin_manager.register_preexisting_object(JSObject.simfct(fn_cons))
 
             for (ref_id, obj) in plugin_manager.preexisting_objects:
                 state.objs[ref_id] = obj
             
             for (name, value) in plugin_manager.global_symbols:
                 state.objs[state.gref].properties[name] = value
-            
-            for (name, value) in plugin_manager.global_symbols:
-                if name == "Number":
-                    state.objs[value.target()].properties["constructor"] = JSRef(fn_cons_obj)
-            
+           
             State.set_next_id(plugin_manager.ref_id)
         else:
             state = entry_state

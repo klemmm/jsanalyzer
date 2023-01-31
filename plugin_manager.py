@@ -1,5 +1,7 @@
 import abstract
 import config
+import interpreter
+import node_tools
 
 JSOr = abstract.JSOr
 JSBot = abstract.JSBot
@@ -11,6 +13,8 @@ JSRef = abstract.JSRef
 State = abstract.State
 JSSpecial = abstract.JSSpecial
 MissingMode = abstract.MissingMode
+set_ann = node_tools.set_ann
+get_ann = node_tools.get_ann
 
 ref_id = 1 # id 0 is reserved for global scope
 binary_handlers = []
@@ -18,7 +22,6 @@ update_handlers = []
 unary_handlers = []
 global_symbols = []
 preexisting_objects = []
-
 
 class Data(object):
     source = "" 
@@ -130,5 +133,29 @@ def lift_or(f):
 
 abs_to_bool = lift_or(lift_top(to_bool))
 
-for p in config.enabled_plugins:
-    __import__("plugins." + p)
+
+class DependencyManager(object):
+    def __init__(self):
+        super(DependencyManager, self).__setattr__('dict', {})
+
+    def __getattr__(self, name):
+        return self.dict[name]
+
+    def __setattr__(self, name, val):
+        self.dict[name] = val
+
+dm = DependencyManager()
+
+def initialize():
+    global Interpreter
+    Interpreter = interpreter.Interpreter
+
+    inject = ["Data", "Interpreter", "JSOr", "JSBot", "JSTop", "JSUndefNaN", "JSPrimitive", "JSObject", "JSRef", "State", "JSSpecial", "MissingMode", "set_ann", "get_ann", "register_update_handler", "register_preexisting_object", "register_binary_handler", "register_unary_handler", "lift_or", "to_bool", "register_global_symbol", "register_method_hook"]
+    for p in config.enabled_plugins:
+        plugin_module = __import__("plugins." + p)
+        getattr(plugin_module, p).Interpreter = interpreter.Interpreter
+        for i in inject:
+            setattr(getattr(plugin_module, p), i, globals()[i])
+        getattr(plugin_module, p).initialize()
+        
+    
