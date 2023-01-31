@@ -595,7 +595,7 @@ class EvalReplacer(CodeTransform):
     def before_expression(self, o):
         if o is None:
             return False
-        if get_ann(o, "eval") is not None:
+        if get_ann(o, "eval") is not None:            
             block = esprima.nodes.BlockStatement(get_ann(o, "eval"))            
             block.live = True
             o.arguments = [block] #TODO not valid JS 
