@@ -85,9 +85,6 @@ if not args.no_constant_member_rewrite:
     code_transformers.ConstantMemberSimplifier(ast).run()
 
 
-
-  
-
 if not args.no_simplify_flow: #Breaks call target annotations (FIXME TODO)
     code_transformers.LoopUnroller(ast).run()
 
@@ -98,8 +95,7 @@ if not args.no_simplify_calls: #May break contextual static values loop id
         inliner.run()
         if inliner.get_count() == 0:
             break  
-    
-    
+      
 if not args.no_simplify_expr:
     code_transformers.ExpressionSimplifier(ast, pures, args.simplify_undef).run()
 

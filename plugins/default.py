@@ -2,6 +2,8 @@ import re
 import base64
 import urllib.parse
 import esprima
+import sys
+from ctypes import *
 from typing import Callable
 
 ###
@@ -33,6 +35,66 @@ register_method_hook : Callable = None
 Interpreter : object = None
 Data : object = None
 ###
+
+class JSCType(object):
+    NUMBER = 0
+    STRING = 1
+
+class JSCData(Union):
+    _fields_ = [("s", c_char_p), ("n", c_double)]
+
+class JSCPrimitive(Structure):
+    _fields_ = [("type", c_int), ("data", JSCData)]
+
+def initialize():
+    return __funcs
+
+def register_function(d):
+    __funcs.register_function(d.encode("utf-8"))
+
+def concretize(a):
+    if isinstance(a, JSPrimitive):
+        if type(a.val) is int or type(a.val) is float:
+            r = JSCPrimitive()
+            r.type = JSCType.NUMBER
+            r.data.n = a.val
+            return r
+        elif type(a.val) is str:
+            r = JSCPrimitive()
+            r.type = JSCType.STRING
+            r.data.s = a.val.encode("utf-8")
+            return r
+    raise NotImplementedError
+
+def abstract(c):
+    if c.type == JSCType.NUMBER:
+        return JSPrimitive(c.data.n)
+    elif c.type == JSCType.STRING:
+        return JSPrimitive(c.data.s.decode("utf-8"))
+    else:
+        raise NotImplementedError
+
+def call_function(name, args):
+    c_args = (JSCPrimitive * len(args))()
+    for i in range(len(args)):
+        c_args[i] = concretize(args[i])
+    __funcs.call_function.argtypes = [c_char_p, POINTER(JSCPrimitive*len(args)), c_int]
+    res =__funcs.call_function(name.encode("utf-8"), byref(c_args), len(args))
+    abs_res = abstract(res)
+    __funcs.free_val(res)
+    return abs_res
+
+def init_duktape_binding():
+    global __funcs
+    try:
+        __funcs = CDLL(sys.path[0] + "/jseval.so")
+    except OSError as e:
+        print("Please compile the jseval.so library by typing \"make\" in the project main directory")
+        raise e
+    __funcs.initialize()
+    __funcs.register_function.argtypes = [c_char_p]
+    __funcs.call_function.restype = JSCPrimitive
+    
 
 def initialize():    
     def update_handler(opname, state, abs_arg):
@@ -99,7 +161,7 @@ def initialize():
             return JSTop
 
 
-    def binary_handler(opname, state, abs_arg1, abs_arg2):
+    def old_binary_handler(opname, state, abs_arg1, abs_arg2):
         if opname == "instanceof":
             if isinstance(abs_arg2, JSRef) and abs_arg2.target() == function_ref and isinstance(abs_arg1, JSRef) and state.objs[abs_arg1.target()].is_callable():
                 return JSPrimitive(True)
@@ -663,6 +725,18 @@ def initialize():
             return state.value
         else:
             return target
+
+
+    def binary_handler(opname, state, abs_arg1, abs_arg2):
+        if isinstance(abs_arg1, JSPrimitive) and isinstance(abs_arg2, JSPrimitive):
+            if opname == "+":
+                return call_function("add", [abs_arg1, abs_arg2])
+            else:
+                raise NotImplementedError # TODO
+        return JSTop
+
+    init_duktape_binding()
+    register_function("function add(a, b) { return a + b }")
 
     register_update_handler(update_handler)
     register_unary_handler(unary_handler)
