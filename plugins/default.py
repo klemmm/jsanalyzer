@@ -11,7 +11,7 @@ JSValue : object = None
 JSOr : JSValue = None
 JSBot : JSValue = None
 JSTop : JSValue = None
-JSUndefNaN : JSValue = None
+JSUndef : JSValue = None
 JSPrimitive : JSValue = None
 JSObject : JSValue = None
 JSRef : JSValue = None
@@ -124,9 +124,9 @@ def initialize():
                 elif type(abs_arg.val) is str:
                     return JSPrimitive(~interpret_as_number(state, abs_arg))
                 else:
-                    return JSUndefNaN
-            elif abs_arg is JSUndefNaN:
-                return JSUndefNaN
+                    return JSUndef #TODO
+            elif abs_arg is JSUndef:
+                return JSUndef #TODO
             else:
                 return JSTop
         elif opname == "-":
@@ -136,14 +136,14 @@ def initialize():
                 elif type(abs_arg.val) is str:
                     return JSPrimitive(-interpret_as_number(state, abs_arg))
                 else:
-                    return JSUndefNaN
-            elif abs_arg is JSUndefNaN:
-                return JSUndefNaN
+                    return JSUndef #TODO
+            elif abs_arg is JSUndef:
+                return JSUndef
             else:
                 return JSTop
         elif opname == "typeof":
-            if abs_arg is JSUndefNaN:
-                return JSPrimitive("undefined") #TODO
+            if abs_arg is JSUndef:
+                return JSPrimitive("undefined")
             elif isinstance(abs_arg, JSPrimitive):
                 if type(abs_arg.val) is str:
                     return JSPrimitive("string")
@@ -187,17 +187,17 @@ def initialize():
                 return JSPrimitive(True)
             return JSPrimitive(abs_arg1 != abs_arg2) #TODO actually incorrect if test is undefined === NaN
         
-        if (opname == "===" or opname == "==") and (abs_arg1 is JSUndefNaN or abs_arg2 is JSUndefNaN): #TODO incorrect if test is undefined == undefined
+        if (opname == "===" or opname == "==") and (abs_arg1 is JSUndef or abs_arg2 is JSUndef): #TODO incorrect if test is undefined == undefined
             return JSPrimitive(type(abs_arg1) == type(abs_arg2))
         
         if opname == "+":
-            if abs_arg1 is JSUndefNaN:
+            if abs_arg1 is JSUndef:
                 abs_arg1 = JSPrimitive("undefined")
             
-            if abs_arg2 is JSUndefNaN:
+            if abs_arg2 is JSUndef:
                 abs_arg2 = JSPrimitive("undefined")
-        if (abs_arg1 is JSUndefNaN or abs_arg2 is JSUndefNaN): #TODO incorrect if test is undefined == undefined
-            return JSUndefNaN
+        if (abs_arg1 is JSUndef or abs_arg2 is JSUndef): #TODO incorrect if test is undefined == undefined
+            return JSUndef #TODO
 
         if opname == "+":
             if isinstance(abs_arg1, JSRef) and state.objs[abs_arg1.target()].is_function() and isinstance(abs_arg2, JSPrimitive) and type(abs_arg2.val) is str:
@@ -239,12 +239,12 @@ def initialize():
                 if type(arg1) is str:
                     arg1 = str_to_number(arg1)
                     if arg1 is None:
-                        arg1 = JSUndefNaN
+                        arg1 = JSPrimitive(float("nan"))
 
                 if type(arg2) is str:
                     arg2 = str_to_number(arg2)
                     if arg2 is None:
-                        arg2 = JSUndefNaN
+                        arg2 = JSPrimitive(float("nan"))
 
             if (opname == "==" or opname == "===") and (type(arg1) is re.Pattern or type(arg2) is re.Pattern):
                 return JSPrimitive(False) #TODO not always correct
@@ -261,11 +261,11 @@ def initialize():
                 r = arg1 * arg2
             elif opname == "/":
                 if arg2 == 0:
-                    return JSUndefNaN
+                    return JSPrimitive(float("nan"))
                 r = arg1 / arg2
             elif opname == "%":
                 if arg2 == 0:
-                    return JSUndefNaN
+                    return JSPrimitive(float("nan"))
                 r = arg1 % arg2
             elif opname == ">":
                 r = arg1 > arg2
@@ -313,7 +313,7 @@ def initialize():
             #print(expr.arguments[i])
             i += 1
         print("")
-        return JSUndefNaN
+        return JSUndef
 
 
     def string_fromcharcode(state, expr, obj, code):
@@ -332,19 +332,19 @@ def initialize():
 
 
     def parse_int(state, expr, s, base=JSPrimitive(10)):
-        if s is JSUndefNaN:
-            return JSUndefNaN
+        if s is JSUndef:
+            return JSUndef
         if isinstance(s, JSPrimitive) and type(s.val) is int:
             s = JSPrimitive(str(s.val))
         if isinstance(s, JSPrimitive) and type(s.val) is str and isinstance(base, JSPrimitive) and type(base.val) is int:
             if base.val > 36:
-                return JSUndefNaN
+                return JSPrimitive(float("nan"))
             alpha = ''
             if base.val > 10:
                 alpha = 'a-' + chr(ord('a') + base.val - 11)
             prefix = re.sub('[^0-9' + alpha + '].*', '', s.val.lower())
             if prefix == "":
-                return JSUndefNaN
+                return JSPrimitive(float("nan"))
             else:
                 return JSPrimitive(int(prefix, base.val))
         return JSTop
@@ -403,7 +403,7 @@ def initialize():
             arr.set_missing_mode(MissingMode.MISSING_IS_TOP) #TODO could improve precision
             return JSTop
         if arr.tablength == 0:
-            return JSUndefNaN
+            return JSUndef
         value = arr.properties[arr.tablength - 1]
         del arr.properties[arr.tablength - 1]
         arr.tablength -= 1
@@ -426,7 +426,7 @@ def initialize():
             arr.properties.clear()
             arr.set_missing_mode(MissingMode.MISSING_IS_TOP) #TODO could improve precision
         if arr.tablength == 0:
-            return JSUndefNaN
+            return JSUndef
         indexes = sorted([i for i in arr.properties if type(i) is int])
         if 0 in indexes:
             retval = arr.properties[0]
@@ -434,7 +434,7 @@ def initialize():
             del indexes[0]
             arr.tablength -= 1
         else:
-            retval = JSUndefNaN
+            retval = JSUndef
         for i in indexes:
             arr.properties[i - 1] = arr.properties[i]
             del arr.properties[i]
@@ -526,7 +526,7 @@ def initialize():
                 return interpret_as_number(state, obj.properties[0])
             else:
                 return 0
-        elif value is JSUndefNaN:
+        elif value is JSUndef:
             return 0
         else:
             raise ValueError("interpret_as_number: invalid value: " + str(value))
@@ -538,7 +538,7 @@ def initialize():
             return JSTop
         pos = interpret_as_number(state, position)
         if pos < 0 or pos >= len(string.val):
-            return JSUndefNaN
+            return JSUndef
         return JSPrimitive(ord(string.val[pos]))
 
     def string_charat(state, expr, string, position):
@@ -548,7 +548,7 @@ def initialize():
             return JSTop
         pos = interpret_as_number(state, position)
         if pos < 0 or pos >= len(string.val):
-            return JSUndefNaN
+            return JSUndef
         return JSPrimitive(string.val[pos])
 
     def string_substr(state, expr, string, start=JSPrimitive(0), length=JSPrimitive(None)):
@@ -561,12 +561,12 @@ def initialize():
         sta = interpret_as_number(state, start)
         leng = interpret_as_number(state, length)
         if sta < 0:
-            return JSUndefNaN
+            return JSUndef
         if leng is None:
             return JSPrimitive(string.val[sta:])
         else:
             if sta + leng > len(string.val):
-                return JSUndefNaN
+                return JSUndef
             else:
                 return JSPrimitive(string.val[sta:sta + leng])
 
@@ -580,12 +580,12 @@ def initialize():
         sta = interpret_as_number(state, start)
         end = interpret_as_number(state, end)
         if sta < 0:
-            return JSUndefNaN
+            return JSUndef
         if end is None:
             return JSPrimitive(string.val[sta:])
         else:
             if end > len(string.val):
-                return JSUndefNaN
+                return JSUndef
             else:
                 return JSPrimitive(string.val[sta:end])
 
@@ -696,7 +696,7 @@ def initialize():
         else:
             this.set_missing_mode(MissingMode.MISSING_IS_TOP)
             this.properties.clear()
-        return JSUndefNaN
+        return JSUndef
 
 
     def fn_cons(state, expr, this, *args):
@@ -740,7 +740,7 @@ def initialize():
 
     register_update_handler(update_handler)
     register_unary_handler(unary_handler)
-    register_binary_handler(lift_or(binary_handler))
+    register_binary_handler(lift_or(old_binary_handler))
 
     string_fromcharcode_ref = register_preexisting_object(JSObject.simfct(string_fromcharcode, True))
     string_ref = register_preexisting_object(JSObject({"fromCharCode": JSRef(string_fromcharcode_ref)}))

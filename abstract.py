@@ -144,13 +144,13 @@ class State(object):
         else:
             for k in obj1.properties:
                 if not k in obj2.properties:
-                    obj1.properties[k] = State.value_join(JSUndefNaN, obj1.properties[k])
+                    obj1.properties[k] = State.value_join(JSUndef, obj1.properties[k])
                 else:
                     if not State.value_equal(obj1.properties[k], obj2.properties[k]):
                         obj1.properties[k] = State.value_join(obj1.properties[k], obj2.properties[k])
             for k in obj2.properties:
                 if not k in obj1.properties:
-                    obj1.properties[k] = State.value_join(JSUndefNaN, obj2.properties[k])
+                    obj1.properties[k] = State.value_join(JSUndef, obj2.properties[k])
         
     @staticmethod
     def value_equal(v1 : 'JSValue', v2 : 'JSValue') -> bool:
@@ -178,7 +178,7 @@ class State(object):
             return False
         if len(s) > 2:
             return False
-        return JSUndefNaN in s
+        return JSUndef in s
 
     @staticmethod
     def value_join(v1 : 'JSValue', v2 : 'JSValue') -> 'JSValue':
@@ -919,10 +919,10 @@ class JSSpecial(JSValue):
         """
         Class constructor
 
-        :param str name: Either "Top", "Bot" or "JSUndefNaN"
+        :param str name: Either "Top", "Bot" "Null", or "Undef"
         """
         self.name : str = name
-        """ Either "Top", "Bot" or "JSUndefNaN" """
+        """ Either "Top", "Bot" or "JSUndef" """
 
     def clone(self) -> 'JSSpecial':
         return self
@@ -944,7 +944,8 @@ class JSSpecial(JSValue):
     def contains_top(self) -> bool:
         return self.name == "Top"
 
-JSUndefNaN = JSSpecial("Undef/NaN") #represents NaN or undefined
+JSUndef = JSSpecial("Undef")
+JSNull = JSSpecial("Null")
 JSTop = JSSpecial("Top")
 JSBot = JSSpecial("Bot")
 
@@ -1176,7 +1177,7 @@ class JSObject(JSValue):
             if self.missing_mode == MissingMode.MISSING_IS_TOP:
                 return JSTop
             else:
-                return JSUndefNaN
+                return JSUndef
         return r
 
 class JSRef(JSValue):

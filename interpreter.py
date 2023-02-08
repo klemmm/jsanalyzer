@@ -1,5 +1,5 @@
 import esprima
-from abstract import State, JSObject, JSUndefNaN, JSTop, JSBot, JSRef, JSPrimitive, JSValue, MissingMode, JSOr, JSSpecial, GCConfig
+from abstract import State, JSObject, JSNull, JSUndef, JSTop, JSBot, JSRef, JSPrimitive, JSValue, MissingMode, JSOr, JSSpecial, GCConfig
 from debug import debug
 from tools import call, Try, Raise, Except
 from node_tools import node_copy, get_ann, set_ann, id_from_node, del_ann, copy_all_ann, node_from_id, node_equals
@@ -57,7 +57,7 @@ class Interpreter(object):
 
         if isinstance(callee_ref, JSOr) and config.use_filtering_err:
             #print("Or in call:", callee_ref)
-            c = callee_ref.choices.difference({JSUndefNaN})
+            c = callee_ref.choices.difference({JSUndef})
             if len(c) == 1:
                 target, prop, target_id = yield [self.use_lvalue, state, expr.callee, consumed_refs]
                 target.properties[prop] = list(c)[0]
@@ -282,7 +282,7 @@ class Interpreter(object):
             self.loop_context = saved_loop_context
             
             if return_value is None:
-                return JSUndefNaN
+                return JSUndef
 
             return return_value
         else:
@@ -376,7 +376,7 @@ class Interpreter(object):
 
         if isinstance(abs_target, JSOr) and config.use_filtering_err:
             #print("Or in usemember!", abs_target)
-            c = abs_target.choices.difference({JSUndefNaN})
+            c = abs_target.choices.difference({JSUndef})
             if len(c) == 1:
                 parent_target, parent_prop, parent_target_id = yield [self.use_lvalue, state, expr.object, consumed_refs]
                 parent_target.properties[parent_prop] = list(c)[0]
@@ -395,7 +395,7 @@ class Interpreter(object):
             state.consume_expr(abs_property, consumed_refs)
             if abs_property is JSTop or isinstance(abs_property, JSOr):
                 prop = None
-            elif abs_property == JSUndefNaN:
+            elif abs_property == JSUndef:
                 prop = "__undefined"
             elif isinstance(abs_property, JSPrimitive):
                 prop = abs_property.val
@@ -418,13 +418,12 @@ class Interpreter(object):
             return JSTop
         if expr.type == "Literal":
             if expr.value is None:
-                return JSPrimitive("<<NULL>>") #TODO
-                #return JSUndefNaN
+                return JSNull
             return JSPrimitive(expr.value)
 
         elif expr.type == "Identifier":
             if expr.name == "undefined":
-                return JSUndefNaN
+                return JSUndef
             scope = state.scope_lookup(expr.name)
             if scope != state.objs[state.lref] and scope != state.objs[state.gref]:
                 self.closure = True
@@ -597,7 +596,7 @@ class Interpreter(object):
                     if prop >= 0 and prop < len(target.val):
                         ret = JSPrimitive(target.val[prop])
                     else:
-                        ret = JSUndefNaN
+                        ret = JSUndef
                     state.pending.difference_update(consumed_refs)
                     return ret
                 if prop == "length":
@@ -635,7 +634,7 @@ class Interpreter(object):
             elif isinstance(target,JSPrimitive) and type(target.val) is re.Pattern:
                 if prop == "source":
                     return JSPrimitive(target.val.pattern)
-                return JSUndefNaN
+                return JSUndef
             else:
                 state.pending.difference_update(consumed_refs)
                 return JSTop
@@ -728,7 +727,7 @@ class Interpreter(object):
         if decl.type == "VariableDeclarator":
             if hoisting or decl.init is None: #Only declaration (set value to undefined)
                 scope = state.objs[state.lref].properties
-                scope[decl.id.name] = JSUndefNaN
+                scope[decl.id.name] = JSUndef
             else:
                 saved_unroll_trace = self.unroll_trace
                 self.unroll_trace = None
@@ -1017,9 +1016,9 @@ class Interpreter(object):
         else:
             return
   
-        if (condition.left.type == "Identifier" or condition.left.type == "MemberExpression") and (isinstance(get_ann(condition.right, "static_value"), JSPrimitive) or (get_ann(condition.right, "static_value") is JSUndefNaN)):
+        if (condition.left.type == "Identifier" or condition.left.type == "MemberExpression") and (isinstance(get_ann(condition.right, "static_value"), JSPrimitive) or (get_ann(condition.right, "static_value") is JSUndef)):
             left, right = condition.left, condition.right
-        elif (condition.right.type == "Identifier" or condition.right.type == "MemberExpression") and (isinstance(get_ann(condition.left, "static_value"), JSPrimitive) or (get_ann(condition.left, "static_value") is JSUndefNaN)):
+        elif (condition.right.type == "Identifier" or condition.right.type == "MemberExpression") and (isinstance(get_ann(condition.left, "static_value"), JSPrimitive) or (get_ann(condition.left, "static_value") is JSUndef)):
             right, left = condition.left, condition.right
         else:
             return
@@ -1134,7 +1133,7 @@ class Interpreter(object):
         #return_state will be used as the state after the function call
         #also we merge return_value as the upper bound of all possible return values
         if argument is None:
-            arg_val = JSUndefNaN
+            arg_val = JSUndef
         else:
             arg_val = yield [self.eval_expr, state, argument] 
             if state.is_bottom:

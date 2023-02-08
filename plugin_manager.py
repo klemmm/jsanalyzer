@@ -2,11 +2,13 @@ import abstract
 import config
 import interpreter
 import node_tools
+import math
 
 JSOr = abstract.JSOr
 JSBot = abstract.JSBot
 JSTop = abstract.JSTop
-JSUndefNaN = abstract.JSUndefNaN
+JSUndef = abstract.JSUndef
+JSNull = abstract.JSNull
 JSPrimitive = abstract.JSPrimitive
 JSObject = abstract.JSObject
 JSRef = abstract.JSRef
@@ -30,22 +32,26 @@ def set_source(_source):
     Data.source = _source
 
 def to_bool(v):
-    if v is JSUndefNaN:
+    if v is JSUndef:
         return False
 
     if isinstance(v, JSPrimitive):
-        if type(v.val) is int:
+        if type(v.val) is float:
+            return (v.val != 0) and not math.isnan(v.val)
+        elif type(v.val) is int:
             return v.val != 0
         elif type(v.val) is bool:
             return v.val
         elif type(v.val) is str:
-            if v.val == "<<NULL>>":
-                return 0
             return len(v.val) > 0
         else:
             raise ValueError("truth_value: unhandled concrete type" + str(type(v.val)))
     elif isinstance(v, JSRef):
-        return True
+        return True #TODO wrong!
+    elif v is JSUndef:
+        return False
+    elif v is JSNull:
+        return False
     else:
         raise ValueError("truth_value: unhandled abstract type" + str(type(v)) + "(value: " + str(v) + ")")
 
@@ -150,7 +156,7 @@ def initialize():
     global Interpreter
     Interpreter = interpreter.Interpreter
 
-    inject = ["Data", "Interpreter", "JSOr", "JSBot", "JSTop", "JSUndefNaN", "JSPrimitive", "JSObject", "JSRef", "State", "JSSpecial", "MissingMode", "set_ann", "get_ann", "register_update_handler", "register_preexisting_object", "register_binary_handler", "register_unary_handler", "lift_or", "to_bool", "register_global_symbol", "register_method_hook"]
+    inject = ["Data", "Interpreter", "JSOr", "JSBot", "JSTop", "JSUndef", "JSNull", "JSPrimitive", "JSObject", "JSRef", "State", "JSSpecial", "MissingMode", "set_ann", "get_ann", "register_update_handler", "register_preexisting_object", "register_binary_handler", "register_unary_handler", "lift_or", "to_bool", "register_global_symbol", "register_method_hook"]
     for p in config.enabled_plugins:
         plugin_module = __import__("plugins." + p)
         getattr(plugin_module, p).Interpreter = interpreter.Interpreter
