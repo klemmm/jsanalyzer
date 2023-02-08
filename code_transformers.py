@@ -1,7 +1,8 @@
 import random
 import esprima
 import re
-from abstract import JSPrimitive, JSRef, State, JSOr, JSNull
+import math
+from abstract import JSPrimitive, JSRef, State, JSOr, JSNull, JSUndef
 from tools import call
 from config import regexp_rename, rename_length, simplify_expressions, simplify_function_calls, simplify_control_flow, max_unroll_ratio, remove_dead_code
 from functools import reduce
@@ -447,24 +448,28 @@ class ExpressionSimplifier(CodeTransform):
                     break
             set_ann(o, "static_value", static_value)
 
-        if (isinstance(static_value, JSPrimitive) or static_value is JSNull) and not get_ann(o, "is_updated"):
-            #TODO should put an UnaryExpression here in case of negative value
-            if (type(static_value.val) is int or type(static_value.val) is float) and static_value.val < 0:
+        
+        if isinstance(static_value, JSPrimitive):
+            if type(static_value.val) is int:
+                if static_value.val < 0:
+                     return calls                      
+            if type(static_value.val) is float and (static_value.val < 0 or not math.isfinite(static_value.val)):
                 return calls
+            
+        if (isinstance(static_value, JSPrimitive) or static_value == JSNull) and not get_ann(o, "is_updated"):            
+            o.type = "Literal"
+            if static_value == JSNull:
+                o.value = None
             else:
-                o.type = "Literal"
-                if static_value is JSNull:
-                    o.value = None
-                else:
-                    o.value = static_value.val
-                if len(calls) > 0:
-                    o_copy = esprima.nodes.Literal(o.value, o.raw)
-                    sequence = calls.copy()
-                    sequence.append(o_copy)
-                    seq_node = esprima.nodes.SequenceExpression(sequence)
-                    o.__dict__ = seq_node.__dict__
-                    set_ann(o, "static_value", static_value)
-                    set_ann(o, "impure", True)
+                o.value = static_value.val
+            if len(calls) > 0:
+                o_copy = esprima.nodes.Literal(o.value, o.raw)
+                sequence = calls.copy()
+                sequence.append(o_copy)
+                seq_node = esprima.nodes.SequenceExpression(sequence)
+                o.__dict__ = seq_node.__dict__
+                set_ann(o, "static_value", static_value)
+                set_ann(o, "impure", True)
         return calls
 
 class VariableRenamer(CodeTransform):

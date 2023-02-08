@@ -47,7 +47,7 @@ def to_bool(v):
         else:
             raise ValueError("truth_value: unhandled concrete type" + str(type(v.val)))
     elif isinstance(v, JSRef):
-        return True #TODO wrong!
+        return True # !![] is true
     elif v is JSUndef:
         return False
     elif v is JSNull:

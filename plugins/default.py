@@ -16,6 +16,7 @@ JSPrimitive : JSValue = None
 JSObject : JSValue = None
 JSRef : JSValue = None
 JSSpecial : object = None
+JSNull : JSValue = None
 
 State : object = None
 
@@ -39,15 +40,15 @@ Data : object = None
 class JSCType(object):
     NUMBER = 0
     STRING = 1
+    UNDEFINED = 2
+    NUL = 3
+    BOOL = 4
 
 class JSCData(Union):
-    _fields_ = [("s", c_char_p), ("n", c_double)]
+    _fields_ = [("s", c_char_p), ("n", c_double), ("b", c_int)]
 
 class JSCPrimitive(Structure):
     _fields_ = [("type", c_int), ("data", JSCData)]
-
-def initialize():
-    return __funcs
 
 def register_function(d):
     __funcs.register_function(d.encode("utf-8"))
@@ -64,13 +65,31 @@ def concretize(a):
             r.type = JSCType.STRING
             r.data.s = a.val.encode("utf-8")
             return r
+        elif type(a.val) is bool:
+            r = JSCPrimitive()
+            r.type = JSCType.BOOL
+            r.data.b = a.val
+            return r
+    elif a is JSUndef:
+        r = JSCPrimitive()
+        r.type = JSCType.UNDEFINED
+    elif a is JSNull:
+        r = JSCPrimitive()
+        r.type = JSCType.NUL
     raise NotImplementedError
+
 
 def abstract(c):
     if c.type == JSCType.NUMBER:
         return JSPrimitive(c.data.n)
     elif c.type == JSCType.STRING:
         return JSPrimitive(c.data.s.decode("utf-8"))
+    elif c.type == JSCType.UNDEFINED:
+        return JSUndef
+    elif c.type == JSCType.NUL:
+        return JSNull
+    elif c.type == JSCType.BOOL:
+        return JSPrimitive(c.data.b != 0)        
     else:
         raise NotImplementedError
 
@@ -109,7 +128,7 @@ def initialize():
         else:
             return JSTop
 
-    def unary_handler(opname, state, abs_arg):
+    def old_unary_handler(opname, state, abs_arg):
         if abs_arg is JSTop:
             return JSTop
         if isinstance(abs_arg, JSOr):
@@ -727,20 +746,51 @@ def initialize():
             return target
 
 
-    def binary_handler(opname, state, abs_arg1, abs_arg2):
-        if isinstance(abs_arg1, JSPrimitive) and isinstance(abs_arg2, JSPrimitive):
-            if opname == "+":
-                return call_function("add", [abs_arg1, abs_arg2])
-            else:
-                raise NotImplementedError # TODO
-        return JSTop
-
     init_duktape_binding()
-    register_function("function add(a, b) { return a + b }")
+
+    auto_binops = ["+", "-", "*", "/", "%", ">", "<", ">=", "<=", "==", "!=", "===", "!==", "^", "|", "&", "<<", ">>"]
+    binop_to_fn = {}
+        
+    for i in range(len(auto_binops)):
+        fname = "binop_" + str(i)
+        binop_to_fn[auto_binops[i]] = fname
+        register_function("function " + fname + "(a, b) { return a " + auto_binops[i] + " b }")
+
+    auto_unops = ["+", "-", "!", "~"]
+    unop_to_fn = {}
+
+    for i in range(len(auto_unops)):
+        fname = "unop_" + str(i)
+        unop_to_fn[auto_unops[i]] = fname
+        register_function("function " + fname + "(a) { return " + auto_unops[i] + " a }")
+
+
+    def unary_handler(opname, state, abs_arg):
+        if abs_arg is JSTop:
+            return JSTop
+        
+        if isinstance(abs_arg, JSRef):
+            return JSTop
+        
+        if opname in auto_unops:
+            return call_function(unop_to_fn[opname], [abs_arg])
+        return JSTop
+    
+    def binary_handler(opname, state, abs_arg1, abs_arg2):
+        if abs_arg1 is JSTop or abs_arg2 is JSTop:
+            return JSTop
+        
+        if isinstance(abs_arg1, JSRef) or isinstance(abs_arg2, JSRef):            
+            raise JSTop #TODO
+
+        if opname in auto_binops:
+            return call_function(binop_to_fn[opname], [abs_arg1, abs_arg2])
+        else:
+            return JSTop
 
     register_update_handler(update_handler)
-    register_unary_handler(unary_handler)
-    register_binary_handler(lift_or(old_binary_handler))
+    register_unary_handler(lift_or(unary_handler))
+    register_binary_handler(lift_or(binary_handler))
 
     string_fromcharcode_ref = register_preexisting_object(JSObject.simfct(string_fromcharcode, True))
     string_ref = register_preexisting_object(JSObject({"fromCharCode": JSRef(string_fromcharcode_ref)}))
