@@ -119,7 +119,7 @@ def init_duktape_binding():
 
 def initialize():    
     def update_handler(opname, state, abs_arg):
-        if isinstance(abs_arg, JSPrimitive) and type(abs_arg.val) is int:
+        if isinstance(abs_arg, JSPrimitive) and (type(abs_arg.val) is int or type(abs_arg.val is float)):
             if opname == "++":
                 return JSPrimitive(abs_arg.val + 1)
             elif opname == "--":
