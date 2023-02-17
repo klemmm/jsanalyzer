@@ -71,7 +71,6 @@ void free_val(jscval_t r) {
 jscval_t call_function(char *name, jscval_t *args, int nargs) {
 	jscval_t r;
 	int i;
-	printf("call func %s with %d arg(s)\n", name, nargs);
 	duk_get_global_string(ctx, name);
 	for (i = 0; i < nargs; i++) {
 		push_val(args[i]);
@@ -83,7 +82,6 @@ jscval_t call_function(char *name, jscval_t *args, int nargs) {
 }
 
 void register_function(char *def) {
-	printf("register func: %s\n", def);
 	duk_eval_string(ctx, def);
 	duk_pop(ctx);
 }

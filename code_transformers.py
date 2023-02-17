@@ -649,7 +649,8 @@ class LoopUnroller(CodeTransform):
         self.fixer = LoopContextSelector()
 
     def after_statement(self, o, dummy):
-        
+        if (o.type == "WhileStatement" or o.type == "ForStatement"):
+            print("unroll state:", get_ann(o, "unrolled"), get_ann(o, "reason"))
         if (o.type == "WhileStatement" or o.type == "ForStatement") and type(get_ann(o, "unrolled")) is list:
             loop_id = id_from_node(o)
             u = get_ann(o, "unrolled")

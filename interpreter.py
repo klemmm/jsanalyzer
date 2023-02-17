@@ -877,6 +877,7 @@ class Interpreter(object):
                     #raise ValueError
                     warned = True
                 unrolling = False
+                why = "maxiter reached"
 
             #print("condi: ", abs_test_result)
             if abs_test_result is JSTop or plugin_manager.to_bool(abs_test_result):
@@ -892,8 +893,10 @@ class Interpreter(object):
                         break
                     else:
                         unrolling = False #maybe some paths don't go through the break
+                        why = "maybe break"
                 if abs_test_result is JSTop:
                     unrolling = False
+                    why = "abs test is top"
                 else:
                     lastcond_is_true = True
                 #print("before exit:", state)
@@ -920,7 +923,7 @@ class Interpreter(object):
         else:
             set_ann(statement, "unrolled", False)
             if not unrolling:
-                set_ann(statement, "reason", "abstract test")
+                set_ann(statement, "reason", "not unrolling: " + why)
             else:
                 set_ann(statement, "reason", "infinite loop")
 

@@ -7,8 +7,10 @@ import pickle
 import json
 import code_transformers
 import argparse
+import resource
 from node_tools import mark_node_recursive, load_annotations
 
+resource.setrlimit(resource.RLIMIT_STACK, (2**29,-1))
 sys.setrecursionlimit(1000000)
 
 parser = argparse.ArgumentParser()

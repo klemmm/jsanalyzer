@@ -70,13 +70,15 @@ def concretize(a):
             r.type = JSCType.BOOL
             r.data.b = a.val
             return r
-    elif a is JSUndef:
+    elif a == JSUndef:
         r = JSCPrimitive()
         r.type = JSCType.UNDEFINED
-    elif a is JSNull:
+        return r
+    elif a == JSNull:
         r = JSCPrimitive()
         r.type = JSCType.NUL
-    raise NotImplementedError
+        return r
+    raise NotImplementedError(type(a), a, a == JSUndef)
 
 
 def abstract(c):
@@ -127,196 +129,7 @@ def initialize():
                 return JSTop
         else:
             return JSTop
-
-    def old_unary_handler(opname, state, abs_arg):
-        if abs_arg is JSTop:
-            return JSTop
-        if isinstance(abs_arg, JSOr):
-            return JSTop
-
-        if opname == "!":
-            return JSPrimitive(not to_bool(abs_arg))
-        elif opname == "~":
-            if isinstance(abs_arg, JSPrimitive):
-                if type(abs_arg.val) is int or type(abs_arg.val) is float:
-                    return JSPrimitive(~abs_arg.val)
-                elif type(abs_arg.val) is str:
-                    return JSPrimitive(~interpret_as_number(state, abs_arg))
-                else:
-                    return JSUndef #TODO
-            elif abs_arg is JSUndef:
-                return JSUndef #TODO
-            else:
-                return JSTop
-        elif opname == "-":
-            if isinstance(abs_arg, JSPrimitive):
-                if type(abs_arg.val) is int or type(abs_arg.val) is float:
-                    return JSPrimitive(-abs_arg.val)
-                elif type(abs_arg.val) is str:
-                    return JSPrimitive(-interpret_as_number(state, abs_arg))
-                else:
-                    return JSUndef #TODO
-            elif abs_arg is JSUndef:
-                return JSUndef
-            else:
-                return JSTop
-        elif opname == "typeof":
-            if abs_arg is JSUndef:
-                return JSPrimitive("undefined")
-            elif isinstance(abs_arg, JSPrimitive):
-                if type(abs_arg.val) is str:
-                    return JSPrimitive("string")
-                elif type(abs_arg.val) is int:
-                    return JSPrimitive("number")
-                else:
-                    return JSTop
-            elif isinstance(abs_arg, JSRef):
-                target = state.objs[abs_arg.target()]
-                if target.is_function() or target.is_simfct():
-                    return JSPrimitive("function")
-                return JSPrimitive("object")
-        else:
-            print("Unknown unary operation:", opname)
-            return JSTop
-
-
-    def old_binary_handler(opname, state, abs_arg1, abs_arg2):
-        if opname == "instanceof":
-            if isinstance(abs_arg2, JSRef) and abs_arg2.target() == function_ref and isinstance(abs_arg1, JSRef) and state.objs[abs_arg1.target()].is_callable():
-                return JSPrimitive(True)
-            else:
-                return JSTop
         
-    #    if opname == "===" and abs_arg1 is JSTop and abs_arg2 is JSUndefNaN or abs_arg1 is JSUndefNaN and abs_arg2 is JSTop:
-    #        return JSPrimitive(True) #hack pour faire marcher le truc d'incapsula
-
-        if abs_arg1 is JSTop or abs_arg2 is JSTop:
-            return JSTop
-
-        if abs_arg1 is JSBot or abs_arg2 is JSBot:
-            return JSBot
-
-        if opname == "===":
-            if type(abs_arg1) != type(abs_arg2):
-                return JSPrimitive(False)
-            return JSPrimitive(abs_arg1 == abs_arg2) #TODO actually incorrect if test is undefined === NaN
-        
-        if opname == "!==":
-            if type(abs_arg1) != type(abs_arg2):
-                return JSPrimitive(True)
-            return JSPrimitive(abs_arg1 != abs_arg2) #TODO actually incorrect if test is undefined === NaN
-        
-        if (opname == "===" or opname == "==") and (abs_arg1 is JSUndef or abs_arg2 is JSUndef): #TODO incorrect if test is undefined == undefined
-            return JSPrimitive(type(abs_arg1) == type(abs_arg2))
-        
-        if opname == "+":
-            if abs_arg1 is JSUndef:
-                abs_arg1 = JSPrimitive("undefined")
-            
-            if abs_arg2 is JSUndef:
-                abs_arg2 = JSPrimitive("undefined")
-        if (abs_arg1 is JSUndef or abs_arg2 is JSUndef): #TODO incorrect if test is undefined == undefined
-            return JSUndef #TODO
-
-        if opname == "+":
-            if isinstance(abs_arg1, JSRef) and state.objs[abs_arg1.target()].is_function() and isinstance(abs_arg2, JSPrimitive) and type(abs_arg2.val) is str:
-                return JSPrimitive(Data.source[state.objs[abs_arg1.target()].range[0]:state.objs[abs_arg1.target()].range[1]] + abs_arg2.val)
-            
-            if isinstance(abs_arg2, JSRef) and state.objs[abs_arg2.target()].is_function() and isinstance(abs_arg1, JSPrimitive) and type(abs_arg1.val) is str:
-                return JSPrimitive(abs_arg1.val + Data.source[state.objs[abs_arg2.target()].range[0]:state.objs[abs_arg2.target()].range[1]])
-            
-        if isinstance(abs_arg1, JSRef):
-            abs_arg1 = JSPrimitive("[object Object]")
-        
-        if isinstance(abs_arg2, JSRef):
-            abs_arg2 = JSPrimitive("[object Object]")
-    
-
-        if isinstance(abs_arg1, JSPrimitive) and isinstance(abs_arg2, JSPrimitive):
-            arg1 = abs_arg1.val
-            arg2 = abs_arg2.val
-        
-            if opname == "+":
-                if type(arg1) is float and float.is_integer(arg1):
-                    arg1 = int(arg1)
-                
-                if type(arg2) is float and float.is_integer(arg2):
-                    arg2 = int(arg2)
-
-                if (type(arg1) is int or type(arg1) is float or type(arg1) is bool) and type(arg2) is str:
-                    arg1 = str(arg1)
-                if type(arg1) is str and (type(arg2) is int or type(arg2) is float or type(arg2) is bool):
-                    arg2 = str(arg2)
-
-            if opname == "^":
-                if type(arg1) is float:
-                    arg1 = int(arg1)
-                if type(arg2) is float:
-                    arg2 = int(arg2)
-
-            if opname == "-" or opname == "/" or opname == "*" or opname == "&" or opname == "|" or opname == ">>" or opname == "<" :
-                if type(arg1) is str:
-                    arg1 = str_to_number(arg1)
-                    if arg1 is None:
-                        arg1 = JSPrimitive(float("nan"))
-
-                if type(arg2) is str:
-                    arg2 = str_to_number(arg2)
-                    if arg2 is None:
-                        arg2 = JSPrimitive(float("nan"))
-
-            if (opname == "==" or opname == "===") and (type(arg1) is re.Pattern or type(arg2) is re.Pattern):
-                return JSPrimitive(False) #TODO not always correct
-            
-            if (opname == "!=" or opname == "!==") and (type(arg1) is re.Pattern or type(arg2) is re.Pattern):
-                return JSPrimitive(True) #TODO not always correct
-
-
-            if opname == "+":
-                r = arg1 + arg2
-            elif opname == "-":
-                r = arg1 - arg2
-            elif opname == "*":
-                r = arg1 * arg2
-            elif opname == "/":
-                if arg2 == 0:
-                    return JSPrimitive(float("nan"))
-                r = arg1 / arg2
-            elif opname == "%":
-                if arg2 == 0:
-                    return JSPrimitive(float("nan"))
-                r = arg1 % arg2
-            elif opname == ">":
-                r = arg1 > arg2
-            elif opname == "<":
-                r = arg1 < arg2
-            elif opname == ">=":
-                r = arg1 >= arg2
-            elif opname == "<=":
-                r = arg1 <= arg2
-            elif opname == "==":
-                r = arg1 == arg2
-            elif opname == "!=":
-                r = not (arg1 == arg2)
-            elif opname == "^":
-                r = arg1 ^ arg2
-            elif opname == "&":
-                r = arg1 & arg2
-            elif opname == "|":
-                r = arg1 | arg2
-            elif opname == "<<":
-                r = arg1 << arg2
-            elif opname == ">>":
-                r = arg1 >> arg2
-            else:
-                #print("Unknown binary operation: ", opname)
-                return JSTop
-            return JSPrimitive(r)
-        else:
-            print("Failed to handle binary operation: ", opname)
-            return JSTop
-
-
     def ___display(state, expr, *args):
         print("displaying args:")
         #print("state=", state)
@@ -334,21 +147,19 @@ def initialize():
         print("")
         return JSUndef
 
-
     def string_fromcharcode(state, expr, obj, code):
         if code is JSTop or isinstance(code, JSOr):
             return JSTop
 
-        return JSPrimitive(chr(interpret_as_number(state, code)))
+        n = any_to_number(state, code)
+        if n is JSTop:
+            return JSTop
+        return JSPrimitive(chr(n.val))    
         return JSTop
-
-
 
     def ___state(state, expr, *args):
         print("___state:", state)
         return JSTop
-
-
 
     def parse_int(state, expr, s, base=JSPrimitive(10)):
         if s is JSUndef:
@@ -374,13 +185,8 @@ def initialize():
             return
         raise AssertionError("Analyzer assertion failed: " + str(b))
 
-
-
-
     def ___is_concretizable(state, expr, b):
         return JSPrimitive(b is not JSTop)
-
-
 
     def array_indexof(state, expr, arr, item, start=JSPrimitive(0)):
         if arr is JSTop or item is JSTop or start is JSTop:
@@ -499,76 +305,67 @@ def initialize():
             return JSRef(obj_id)
         return JSTop
 
-    def str_to_number(s):
-        s = s.lstrip()
-        try:
-            if len(s) > 2:
-                if s[0:2] == '0x':
-                    return int(s[2:], 16)
-                elif s[0:2] == '0b':
-                    return int(s[2:], 2)
-                elif s[0:2] == '0o':
-                    return int(s[2:], 8)
-
-            if s.count(".") == 1:
-                return float(s)
-            else:
-                return int(s)
-        except ValueError:
-            return None 
-
-
-    def interpret_as_number(state, value):
-        if isinstance(value, JSPrimitive):
-            if type(value.val) is float:
-                return int(value.val)
-            elif type(value.val) is int:
-                return value.val
-            elif type(value.val) is str:
-                result = str_to_number(value.val)
-                if result is None:
-                    return 0
-                else:
-                    return result
-            elif value.val is None:
-                return None
-            elif type(value.val) is bool:
-                if value.val:
-                    return 1
-                else:
-                    return 0
-            else:
-                raise ValueError("interpret_as_number: unhandled value " + repr(value))
-        elif isinstance(value, JSRef):
+    def any_to_string(state, value):
+        if isinstance(value, JSRef):
             obj = state.objs[value.target()]
-            if len(obj.properties) == 1 and 0 in obj.properties:
-                return interpret_as_number(state, obj.properties[0])
-            else:
-                return 0
-        elif value is JSUndef:
-            return 0
-        else:
-            raise ValueError("interpret_as_number: invalid value: " + str(value))
+            if obj.is_function():
+                return JSPrimitive(Data.source[obj.range[0]:obj.range[1]])
+            if obj.tablength is None:
+                return JSPrimitive("[object Object]")
+            
+            stringed_elems = []
+            for i in range(obj.tablength):
+                if i not in obj.properties:
+                    return JSTop
+                abs_stringed_item = any_to_string(state, obj.properties[i])
+                if abs_stringed_item is JSTop:
+                    return JSTop
+                stringed_elems.append(abs_stringed_item.val)
+            return JSPrimitive(",".join(stringed_elems))
+        return binary_handler("+", state, JSPrimitive(""), value)
 
+    def string_to_number(state, value):
+        return unary_handler("+", state, value)
+    
+    def any_to_number(state, value):
+        s = any_to_string(state, value)
+        if s is JSTop:
+            return JSTop
+        return string_to_number(state, s)
+
+    def any_to_boolean(state, value):
+        if value is JSTop:
+            return JSTop
+        if isinstance(value, JSRef):
+            return JSPrimitive(True)        
+        r = unary_handler("!", state, value)
+        if r is JSTop:
+            return JSTop
+        return JSPrimitive(not r.val)
+            
     def string_charcodeat(state, expr, string, position):
         if not (isinstance(string, JSPrimitive) and type(string.val) is str):
             return JSTop
         if position is JSTop:
             return JSTop
-        pos = interpret_as_number(state, position)
-        if pos < 0 or pos >= len(string.val):
+        pos = any_to_number(state, position)
+        if pos is JSTop:
+            return JSTop
+        if pos.val < 0 or pos.val >= len(string.val):
             return JSUndef
-        return JSPrimitive(ord(string.val[pos]))
+        return JSPrimitive(ord(string.val[pos.val]))
 
     def string_charat(state, expr, string, position):
         if not (isinstance(string, JSPrimitive) and type(string.val) is str):
             return JSTop
         if position is JSTop:
             return JSTop
-        pos = interpret_as_number(state, position)
-        if pos < 0 or pos >= len(string.val):
+        pos = any_to_number(state, position)
+        if pos is JSTop:
+            return JSTop        
+        if pos.val < 0 or pos.val >= len(string.val):
             return JSUndef
-        return JSPrimitive(string.val[pos])
+        return JSPrimitive(string.val[pos.val])
 
     def string_substr(state, expr, string, start=JSPrimitive(0), length=JSPrimitive(None)):
         if not (isinstance(string, JSPrimitive) and type(string.val) is str):
@@ -577,11 +374,14 @@ def initialize():
             return JSTop
         if length is JSTop:
             return JSTop
-        sta = interpret_as_number(state, start)
-        leng = interpret_as_number(state, length)
-        if sta < 0:
+        sta = any_to_number(state, start)
+        if length != JSPrimitive(None):
+            leng = any_to_number(state, length)
+        if sta is JSTop or leng is JSTop:
+            return JSTop
+        if sta.val < 0:
             return JSUndef
-        if leng is None:
+        if length != JSPrimitive(None):            
             return JSPrimitive(string.val[sta:])
         else:
             if sta + leng > len(string.val):
@@ -596,11 +396,12 @@ def initialize():
             return JSTop
         if end is JSTop:
             return JSTop
-        sta = interpret_as_number(state, start)
-        end = interpret_as_number(state, end)
+        sta = any_to_number(state, start)
+        if end != JSPrimitive(None):
+            end = any_to_number(state, end)
         if sta < 0:
             return JSUndef
-        if end is None:
+        if end != JSPrimitive(None):
             return JSPrimitive(string.val[sta:])
         else:
             if end > len(string.val):
@@ -622,8 +423,6 @@ def initialize():
         else:
             #print("slice: unhandled argument: ", string, " begin: ", begin, "end: ", end)
             return JSTop
-
-
 
     def string_hook(name):
         if name == "split":
@@ -672,8 +471,6 @@ def initialize():
         if isinstance(string, JSPrimitive) and type(string.val) is str:
             return JSPrimitive(base64.b64decode(string.val).decode("latin-1"))
         return JSTop
-
-
 
     def btoa(state, expr, string):
         if isinstance(string, JSPrimitive) and type(string.val) is str:
@@ -764,13 +561,23 @@ def initialize():
         unop_to_fn[auto_unops[i]] = fname
         register_function("function " + fname + "(a) { return " + auto_unops[i] + " a }")
 
-
     def unary_handler(opname, state, abs_arg):
         if abs_arg is JSTop:
-            return JSTop
-        
+            return JSTop        
         if isinstance(abs_arg, JSRef):
-            return JSTop
+            #operators converting its arguments to string
+            if opname == "+" or opname == "-" or opname == "~":
+                abs_arg = any_to_string(state, abs_arg)
+
+            #operators converting its arguments to boolean
+            elif opname == "!":
+                abs_arg = any_to_boolean(state, abs_arg)
+            elif opname == "typeof":
+                target = state.objs[abs_arg.target()]
+                if target.is_function() or target.is_simfct():
+                    return JSPrimitive("function")
+                else:
+                    return JSPrimitive("object")
         
         if opname in auto_unops:
             return call_function(unop_to_fn[opname], [abs_arg])
@@ -780,9 +587,32 @@ def initialize():
         if abs_arg1 is JSTop or abs_arg2 is JSTop:
             return JSTop
         
-        if isinstance(abs_arg1, JSRef) or isinstance(abs_arg2, JSRef):            
-            raise JSTop #TODO
+        if isinstance(abs_arg1, JSRef) or isinstance(abs_arg2, JSRef):
+            #special cases
+            if opname == "instanceof":
+                if isinstance(abs_arg2, JSRef) and abs_arg2.target() == function_ref and isinstance(abs_arg1, JSRef) and state.objs[abs_arg1.target()].is_callable():
+                    return JSPrimitive(True)
+                return JSTop
+            
+            if opname == "===":
+                if type(abs_arg1) != type(abs_arg2):
+                    return JSPrimitive(False)
+                return JSPrimitive(abs_arg1.ref() == abs_arg2.ref())
 
+            #operators converting objects to string
+            if opname == "|" or opname == "&" or opname == "^" or opname == "+" or opname == "==" or opname == "-" or opname == "/" or opname == "*" or opname == "/" or opname == ">" or opname == "<" or opname == ">=" or opname == "<=":
+                if isinstance(abs_arg1, JSRef):
+                    abs_arg1 = any_to_string(state, abs_arg1)
+                if isinstance(abs_arg2, JSRef):
+                    abs_arg1 = any_to_string(state, abs_arg2)      
+
+            #operators converting objects to booleans
+            if opname == "||" or opname == "&&":
+                if isinstance(abs_arg1, JSRef):
+                    abs_arg1 = any_to_boolean(state, abs_arg1)
+                if isinstance(abs_arg2, JSRef):
+                    abs_arg1 = any_to_boolean(state, abs_arg2)                  
+                        
         if opname in auto_binops:
             return call_function(binop_to_fn[opname], [abs_arg1, abs_arg2])
         else:
