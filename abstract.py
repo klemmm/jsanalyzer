@@ -889,9 +889,11 @@ class JSPrimitive(JSValue):
         """
         Class constructor
 
-        :param Union[int, str, float, re.Pattern]: The concrete value
+        :param Union[str, float, re.Pattern]: The concrete value
         """
         self.val : Union[int, str, float, re.Pattern] = val
+        if type(val) is int:
+            raise ValueError
         """The concrete value"""
         
     def __eq__(self, other : JSValue) -> bool:

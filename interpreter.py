@@ -419,6 +419,8 @@ class Interpreter(object):
         if expr.type == "Literal":
             if expr.value is None:
                 return JSNull
+            if type(expr.value) is int:
+                return JSPrimitive(float(expr.value))
             return JSPrimitive(expr.value)
 
         elif expr.type == "Identifier":
@@ -561,7 +563,7 @@ class Interpreter(object):
                 i = i + 1
             obj_id = State.new_id()
             state.objs[obj_id] = JSObject(elements)
-            state.objs[obj_id].tablength = i
+            state.objs[obj_id].tablength = float(i)
             state.pending.difference_update(consumed_refs)
             return JSRef(obj_id)
 
@@ -592,7 +594,8 @@ class Interpreter(object):
             elif isinstance(target, JSPrimitive) and type(target.val) is str:
                 if type(prop) is float and float.is_integer(prop):
                     prop = int(prop)
-                if type(prop) is int:
+                if type(prop) is float:
+                    prop = int(prop)
                     if prop >= 0 and prop < len(target.val):
                         ret = JSPrimitive(target.val[prop])
                     else:
@@ -601,7 +604,7 @@ class Interpreter(object):
                     return ret
                 if prop == "length":
                     state.pending.difference_update(consumed_refs)
-                    return JSPrimitive(len(target.val))
+                    return JSPrimitive(float(len(target.val)))
                 fct = JSTop
                 for h in JSObject.hooks:
                     fct = h(prop)
@@ -614,7 +617,7 @@ class Interpreter(object):
                     return JSTop
                 state.pending.difference_update(consumed_refs)
                 return fct
-            elif isinstance(target, JSPrimitive) and type(target.val) is int:
+            elif isinstance(target, JSPrimitive) and type(target.val) is float:
                 if prop == "constructor":
                     state.pending.difference_update(consumed_refs)
                     return state.objs[state.gref].properties["Number"]

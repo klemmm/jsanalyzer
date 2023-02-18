@@ -55,7 +55,7 @@ def register_function(d):
 
 def concretize(a):
     if isinstance(a, JSPrimitive):
-        if type(a.val) is int or type(a.val) is float:
+        if type(a.val) is float:
             r = JSCPrimitive()
             r.type = JSCType.NUMBER
             r.data.n = a.val
@@ -119,7 +119,7 @@ def init_duktape_binding():
 
 def initialize():    
     def update_handler(opname, state, abs_arg):
-        if isinstance(abs_arg, JSPrimitive) and (type(abs_arg.val) is int or type(abs_arg.val is float)):
+        if isinstance(abs_arg, JSPrimitive) and type(abs_arg.val) is float:
             if opname == "++":
                 return JSPrimitive(abs_arg.val + 1)
             elif opname == "--":
@@ -154,29 +154,29 @@ def initialize():
         n = any_to_number(state, code)
         if n is JSTop:
             return JSTop
-        return JSPrimitive(chr(n.val))    
+        return JSPrimitive(chr(int(n.val)))    
         return JSTop
 
     def ___state(state, expr, *args):
         print("___state:", state)
         return JSTop
 
-    def parse_int(state, expr, s, base=JSPrimitive(10)):
+    def parse_int(state, expr, s, base=JSPrimitive(10.0)):
         if s is JSUndef:
             return JSUndef
-        if isinstance(s, JSPrimitive) and type(s.val) is int:
-            s = JSPrimitive(str(s.val))
-        if isinstance(s, JSPrimitive) and type(s.val) is str and isinstance(base, JSPrimitive) and type(base.val) is int:
+        if isinstance(s, JSPrimitive) and type(s.val) is float:
+            s = JSPrimitive(str(int(s.val)))
+        if isinstance(s, JSPrimitive) and type(s.val) is str and isinstance(base, JSPrimitive) and type(base.val) is float:
             if base.val > 36:
                 return JSPrimitive(float("nan"))
             alpha = ''
             if base.val > 10:
-                alpha = 'a-' + chr(ord('a') + base.val - 11)
+                alpha = 'a-' + chr(ord('a') + int(base.val) - 11)
             prefix = re.sub('[^0-9' + alpha + '].*', '', s.val.lower())
             if prefix == "":
                 return JSPrimitive(float("nan"))
             else:
-                return JSPrimitive(int(prefix, base.val))
+                return JSPrimitive(float(int(prefix, int(base.val))))
         return JSTop
 
 
@@ -188,7 +188,7 @@ def initialize():
     def ___is_concretizable(state, expr, b):
         return JSPrimitive(b is not JSTop)
 
-    def array_indexof(state, expr, arr, item, start=JSPrimitive(0)):
+    def array_indexof(state, expr, arr, item, start=JSPrimitive(0.0)):
         if arr is JSTop or item is JSTop or start is JSTop:
             return JSTop
         if hasattr(arr, 'properties'):
@@ -353,7 +353,7 @@ def initialize():
             return JSTop
         if pos.val < 0 or pos.val >= len(string.val):
             return JSUndef
-        return JSPrimitive(ord(string.val[pos.val]))
+        return JSPrimitive(float(ord(string.val[int(pos.val)])))
 
     def string_charat(state, expr, string, position):
         if not (isinstance(string, JSPrimitive) and type(string.val) is str):
@@ -365,9 +365,9 @@ def initialize():
             return JSTop        
         if pos.val < 0 or pos.val >= len(string.val):
             return JSUndef
-        return JSPrimitive(string.val[pos.val])
+        return JSPrimitive(string.val[int(pos.val)])
 
-    def string_substr(state, expr, string, start=JSPrimitive(0), length=JSPrimitive(None)):
+    def string_substr(state, expr, string, start=JSPrimitive(0.0), length=JSPrimitive(None)):
         if not (isinstance(string, JSPrimitive) and type(string.val) is str):
             return JSTop
         if start is JSTop:
@@ -382,14 +382,14 @@ def initialize():
         if sta.val < 0:
             return JSUndef
         if length != JSPrimitive(None):            
-            return JSPrimitive(string.val[sta:])
+            return JSPrimitive(string.val[int(sta.val):])
         else:
-            if sta + leng > len(string.val):
+            if sta.val + leng.val > len(string.val):
                 return JSUndef
             else:
-                return JSPrimitive(string.val[sta:sta + leng])
+                return JSPrimitive(string.val[sta.val:sta.val + leng.val])
 
-    def string_substring(state, expr, string, start=JSPrimitive(0), end=JSPrimitive(None)):
+    def string_substring(state, expr, string, start=JSPrimitive(0.0), end=None):
         if not (isinstance(string, JSPrimitive) and type(string.val) is str):
             return JSTop
         if start is JSTop:
@@ -397,17 +397,21 @@ def initialize():
         if end is JSTop:
             return JSTop
         sta = any_to_number(state, start)
-        if end != JSPrimitive(None):
+        if sta is JSTop:
+            return JSTop
+        if end != None:
             end = any_to_number(state, end)
-        if sta < 0:
+            if end is JSTop:
+                return JSTop
+        if sta.val < 0:
             return JSUndef
-        if end != JSPrimitive(None):
-            return JSPrimitive(string.val[sta:])
+        if end is None:
+            return JSPrimitive(string.val[int(sta.val):])
         else:
-            if end > len(string.val):
+            if end.val > len(string.val):
                 return JSUndef
             else:
-                return JSPrimitive(string.val[sta:end])
+                return JSPrimitive(string.val[int(sta.val):int(end.val)])
 
     def string_replace(state, expr, string, pattern, replacement):
         if string is JSTop or pattern is JSTop or replacement is JSTop:
@@ -417,7 +421,7 @@ def initialize():
         else:
             return JSPrimitive(string.val.replace(pattern.val, replacement.val, 1))
 
-    def string_slice(state, expr, string, begin=JSPrimitive(0), end=JSPrimitive(None)):
+    def string_slice(state, expr, string, begin=JSPrimitive(0.0), end=JSPrimitive(None)):
         if isinstance(string, JSPrimitive) and type(string.val) is str and isinstance(begin, JSPrimitive) and type(begin.val) is int and isinstance(end, JSPrimitive) and (type(end.val) is int or end.val is None):
             return JSPrimitive(string.val[begin.val:end.val])
         else:
@@ -451,9 +455,9 @@ def initialize():
             ret += baseconv(n // b, b)
         return ret + alpha[n % b]
 
-    def function_or_int_tostring(state, expr, fn_or_int, base=JSPrimitive(10)):
-        if isinstance(fn_or_int, JSPrimitive) and type(fn_or_int.val) is int and isinstance(base, JSPrimitive) and type(base.val) is int:
-            return JSPrimitive(baseconv(fn_or_int.val, base.val))
+    def function_or_int_tostring(state, expr, fn_or_int, base=JSPrimitive(10.0)):
+        if isinstance(fn_or_int, JSPrimitive) and type(fn_or_int.val) is float and isinstance(base, JSPrimitive) and type(base.val) is float:
+            return JSPrimitive(baseconv(int(fn_or_int.val), int(base.val)))
         elif fn_or_int.is_function():
             return JSPrimitive(Data.source[fn_or_int.range[0]:fn_or_int.range[1]])
         else:
