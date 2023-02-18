@@ -202,9 +202,9 @@ def initialize():
                 if values == item:
                     return JSPrimitive(i)
                 i = i + 1
-            return JSPrimitive(-1)
+            return JSPrimitive(-1.0)
         elif hasattr(arr, 'val') and type(arr.val) is str:
-            return JSPrimitive(arr.val.find(item.val, start.val))
+            return JSPrimitive(float(arr.val.find(item.val, start.val)))
         else:
             raise NameError('Invalid Javascript')
 
@@ -242,7 +242,7 @@ def initialize():
             return JSTop
         arr.properties[arr.tablength] = value
         arr.tablength += 1
-        return JSPrimitive(arr.tablength)
+        return JSPrimitive(float(arr.tablength))
 
     def array_shift(state, expr, arr):
         if arr is JSTop:
@@ -377,17 +377,19 @@ def initialize():
         sta = any_to_number(state, start)
         if length != JSPrimitive(None):
             leng = any_to_number(state, length)
-        if sta is JSTop or leng is JSTop:
+            if leng is JSTop:
+                return JSTop
+        if sta is JSTop:
             return JSTop
         if sta.val < 0:
             return JSUndef
-        if length != JSPrimitive(None):            
+        if length == JSPrimitive(None):            
             return JSPrimitive(string.val[int(sta.val):])
         else:
             if sta.val + leng.val > len(string.val):
                 return JSUndef
             else:
-                return JSPrimitive(string.val[sta.val:sta.val + leng.val])
+                return JSPrimitive(string.val[int(sta.val):int(sta.val) + int(leng.val)])
 
     def string_substring(state, expr, string, start=JSPrimitive(0.0), end=None):
         if not (isinstance(string, JSPrimitive) and type(string.val) is str):
@@ -422,8 +424,10 @@ def initialize():
             return JSPrimitive(string.val.replace(pattern.val, replacement.val, 1))
 
     def string_slice(state, expr, string, begin=JSPrimitive(0.0), end=JSPrimitive(None)):
-        if isinstance(string, JSPrimitive) and type(string.val) is str and isinstance(begin, JSPrimitive) and type(begin.val) is int and isinstance(end, JSPrimitive) and (type(end.val) is int or end.val is None):
-            return JSPrimitive(string.val[begin.val:end.val])
+        if isinstance(string, JSPrimitive) and type(string.val) is str and isinstance(begin, JSPrimitive) and type(begin.val) is float and isinstance(end, JSPrimitive) and (type(end.val) is float or end.val is None):
+            if end.val is None:
+                return JSPrimitive(string.val[int(begin.val):])
+            return JSPrimitive(string.val[int(begin.val):int(end.val)])
         else:
             #print("slice: unhandled argument: ", string, " begin: ", begin, "end: ", end)
             return JSTop

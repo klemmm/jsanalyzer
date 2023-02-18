@@ -563,7 +563,7 @@ class Interpreter(object):
                 i = i + 1
             obj_id = State.new_id()
             state.objs[obj_id] = JSObject(elements)
-            state.objs[obj_id].tablength = float(i)
+            state.objs[obj_id].tablength = i
             state.pending.difference_update(consumed_refs)
             return JSRef(obj_id)
 
@@ -582,7 +582,7 @@ class Interpreter(object):
                         if target.tablength is None:
                             return JSTop
                         else:
-                            return JSPrimitive(target.tablength)
+                            return JSPrimitive(float(target.tablength))
                 member = target.member(prop)
                 if isinstance(member, JSRef) and not member.is_bound():
                     bound_member = JSRef(member.target(), target_id)
