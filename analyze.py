@@ -36,8 +36,8 @@ print("Pre-processing...")
 mark_node_recursive(ast)
 
 i = Interpreter(ast, data)
-cProfile.run("i.run()")
-#i.run()
+#cProfile.run("i.run()")
+i.run()
 
 print("Producing out file...")
 delattr(esprima.nodes.Object, "__getattr__") # To allow pickling
