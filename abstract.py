@@ -81,7 +81,7 @@ class State(object):
         """'
         Returns a new bottom state
 
-        :rtype State:
+        :find State:
         :return: a bottom state
         """
         st = State(glob=False, bottom=True)
@@ -889,7 +889,7 @@ class JSPrimitive(JSValue):
         """
         Class constructor
 
-        :param Union[str, float, re.Pattern]: The concrete value
+        :param Union[str, float, re.Pattern] val: The concrete value
         """
         self.val : Union[int, str, float, re.Pattern] = val
         if type(val) is int:

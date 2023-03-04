@@ -1,12 +1,17 @@
+"""
+Default plugin implementing basic js functions and operators
+
+"""
 import re
 import base64
 import urllib.parse
 import esprima
 import sys
-from ctypes import *
+from jseval import *
 from typing import Callable
 
-###
+
+# Imported/injected symbols from plugin manager
 JSValue : object = None
 JSOr : JSValue = None
 JSBot : JSValue = None
@@ -17,11 +22,8 @@ JSObject : JSValue = None
 JSRef : JSValue = None
 JSSpecial : object = None
 JSNull : JSValue = None
-
 State : object = None
-
 MissingMode : object = None
-
 set_ann : Callable = None
 get_ann : Callable = None
 register_update_handler : Callable = None
@@ -32,93 +34,28 @@ register_binary_handler : Callable = None
 register_global_symbol : Callable = None
 lift_or : Callable = None
 register_method_hook : Callable = None
-
 Interpreter : object = None
-Data : object = None
-###
+Data : object = None    
 
-class JSCType(object):
-    NUMBER = 0
-    STRING = 1
-    UNDEFINED = 2
-    NUL = 3
-    BOOL = 4
-
-class JSCData(Union):
-    _fields_ = [("s", c_char_p), ("n", c_double), ("b", c_int)]
-
-class JSCPrimitive(Structure):
-    _fields_ = [("type", c_int), ("data", JSCData)]
-
-def register_function(d):
-    __funcs.register_function(d.encode("utf-8"))
-
-def concretize(a):
-    if isinstance(a, JSPrimitive):
-        if type(a.val) is float:
-            r = JSCPrimitive()
-            r.type = JSCType.NUMBER
-            r.data.n = a.val
-            return r
-        elif type(a.val) is str:
-            r = JSCPrimitive()
-            r.type = JSCType.STRING
-            r.data.s = a.val.encode("utf-8")
-            return r
-        elif type(a.val) is bool:
-            r = JSCPrimitive()
-            r.type = JSCType.BOOL
-            r.data.b = a.val
-            return r
-    elif a == JSUndef:
-        r = JSCPrimitive()
-        r.type = JSCType.UNDEFINED
-        return r
-    elif a == JSNull:
-        r = JSCPrimitive()
-        r.type = JSCType.NUL
-        return r
-    raise NotImplementedError(type(a), a, a == JSUndef)
-
-
-def abstract(c):
-    if c.type == JSCType.NUMBER:
-        return JSPrimitive(c.data.n)
-    elif c.type == JSCType.STRING:
-        return JSPrimitive(c.data.s.decode("utf-8"))
-    elif c.type == JSCType.UNDEFINED:
-        return JSUndef
-    elif c.type == JSCType.NUL:
-        return JSNull
-    elif c.type == JSCType.BOOL:
-        return JSPrimitive(c.data.b != 0)        
-    else:
-        raise NotImplementedError
-
-def call_function(name, args):
-    c_args = (JSCPrimitive * len(args))()
-    for i in range(len(args)):
-        c_args[i] = concretize(args[i])
-    __funcs.call_function.argtypes = [c_char_p, POINTER(JSCPrimitive*len(args)), c_int]
-    res =__funcs.call_function(name.encode("utf-8"), byref(c_args), len(args))
-    abs_res = abstract(res)
-    __funcs.free_val(res)
-    return abs_res
-
-def init_duktape_binding():
-    global __funcs
-    try:
-        __funcs = CDLL(sys.path[0] + "/jseval.so")
-    except OSError as e:
-        print("Please compile the jseval.so library by typing \"make\" in the project main directory")
-        raise e
-    __funcs.initialize()
-    __funcs.register_function.argtypes = [c_char_p]
-    __funcs.call_function.restype = JSCPrimitive
+def initialize() -> None:
+    """
+    Plugin initialization. Called when the interpreter is initialized.
     
+    """    
+    def update_handler(opname : str, state : State, abs_arg : JSValue) -> JSValue:
+        """
+        Handler for updates (++ or --) operations. It returns the
+        value to be assigned to the updated variable. The actual
+        value of the expression is computed in the interpreter
+        (based on the prefix/postfix flag).
 
-def initialize():    
-    def update_handler(opname, state, abs_arg):
+        :param str opname: The operation ("++" or "--")
+        :param State state: The abstract state
+        :param JSValue abs_arg: Th abstract value of the expression
+        :return: The abstract value to be assigned to the updated variable
+        :rtype JSValue:
+        
+        """
         if isinstance(abs_arg, JSPrimitive) and type(abs_arg.val) is float:
             if opname == "++":
                 return JSPrimitive(abs_arg.val + 1)
@@ -129,8 +66,15 @@ def initialize():
                 return JSTop
         else:
             return JSTop
-        
-    def ___display(state, expr, *args):
+    
+    """
+    Simfct to display arguments
+    
+    :param State state: The abstract state
+    :param esprima.nodes.Node expr: The call expression (NOT the expressions to display)
+    :param List[JSValue] args: The arguments to display
+    """
+    def ___display(state : State, expr : esprima.nodes.Node, *args : List[JSValue]) -> None:
         print("displaying args:")
         #print("state=", state)
         i = 0
@@ -147,7 +91,17 @@ def initialize():
         print("")
         return JSUndef
 
-    def string_fromcharcode(state, expr, obj, code):
+    """
+    Simfct method to create a string of length 1 from a charcode.
+    
+    :param State state: The abstract state
+    :param esprima.nodes.Node expr: The call expression
+    :param JSRef obj: The "String" object
+    :param JSValue code: The abstract value for char code (may be a string or array)
+    :return: The JSValue for the string
+    :rtype JSValue:
+    """
+    def string_fromcharcode(state : State, expr : esprima.nodes.Node, obj : JSRef, code : JSValue) -> JSValue:
         if code is JSTop or isinstance(code, JSOr):
             return JSTop
 
@@ -157,11 +111,26 @@ def initialize():
         return JSPrimitive(chr(int(n.val)))    
         return JSTop
 
-    def ___state(state, expr, *args):
+    """
+    Simfct to print the current state
+    
+    :param State state: The abstract state
+    :param esprima.nodes.Node expr: The call expression
+    """
+    def ___state(state : State, expr : esprima.nodes.Node) -> None:
         print("___state:", state)
         return JSTop
 
-    def parse_int(state, expr, s, base=JSPrimitive(10.0)):
+
+    """
+    Simfct to parse string to int
+    
+    :param State state: The abstract state
+    :param esprima.nodes.Node expr: The call expression
+    :param str s: The string to parse
+    :param JSValue base: The base (defaults to 10)
+    """
+    def parse_int(state : state, expr : esprima.nodes.Node, s : JSPrimitive, base : JSValue = JSPrimitive(10.0)):
         if s is JSUndef:
             return JSUndef
         if isinstance(s, JSPrimitive) and type(s.val) is float:
@@ -180,15 +149,43 @@ def initialize():
         return JSTop
 
 
-    def ___assert(state, expr, b):
+    """
+    Simfct to abort analysis if expression is not statically true
+    
+    :param State state: The abstract state
+    :param esprima.nodes.Node expr: The call expression
+    :param JSValue b: The value of the expression to test
+    """
+    def ___assert(state : State, expr : esprima.nodes.Node, b : JSValue) -> None:
         if (isinstance(b, JSPrimitive) or isinstance(b, JSRef)) and to_bool(b):
             return
         raise AssertionError("Analyzer assertion failed: " + str(b))
 
-    def ___is_concretizable(state, expr, b):
+
+    """
+    Simfct that tests whether an expression correspond to a single concrete value
+    
+    :param State state: The abstract state
+    :param esprima.nodes.Node expr: The call expression
+    :param JSValue b: The value of the expression to test
+    """
+    def ___is_concretizable(state : State, expr : esprima.nodes.Node, b : JSValue) -> JSPrimitive:
         return JSPrimitive(b is not JSTop)
 
-    def array_indexof(state, expr, arr, item, start=JSPrimitive(0.0)):
+
+    """
+    Simfct to get index of element in array or string. Bound to all objects via hook.
+
+    :param State state: The abstract state
+    :param esprima.nodes.Node expr: The call expression
+    :param JSValue arr: The array or string
+    :param JSValue item: The value to search in the array
+    :param JSValue start: The search start index (default to 0)
+    :return: The index of the element, or JSPrimitive(-1.0)
+    :rtype JSPrimitive:
+
+    """
+    def array_indexof(state : State, expr : esprima.nodes.Node, arr : JSValue, item : JSValue, start : JSValue = JSPrimitive(0.0)) -> JSValue:
         if arr is JSTop or item is JSTop or start is JSTop:
             return JSTop
         if hasattr(arr, 'properties'):
@@ -207,8 +204,17 @@ def initialize():
             return JSPrimitive(float(arr.val.find(item.val, start.val)))
         else:
             raise NameError('Invalid Javascript')
+    """
+    Simfct to get reverse array. Bound to all objects via hook.
 
-    def array_reverse(state, expr, arr):
+    :param State state: The abstract state
+    :param esprima.nodes.Node expr: The call expression
+    :param JSValue arr: The array to reverse
+    :return: The reversed array
+    :rtype JSValue:
+
+    """
+    def array_reverse(state : State, expr : esprima.nodse.Node, arr : JSValue) -> JSValue:
         if arr is JSTop:
             return JSTop
         obj_id = State.new_id()
@@ -219,8 +225,17 @@ def initialize():
         state.objs[obj_id] = JSObject(d)
         return JSRef(obj_id)
 
-    
-    def array_pop(state, expr, arr):
+    """
+    Simfct to pop element from array. Bound to all objects via hook.
+
+    :param State state: The abstract state
+    :param esprima.nodes.Node expr: The call expression
+    :param JSValue arr: The array to pop
+    :return: The popped element
+    :rtype JSValue:
+
+    """
+    def array_pop(state : State, expr : esprima.nodes.Node, arr : JSValue) -> JSValue:
         if arr is JSTop:
             return JSTop
         if arr.tablength is None:
@@ -234,7 +249,17 @@ def initialize():
         arr.tablength -= 1
         return value
 
-    def array_push(state, expr, arr, value):
+    """
+    Simfct to push element to array. Bound to all objects via hook.
+
+    :param State state: The abstract state
+    :param esprima.nodes.Node expr: The call expression
+    :param JSValue arr: The array to push
+    :param JSValue value: The value to push
+
+
+    """
+    def array_push(state : State, expr : esprima.nodes.Node, arr : JSValue, value : JSValue) -> None:
         if arr is JSTop:
             return JSTop
         if arr.tablength is None:
@@ -272,8 +297,6 @@ def initialize():
         if separator is JSTop:
             return JSTop
         return JSPrimitive(separator.val.join([arr.properties[i].val for i in sorted(arr.properties)]))
-
-
 
     def array_hook(name):
         if name == "pop":
@@ -492,21 +515,15 @@ def initialize():
         return JSTop
 
     def decode_uri(state, expr, string):
-        subst = [("%00", "\x00"),("%01", "\x01"),("%02", "\x02"),("%03", "\x03"),("%04", "\x04"),("%05", "\x05"),("%06", "\x06"),("%07", "\x07"),("%08", "\x08"),("%09", "\x09"),("%0A", "\x0a"),("%0B", "\x0b"),("%0C", "\x0c"),("%0D", "\x0d"),("%0E", "\x0e"),("%0F", "\x0f"),("%10", "\x10"),("%11", "\x11"),("%12", "\x12"),("%13", "\x13"),("%14", "\x14"),("%15", "\x15"),("%16", "\x16"),("%17", "\x17"),("%18", "\x18"),("%19", "\x19"),("%1A", "\x1a"),("%1B", "\x1b"),("%1C", "\x1c"),("%1D", "\x1d"),("%1E", "\x1e"),("%1F", "\x1f"),("%20", "\x20"),("%22", "\x22"),("%25", "\x25"),("%3C", "\x3c"),("%3E", "\x3e"),("%5B", "\x5b"),("%5C", "\x5c"),("%5D", "\x5d"),("%5E", "\x5e"),("%60", "\x60"),("%7B", "\x7b"),("%7C", "\x7c"),("%7D", "\x7d"),("%7F", "\x7f"),("%C2%80", "\x80"),("%C2%81", "\x81"),("%C2%82", "\x82"),("%C2%83", "\x83"),("%C2%84", "\x84"),("%C2%85", "\x85"),("%C2%86", "\x86"),("%C2%87", "\x87"),("%C2%88", "\x88"),("%C2%89", "\x89"),("%C2%8A", "\x8a"),("%C2%8B", "\x8b"),("%C2%8C", "\x8c"),("%C2%8D", "\x8d"),("%C2%8E", "\x8e"),("%C2%8F", "\x8f"),("%C2%90", "\x90"),("%C2%91", "\x91"),("%C2%92", "\x92"),("%C2%93", "\x93"),("%C2%94", "\x94"),("%C2%95", "\x95"),("%C2%96", "\x96"),("%C2%97", "\x97"),("%C2%98", "\x98"),("%C2%99", "\x99"),("%C2%9A", "\x9a"),("%C2%9B", "\x9b"),("%C2%9C", "\x9c"),("%C2%9D", "\x9d"),("%C2%9E", "\x9e"),("%C2%9F", "\x9f"),("%C2%A0", "\xa0"),("%C2%A1", "\xa1"),("%C2%A2", "\xa2"),("%C2%A3", "\xa3"),("%C2%A4", "\xa4"),("%C2%A5", "\xa5"),("%C2%A6", "\xa6"),("%C2%A7", "\xa7"),("%C2%A8", "\xa8"),("%C2%A9", "\xa9"),("%C2%AA", "\xaa"),("%C2%AB", "\xab"),("%C2%AC", "\xac"),("%C2%AD", "\xad"),("%C2%AE", "\xae"),("%C2%AF", "\xaf"),("%C2%B0", "\xb0"),("%C2%B1", "\xb1"),("%C2%B2", "\xb2"),("%C2%B3", "\xb3"),("%C2%B4", "\xb4"),("%C2%B5", "\xb5"),("%C2%B6", "\xb6"),("%C2%B7", "\xb7"),("%C2%B8", "\xb8"),("%C2%B9", "\xb9"),("%C2%BA", "\xba"),("%C2%BB", "\xbb"),("%C2%BC", "\xbc"),("%C2%BD", "\xbd"),("%C2%BE", "\xbe"),("%C2%BF", "\xbf"),("%C3%80", "\xc0"),("%C3%81", "\xc1"),("%C3%82", "\xc2"),("%C3%83", "\xc3"),("%C3%84", "\xc4"),("%C3%85", "\xc5"),("%C3%86", "\xc6"),("%C3%87", "\xc7"),("%C3%88", "\xc8"),("%C3%89", "\xc9"),("%C3%8A", "\xca"),("%C3%8B", "\xcb"),("%C3%8C", "\xcc"),("%C3%8D", "\xcd"),("%C3%8E", "\xce"),("%C3%8F", "\xcf"),("%C3%90", "\xd0"),("%C3%91", "\xd1"),("%C3%92", "\xd2"),("%C3%93", "\xd3"),("%C3%94", "\xd4"),("%C3%95", "\xd5"),("%C3%96", "\xd6"),("%C3%97", "\xd7"),("%C3%98", "\xd8"),("%C3%99", "\xd9"),("%C3%9A", "\xda"),("%C3%9B", "\xdb"),("%C3%9C", "\xdc"),("%C3%9D", "\xdd"),("%C3%9E", "\xde"),("%C3%9F", "\xdf"),("%C3%A0", "\xe0"),("%C3%A1", "\xe1"),("%C3%A2", "\xe2"),("%C3%A3", "\xe3"),("%C3%A4", "\xe4"),("%C3%A5", "\xe5"),("%C3%A6", "\xe6"),("%C3%A7", "\xe7"),("%C3%A8", "\xe8"),("%C3%A9", "\xe9"),("%C3%AA", "\xea"),("%C3%AB", "\xeb"),("%C3%AC", "\xec"),("%C3%AD", "\xed"),("%C3%AE", "\xee"),("%C3%AF", "\xef"),("%C3%B0", "\xf0"),("%C3%B1", "\xf1"),("%C3%B2", "\xf2"),("%C3%B3", "\xf3"),("%C3%B4", "\xf4"),("%C3%B5", "\xf5"),("%C3%B6", "\xf6"),("%C3%B7", "\xf7"),("%C3%B8", "\xf8"),("%C3%B9", "\xf9"),("%C3%BA", "\xfa"),("%C3%BB", "\xfb"),("%C3%BC", "\xfc"),("%C3%BD", "\xfd"),("%C3%BE", "\xfe")]
         if isinstance(string, JSPrimitive) and type(string.val) is str:
-            txt = string.val
-            for (k, v) in subst:
-                txt = txt.replace(k, v)
-            return JSPrimitive(txt)
+            return call_function("decodeURI", [string])
         else:
             return JSTop
-
 
     def math_round(state, expr, this, number):
         if isinstance(number, JSPrimitive) and type(number.val) is float:
             return JSPrimitive(round(number.val))
         return JSTop
-
 
     def regexp_match(state, expr, this, target):
         return JSPrimitive(this.properties["regexp"].val.match(target.val) is not None)
@@ -550,8 +567,7 @@ def initialize():
         else:
             return target
 
-
-    init_duktape_binding()
+    init_duktape_binding()    
 
     auto_binops = ["+", "-", "*", "/", "%", ">", "<", ">=", "<=", "==", "!=", "===", "!==", "^", "|", "&", "<<", ">>"]
     binop_to_fn = {}
