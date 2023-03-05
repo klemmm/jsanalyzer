@@ -130,7 +130,7 @@ def initialize() -> None:
     :param str s: The string to parse
     :param JSValue base: The base (defaults to 10)
     """
-    def parse_int(state : state, expr : esprima.nodes.Node, s : JSPrimitive, base : JSValue = JSPrimitive(10.0)):
+    def parse_int(state : State, expr : esprima.nodes.Node, s : JSPrimitive, base : JSValue = JSPrimitive(10.0)):
         if s is JSUndef:
             return JSUndef
         if isinstance(s, JSPrimitive) and type(s.val) is float:
@@ -214,7 +214,7 @@ def initialize() -> None:
     :rtype JSValue:
 
     """
-    def array_reverse(state : State, expr : esprima.nodse.Node, arr : JSValue) -> JSValue:
+    def array_reverse(state : State, expr : esprima.nodes.Node, arr : JSValue) -> JSValue:
         if arr is JSTop:
             return JSTop
         obj_id = State.new_id()
