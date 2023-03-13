@@ -12,7 +12,15 @@ from typing import Set, List
 from interpreter import LoopContext
 
 EXPRESSIONS = ["Literal", "ArrayExpression", "ArrowFunctionExpression", "AssignmentExpression", "AwaitExpression", "BinaryExpression", "CallExpression", "ConditionalExpression", "FunctionExpression", "LogicalExpression", "MemberExpression", "NewExpression", "ObjectExpression", "SequenceExpression", "ThisExpression", "UnaryExpression", "UpdateExpression"]
+
 def wrap_in_statement(expr):
+    """
+    Helper function to wrap expressions (typically expressions that have side effects) in statements
+
+    :param esprima.nodes.Node expr: The expression to wrap
+    :rtype esprima.nodes.Node:
+    :return: The statement
+    """
     statement = esprima.nodes.ExpressionStatement(expr)
     statement.range = expr.range
     return statement

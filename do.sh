@@ -3,5 +3,5 @@ NAME="$1"
 shift
 ./analyze.py $NAME.js $NAME.pck
 ./transform.py $* $NAME.pck $NAME.json
-./prettyprint.js $NAME.json $NAME-out.js
+node --stack-size=1000000 ./prettyprint.js $NAME.json $NAME-out.js
 
