@@ -594,8 +594,7 @@ class Interpreter(object):
             elif isinstance(target, JSPrimitive) and type(target.val) is str:
                 if type(prop) is float and float.is_integer(prop):
                     prop = int(prop)
-                if type(prop) is float:
-                    prop = int(prop)
+                if type(prop) is int:
                     if prop >= 0 and prop < len(target.val):
                         ret = JSPrimitive(target.val[prop])
                     else:

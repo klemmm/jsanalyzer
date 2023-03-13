@@ -522,7 +522,7 @@ def initialize() -> None:
 
     def math_round(state, expr, this, number):
         if isinstance(number, JSPrimitive) and type(number.val) is float:
-            return JSPrimitive(round(number.val))
+            return JSPrimitive(float(round(number.val)))
         return JSTop
 
     def regexp_match(state, expr, this, target):
