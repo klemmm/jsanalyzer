@@ -26,13 +26,14 @@ parser.add_argument("--no-remove-useless-statements", help="Disable removing no-
 parser.add_argument("--debug-dead-variables", help="Turn on dead-variable remover debugging", action='store_true')
 parser.add_argument("--pure", help="comma-separated list of pure functions")
 parser.add_argument("--simplify-undef", help="Simplify possibly-undef expressions (UNSOUND)", action='store_true')
+parser.add_argument("--always-unroll", help="Always unroll loops when possible", action='store_true')
 
 parser.add_argument("input", help="input file")
 parser.add_argument("output", help="output file")
 args = parser.parse_args()
 
 print("\n======== Transform Settings: ========")
-print("Simplify expressions:\t\t", not args.no_simplify_expr)
+print("Simplify expressions:\t\t", not args.no_simplify_expr)m 
 print("Simplify function calls:\t", not args.no_simplify_calls)
 print("Simplify control flow:\t\t", not args.no_simplify_flow)
 print("Remove dead code:\t\t", not args.no_remove_dead_code)
@@ -88,7 +89,7 @@ if not args.no_constant_member_rewrite:
 
 
 if not args.no_simplify_flow: #Breaks call target annotations (FIXME TODO)
-    code_transformers.LoopUnroller(ast).run()
+    code_transformers.LoopUnroller(ast, args.always_unroll).run()
 
 if not args.no_simplify_calls: #May break contextual static values loop id
     inliner = code_transformers.FunctionInliner(ast)
@@ -100,7 +101,6 @@ if not args.no_simplify_calls: #May break contextual static values loop id
       
 if not args.no_simplify_expr:
     code_transformers.ExpressionSimplifier(ast, pures, args.simplify_undef).run()
-
 
 if not args.no_remove_dead_variables:
     code_transformers.UselessVarRemover(ast, args.debug_dead_variables).run()

@@ -6,6 +6,7 @@ import re
 import base64
 import urllib.parse
 import esprima
+import math
 import sys
 from jseval import *
 from typing import Callable
@@ -108,8 +109,10 @@ def initialize() -> None:
         n = any_to_number(state, code)
         if n is JSTop:
             return JSTop
+        if math.isnan(n.val):
+            return JSPrimitive("\x00")
         return JSPrimitive(chr(int(n.val)))    
-        return JSTop
+
 
     """
     Simfct to print the current state
@@ -158,7 +161,7 @@ def initialize() -> None:
     """
     def ___assert(state : State, expr : esprima.nodes.Node, b : JSValue) -> None:
         if (isinstance(b, JSPrimitive) or isinstance(b, JSRef)) and to_bool(b):
-            return
+            return JSTop
         raise AssertionError("Analyzer assertion failed: " + str(b))
 
 
@@ -201,7 +204,7 @@ def initialize() -> None:
                 i = i + 1
             return JSPrimitive(-1.0)
         elif hasattr(arr, 'val') and type(arr.val) is str:
-            return JSPrimitive(float(arr.val.find(item.val, start.val)))
+            return JSPrimitive(float(arr.val.find(item.val, int(start.val))))
         else:
             raise NameError('Invalid Javascript')
     """

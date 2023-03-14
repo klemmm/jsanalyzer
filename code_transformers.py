@@ -652,9 +652,10 @@ class DeadCodeRemover(CodeTransform):
         return True
 
 class LoopUnroller(CodeTransform):
-    def __init__(self, ast):
+    def __init__(self, ast, always_unroll = False):
         super().__init__(ast, "Loop Unroller")
         self.fixer = LoopContextSelector()
+        self.always_unroll = always_unroll
 
     def after_statement(self, o, dummy):
         if (o.type == "WhileStatement" or o.type == "ForStatement") and type(get_ann(o, "unrolled")) is list:
@@ -668,7 +669,7 @@ class LoopUnroller(CodeTransform):
                 st = node_from_id(i)                                
                 unrolled_size += st.range[1] - st.range[0]  
 
-            if unrolled_size / (o.range[1] - o.range[0]) < max_unroll_ratio:
+            if self.always_unroll or unrolled_size / (o.range[1] - o.range[0]) < max_unroll_ratio:
                 o.type = "BlockStatement"
                 o.body = []
                 loop_iter = -1       
