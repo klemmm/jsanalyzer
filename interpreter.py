@@ -360,6 +360,9 @@ class Interpreter(object):
             state.objs[deferred_id].properties[fn_id] = abs_rvalue
             set_ann(rvalue_expr, "processed", True)
 
+        if target is not None and prop is None:
+            target.set_missing_mode(MissingMode.MISSING_IS_TOP)
+            target.properties.clear()
         if prop is None or target is None:
             return
 

@@ -33,7 +33,7 @@ parser.add_argument("output", help="output file")
 args = parser.parse_args()
 
 print("\n======== Transform Settings: ========")
-print("Simplify expressions:\t\t", not args.no_simplify_expr)m 
+print("Simplify expressions:\t\t", not args.no_simplify_expr)
 print("Simplify function calls:\t", not args.no_simplify_calls)
 print("Simplify control flow:\t\t", not args.no_simplify_flow)
 print("Remove dead code:\t\t", not args.no_remove_dead_code)

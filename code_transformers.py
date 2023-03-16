@@ -13,7 +13,7 @@ from interpreter import LoopContext
 
 EXPRESSIONS = ["Literal", "ArrayExpression", "ArrowFunctionExpression", "AssignmentExpression", "AwaitExpression", "BinaryExpression", "CallExpression", "ConditionalExpression", "FunctionExpression", "LogicalExpression", "MemberExpression", "NewExpression", "ObjectExpression", "SequenceExpression", "ThisExpression", "UnaryExpression", "UpdateExpression"]
 
-def wrap_in_statement(expr):
+def wrap_in_statement(expr : esprima.nodes.Node) -> esprima.nodes.Node:
     """
     Helper function to wrap expressions (typically expressions that have side effects) in statements
 
@@ -26,22 +26,57 @@ def wrap_in_statement(expr):
     return statement
 
 class LexicalScopedAbsInt(object):
-    def __init__(self, ast, domain, name):
-        self.ast = ast
-        self.name = name
-        self.domain = domain
+    """
+    Helper class to perform "simple" abstract interpretation, without having to resolve function calls.
 
-    def on_statement(self, state, statement):
+    The on_XXX methods are meant to be overloaded by inheriting classes.
+
+    The do_XXX methods are meant to be used internally.
+    """
+    def __init__(self, ast : esprima.nodes.Node, domain : State, name : str):
+        """
+        Class constructor.
+
+        :param esprima.nodes.Node ast: The AST to process
+        :param State domain: The initial state
+        :param str name: The name of the analysis        
+        """
+        self.ast : esprima.nodes.Node = ast
+        self.name : str = name
+        self.domain : State = domain
+
+    def on_statement(self, state : State, statement : esprima.nodes.Node) -> None:
+        """
+        Called when we encounter a statement
+
+        :param State state: The current abstract state
+        :param esprima.nodes.Node statement: The processed statement
+        """
         pass
 
-    def on_expression(self, state, statement, test=False):
+    #TODO define AbsExpr somewhere
+    def on_expression(self, state : State, expression: esprima.nodes.Node, test : bool = False) -> 'AbsExpr':
+        """
+        Called when we encounter an expression
+
+        :param State state: The current abstract state
+        :param esprima.nodes.Node statement: The processed expression
+        :param bool test: Set to true if the expression is a test condition (if, while, ...)
+        """    
         pass
 
-    def do_declaration(self, state, decl):
+    def do_declaration(self, state : State, decl : esprima.nodes.Node) -> None:
+        """ 
+        Process declaration AST node
+        
+        :param State state: The current abstract state
+        :param esprima.nodes.Node decl: The declaration AST node
+        """
         if decl is None or decl.type != "VariableDeclaration":
             return
         yield [self.do_statement, state, decl]
     
+    #TODO dégager ca et gérer le eval() ailleurs/autrement
     def do_expression(self, state, expression, test=False):
         if expression.type == "CallExpression":
             if type(expression.arguments) is list and len(expression.arguments) == 1 and expression.arguments[0].type == "BlockStatement":
@@ -53,7 +88,13 @@ class LexicalScopedAbsInt(object):
         else:
             return (yield [self.on_expression, state, expression, test])
 
-    def do_statement(self, state, statement):
+    def do_statement(self, state : State, statement : esprima.nodes.Node) -> None:
+        """ 
+        Process statement AST node
+        
+        :param State state: The current abstract state
+        :param esprima.nodes.Node statement: The statement AST node
+        """        
         if statement.type == "VariableDeclaration":
             yield [self.on_statement, state, statement]
 
@@ -164,34 +205,65 @@ class LexicalScopedAbsInt(object):
 
                 yield [self.do_statement, state, statement.body]
         
-    def do_prog(self, prog):
+    def do_prog(self, prog : esprima.nodes.Node) -> None:
+        """
+        Called to process the whole program
+        
+        :param esprima.nodes.Node prog: The program to analyze
+        """
         state = self.domain.init_state()
         for statement in prog:
             yield [self.do_statement, state, statement]
         self.on_end(state)
 
     def run(self):
+        """
+        Run the analyzer
+        """
         call(self.do_prog, self.ast.body)
 
 class CodeTransform(object):
-    def __init__(self, ast=None, name=None):
-        self.ast = ast
-        self.name = name
-        self.pass_num = 1
+    """
+    Helper class for any AST transformation. The methods before_XXXX and after_XXX are meant to be overloaded by subclasses.
+    """
+    def __init__(self, ast : esprima.nodes.Node = None, name : str = None):
+        """
+        Class constructor
+        """
 
-    def bite(self, blah):
-        return self.do_expr(blah)
+        self.ast : esprima.nodes.Node = ast
+        """The AST on which this transformation operates"""
 
-    def before_expression(self, expr):
+        self.name : name = name
+        """The name of this transformation"""
+
+        self.pass_num : int = 1
+        """The number of times this pass has been performed"""
+
+    def before_expression(self, expr : esprima.nodes.Node) -> bool:
+        """
+        Called before an expression. If the method returns false, the expression is not processed.
+
+        :param esprima.nodes.Node expr: The expression node
+        :rtype bool:
+        :return: True to process the expression, False otherwise
+        """
         return True
 
-    def before_statement(self, expr):
+    def before_statement(self, statement : esprima.nodes.Node) -> bool:
+        """
+        Called before a statement. If the method returns false, the statement is not processed.
+
+        :param esprima.nodes.Node statement: The statement node
+        :rtype bool:
+        :return: True to process the statement, False otherwise
+        """        
         return True
     
     def after_expression(self, expr, results):
         return None
 
-    def after_statement(self, expr, results):
+    def after_statement(self, statement, results):
         return None
 
     def after_program(self, results):
@@ -668,7 +740,6 @@ class LoopUnroller(CodeTransform):
                     continue
                 st = node_from_id(i)                                
                 unrolled_size += st.range[1] - st.range[0]  
-
             if self.always_unroll or unrolled_size / (o.range[1] - o.range[0]) < max_unroll_ratio:
                 o.type = "BlockStatement"
                 o.body = []
@@ -950,6 +1021,7 @@ class VarDefInterpreter(LexicalScopedAbsInt):
                 set_ann(decl, "in_func", self.current_func)
 
         elif statement.type == "ExpressionStatement":
+            #TODO ca devrait etre a la classe parente d'appeler le on_expression avant le on_statement dans ce cas
             expr_desc = yield [self.updated_expr_desc, state, self.new_expr_desc(), statement.expression]
             self.link_def_set_to_use(expr_desc.def_set, id_from_node(statement.expression)) 
 
