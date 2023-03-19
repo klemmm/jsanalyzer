@@ -317,7 +317,7 @@ def initialize() -> None:
         else:
             return JSTop
 
-    def string_split(state, expr, string, separator=None):
+    def string_split(state, expr, string, separator=None, count=None):
         if separator is None:
             return string
         if isinstance(string, JSPrimitive) and isinstance(separator, JSPrimitive) and type(string.val) is str and type(separator.val) is str:
@@ -325,6 +325,11 @@ def initialize() -> None:
                 result = [*string.val]
             else:
                 result = string.val.split(separator.val)
+            if count is not None:
+                if isinstance(count, JSPrimitive) and type(count.val) is float:
+                    result = result[0:int(count.val)]
+                else:
+                    return JSTop
             obj_id = State.new_id()
             state.objs[obj_id] = JSObject(dict(enumerate([JSPrimitive(r) for r in result])))
             state.objs[obj_id].tablength = len(state.objs[obj_id].properties)
