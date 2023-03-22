@@ -33,7 +33,7 @@ This is an excerpt for another obfuscated JS served on some website. Strings are
 ![Obfuscated code](https://klemm.7un.net/fileshare/obf/site1.png)
 
 JSAnalyzer interprets automatically the RC4 decryption, emulates the eval() calls and clarifies the control flow. This excerpt show the exchange of requets with the server:
-![Processed code](https://klemm.7un.net/fileshare/obf/site2.png)
+![Processed code](https://klemm.7un.net/fileshare/obf//site2.png)
 
 ## How it works ?
 
@@ -44,7 +44,7 @@ The obfuscated JS is processed in 4 steps
  * Code Transformations on the AST, this is similar to compiler optimizations (done by transform.py)
  * Transformed JS output (done by prettyprint.js using the escodegen module)
 
-![Workflow](https://klemm.7un.net/fileshare/obf/workflow.png)
+![Workflow](https://klemm.7un.net/fileshare/obf/workflow.jpg)
 
 
 ## Abstract interpretation
