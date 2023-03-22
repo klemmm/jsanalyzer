@@ -9,7 +9,7 @@ from functools import reduce
 from collections import namedtuple
 from node_tools import get_ann, set_ann, del_ann, node_from_id, id_from_node, clear_ann, node_assign, node_copy,  dump_ann
 from typing import Set, List
-from interpreter import LoopContext
+from interpreter import LoopContext, START_ITER
 
 EXPRESSIONS = ["Literal", "ArrayExpression", "ArrowFunctionExpression", "AssignmentExpression", "AwaitExpression", "BinaryExpression", "CallExpression", "ConditionalExpression", "FunctionExpression", "LogicalExpression", "MemberExpression", "NewExpression", "ObjectExpression", "SequenceExpression", "ThisExpression", "UnaryExpression", "UpdateExpression"]
 
@@ -736,7 +736,7 @@ class LoopUnroller(CodeTransform):
 
             unrolled_size = 0
             for i in u:   
-                if i == "START_ITER":
+                if i == START_ITER:
                     continue
                 st = node_from_id(i)                                
                 unrolled_size += st.range[1] - st.range[0]  
@@ -745,7 +745,7 @@ class LoopUnroller(CodeTransform):
                 o.body = []
                 loop_iter = -1       
                 for i in u:
-                    if i == "START_ITER":
+                    if i == START_ITER:
                         loop_iter += 1
                         continue
                     st = node_copy(node_from_id(i))

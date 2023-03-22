@@ -13,31 +13,95 @@ import bisect
 
 glob_log = set()
 
+START_ITER = -1
 class LoopContext(list):
+    """
+    Represent a loop context
+
+    Each integer of the list represents the current iteration count of a loop (from outer to inner loop)
+    """
     def __hash__(self):
         return hash(tuple(self))
 
     def copy(self):
         return LoopContext(self)
-
+    
 class StackUnwind(Exception):
-    def __init__(self, site):
+    """
+    Raised when we want to unwind the analyzer's stack to merge recursion states.
+    """
+    def __init__(self, site : int):
+        """
+        Class constructor
+
+        :param int site: The node-id of the call site.
+        """
         self.site = site
 
 class Interpreter(object):
-    def __init__(self, ast, data, quiet=False):
-        self.ast = ast
-        self.funcs = []
-        self.data = data
-        self.quiet = quiet
+    """
+    Main abstract interpreter
+    """
+    def __init__(self, ast : esprima.nodes.Node , data : str, quiet : bool = False):
+        """
+        AST to process
+        """
+        self.ast : esprima.nodes.Node = ast
+
+        """
+        List of processed functions
+        """
+        self.funcs : List[esprima.nodes.Node] = []
+
+        """
+        The JavaScript source (useful for things such as someFunc + "")
+        """
+        self.data : str = data
+
+        """
+        Quiet mode
+        """
+        self.quiet : bool = quiet
+
+        """
+        The plugins need to access the source code.
+        """
         plugin_manager.set_source(data)
-        self.lines  = []
-        self.stack_trace = []
-        self.last = None
-        self.deferred = []
-        self.need_clean = False
-        self.unroll_trace = None
-        self.loop_context = LoopContext()
+
+        """
+        Used to convert position in source to line numbers, for debugging purposes
+        """
+        self.lines : List[int] = []
+
+        """
+        Stack backtrace for debugging purposes
+        """
+        self.stack_trace : List[esprima.nodes.Node] = []
+
+        """
+        Remember last seen statement, for debugging purposes
+        """
+        self.last : esprima.nodes.Node = None
+
+        """
+        List of deferred callbacks
+        """
+        self.deferred : List[esprima.nodes.Node] = []
+
+        """
+        True if abstract garbage-collection is needed
+        """
+        self.need_clean : True = False
+
+        """
+        Trace of node ids during loop unrolling (the special value START_ITER means start of loop)
+        """
+        self.unroll_trace : List[int] = None
+
+        """
+        Current loop context
+        """
+        self.loop_context : LoopContext = LoopContext()
 
         i = 0
         while i < len(self.data):
@@ -48,11 +112,20 @@ class Interpreter(object):
     def offset2line(self, offset):
         return bisect.bisect_left(self.lines, offset) + 1
 
-    #TODO reorganiser eval_func_helper / eval_func_call
-    def eval_func_helper(self, state, expr, consumed_refs, this=None):
+    #TODO Refactor eval_func_helper / eval_func_call
+
+    """
+    Manages function calls and "new" 
+
+    Handles recursion
+    Calls eval_function_call() as necessary
+
+    """
+    def eval_func_helper(self, state : State, expr : esprima.nodes.Node, consumed_refs : Set[JSRef], this=None):
 
         called_with_new = this is not None
 
+        #Skip the function call if the recursion state was already stable
         if get_ann(expr, "skip"):
             #print("skipped for site=", expr.site)
             return JSBot
@@ -142,6 +215,7 @@ class Interpreter(object):
                     set_ann(expr, "active", get_ann(expr, "active") - 1)        
                     set_ann(expr, "recursion_state", None)
                     #yield Raise(ret.site)
+                    raise e
 
                 #print("Unwinded: ", e.site)
                 state.assign(old_recursion_state)
@@ -835,7 +909,7 @@ class Interpreter(object):
         header_state = State.bottom()
         context_iter = 0
         while True:
-            self.unroll_trace.append("START_ITER")
+            self.unroll_trace.append(START_ITER)
             context_iter += 1
             if unrolling: #If we are unrolling, header_state saves current state
                 if i & 31 == 0:
