@@ -20,6 +20,10 @@ class LoopContext(list):
     def copy(self):
         return LoopContext(self)
 
+class StackUnwind(Exception):
+    def __init__(self, site):
+        self.site = site
+
 class Interpreter(object):
     def __init__(self, ast, data, quiet=False):
         self.ast = ast
@@ -114,26 +118,27 @@ class Interpreter(object):
             get_ann(expr, "recursion_state").join(state)
 #            if callee is not JSTop:
 #                print("   joined state stack frames: ",  expr.recursion_state.stack_frames, expr.recursion_state.lref, "function=", callee.body.name, site)
-            #yield Raise(site)
+            raise StackUnwind(site)
 
         set_ann(expr, "active", get_ann(expr, "active") + 1)        
         stable = False
         while not stable:
-            #print("start eval, site", expr.site, "skip=", expr.skip)
-            if get_ann(expr, "recursion_state") is not None:
-                old_recursion_state = get_ann(expr, "recursion_state").clone()
-            if self.return_state is not None:
-                saved_return_state = self.return_state
-            else:
-                saved_return_state = None
-            if self.return_value is not None:
-                saved_return_value = self.return_value.clone()
-            else:
-                saved_return_value = None
-            ret = self.eval_func_call( state, callee, expr, this, consumed_refs)
-
-            if isinstance(ret, Except):
-                if ret.site != expr.site:
+            try:
+                #print("start eval, site", expr.site, "skip=", expr.skip)
+                if get_ann(expr, "recursion_state") is not None:
+                    old_recursion_state = get_ann(expr, "recursion_state").clone()
+                if self.return_state is not None:
+                    saved_return_state = self.return_state
+                else:
+                    saved_return_state = None
+                if self.return_value is not None:
+                    saved_return_value = self.return_value.clone()
+                else:
+                    saved_return_value = None
+                ret = self.eval_func_call( state, callee, expr, this, consumed_refs)
+                stable = True
+            except StackUnwind as e:
+                if e.site != expr.site:
                     set_ann(expr, "active", get_ann(expr, "active") - 1)        
                     set_ann(expr, "recursion_state", None)
                     #yield Raise(ret.site)
@@ -146,11 +151,9 @@ class Interpreter(object):
                 if state == get_ann(expr, "recursion_state"):
                     set_ann(expr, "skip", True)
                     #print("Recursion state stabilized, function=", callee.body.name, site)
-#                    else:
-#                       print("not stable yet")
+    #                    else:
+    #                       print("not stable yet")
                     state.assign(get_ann(expr, "recursion_state"))
-            else:
-                stable = True
         ### fin exception
 
         #if expr.recursion_state is not None:
@@ -1082,24 +1085,6 @@ class Interpreter(object):
         if abs_bool is True:
             self.do_statement( state, consequent)
         else:
-            #TODO temporary workaround for probably incorrect boolean value evaluation
-            if config.process_not_taken:
-                assert not config.simplify_control_flow, "config.simplify_control_flow is incompatible with config.process_not_taken"
-                a = self.return_state
-                b = self.return_value
-                c = self.break_state
-                d = self.continue_state
-                self.return_state = State.bottom()
-                self.return_value = None
-                self.break_state = State.bottom()
-                self.continue_state = State.bottom()
-                cl = state.clone()
-                self.do_statement( cl, consequent)
-                self.return_state = a
-                self.return_value = b
-                self.break_state = c
-                self.continue_state = d
-            #TODO end of temporary workaround
             if alternate is not None:
                 self.do_statement( state, alternate)
         state.pending.difference_update(consumed_refs)
