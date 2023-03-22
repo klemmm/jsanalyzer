@@ -21,6 +21,8 @@ Before use, you must type `make` in the project directory in order to compile js
 
 It will produce a `yourfile-out.js`
 
+You can test it on the `realexemple1.js`, it will produce a decoded version of the expression (URL string) assigned to the `hook` function, at the end of the file.
+
 ## JSAnalyzer in action
 
 This is an excerpt from a real obfuscated malware "as is" (it has only been automatically indented). Strings are obfuscated and replaced by calls to functions, and control flow has been flattened:
