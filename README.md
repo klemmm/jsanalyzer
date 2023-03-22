@@ -46,6 +46,7 @@ The obfuscated JS is processed in 4 steps
 
 ![Workflow](https://klemm.7un.net/fileshare/obf/workflow.png)
 
+
 ## Abstract interpretation
 
 ### The general idea
