@@ -1,6 +1,6 @@
 # JS Analyzer
 
-This is a project to analyze obfuscated JS code using abstract interpretation.
+This is a project to analyze obfuscated JS code using abstract interpretation and optimizations similar to compiler optimizations
 
 It requires `python3` or `pypy3` with module `esprima`. The usage of `pypy3` is
 recommended for performance reasons.
@@ -11,6 +11,7 @@ essential things are missing, including but not limited to:
  * OOP stuff (classes, etc)
  * async functions
  * a lot of operators and built-in functions are not handled correctly, or not handled at all... 
+ * Analysis speed could be a lot better
 
 ## Setup
 
@@ -24,7 +25,16 @@ Before use, you must type `make` in the project directory in order to compile js
 
 It will produce a `yourfile-out.js`
 
-## How it works
+## How it works ?
+
+The obfuscated JS is processed in 4 steps
+
+ * Parsing the JS into an Abstract Syntax Tree (AST) (this is done by the esprima module)
+ * Abstract Interpretation on the AST to find out constant expressions (done by analyze.py)
+ * Code Transformations on the AST, this is similar to compiler optimizations (done by transform.py)
+ * Transformed JS output (done by prettyprint.js using the escodegen module)
+
+## Abstract interpretation
 
 ### The general idea
 
@@ -114,3 +124,6 @@ The project is organized in several files:
  * `output.py`: defines the pretty-printer / output generator. It is executed after the interpreter, and outputs the result JS, where each constant expression is replaced with its value.
 
 
+## Code Transforms
+
+The used optimizations are common, and found in any good compilation book (dead code/variable elimination, unrolling, etc)
