@@ -1,4 +1,7 @@
 
+This is a small VPN that reconstructs some lost packets with erasure codes, to be used on lossy links.
+
+
 Requirements
 ============
 - gcc
