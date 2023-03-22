@@ -2,18 +2,14 @@
 
 This is a project to analyze obfuscated JS code using abstract interpretation and optimizations similar to compiler optimizations
 
-It requires `python3` or `pypy3` with module `esprima`. The usage of `pypy3` is
-recommended for performance reasons.
-
 This is a work in progress / proof of concept, it is very incomplete. A lot of
-essential things are missing, including but not limited to:
- * Exceptions handling
- * OOP stuff (classes, etc)
- * async functions
- * a lot of operators and built-in functions are not handled correctly, or not handled at all... 
- * Analysis speed could be a lot better
+essential things are incorrectly handled or unhandled (exceptions, some OOP
+stuff, async functions, etc), also it is not very optimized (for analysis speed).
 
 ## Setup
+
+It requires `python3` or `pypy3` with module `esprima`. The usage of `pypy3` is
+recommended for performance reasons.
 
 Before use, you must type `make` in the project directory in order to compile jseval.so 
 
@@ -25,6 +21,20 @@ Before use, you must type `make` in the project directory in order to compile js
 
 It will produce a `yourfile-out.js`
 
+## JSAnalyzer in action
+
+This is an excerpt from a real obfuscated malware "as is" (it has only been automatically indented). Strings are obfuscated and replaced by calls to functions, and control flow has been flattened:
+![Obfuscated code](https://klemm.7un.net/fileshare/obf/webhook1.png)
+
+After processing by JSAnalyzer, the strings are recovered, and the control flow is clarified. We see that the code search for running Discords:
+![Processed code](https://klemm.7un.net/fileshare/obf/webhook2.png)
+
+This is an excerpt for another obfuscated JS served on some website. Strings are encrypted in RC4, there is control flow flatteing, and eval() calls. 
+![Obfuscated code](https://klemm.7un.net/fileshare/obf/site1.png)
+
+JSAnalyzer interprets automatically the RC4 decryption, emulates the eval() calls and clarifies the control flow. This excerpt show the exchange of requets with the server:
+![Processed code](https://klemm.7un.net/fileshare/obf/site2.png)
+
 ## How it works ?
 
 The obfuscated JS is processed in 4 steps
@@ -33,6 +43,8 @@ The obfuscated JS is processed in 4 steps
  * Abstract Interpretation on the AST to find out constant expressions (done by analyze.py)
  * Code Transformations on the AST, this is similar to compiler optimizations (done by transform.py)
  * Transformed JS output (done by prettyprint.js using the escodegen module)
+
+![Workflow](https://klemm.7un.net/fileshare/obf/workflow.png)
 
 ## Abstract interpretation
 
