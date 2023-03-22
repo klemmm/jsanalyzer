@@ -74,19 +74,19 @@ class LexicalScopedAbsInt(object):
         """
         if decl is None or decl.type != "VariableDeclaration":
             return
-        yield [self.do_statement, state, decl]
+        self.do_statement( state, decl)
     
     #TODO dégager ca et gérer le eval() ailleurs/autrement
     def do_expression(self, state, expression, test=False):
         if expression.type == "CallExpression":
             if type(expression.arguments) is list and len(expression.arguments) == 1 and expression.arguments[0].type == "BlockStatement":
                 for st in expression.arguments[0].body:
-                    yield [self.do_statement, state, st]
-            return (yield [self.on_expression,state, expression, test])
+                    self.do_statement( state, st)
+            return (self.on_expression(state, expression, test))
         elif expression.type == "FunctionExpression" or expression.type == "ArrowFunctionExpression":
-            return (yield [self.on_expression, state, expression, test])
+            return (self.on_expression( state, expression, test))
         else:
-            return (yield [self.on_expression, state, expression, test])
+            return (self.on_expression( state, expression, test))
 
     def do_statement(self, state : State, statement : esprima.nodes.Node) -> None:
         """ 
@@ -96,29 +96,29 @@ class LexicalScopedAbsInt(object):
         :param esprima.nodes.Node statement: The statement AST node
         """        
         if statement.type == "VariableDeclaration":
-            yield [self.on_statement, state, statement]
+            self.on_statement( state, statement)
 
         elif statement.type == "ExpressionStatement":
-            yield [self.on_statement, state, statement]
-            yield [self.on_expression, state, statement.expression, False]
+            self.on_statement( state, statement)
+            self.on_expression( state, statement.expression, False)
 
         elif statement.type == "IfStatement":
-            yield [self.on_statement, state, statement]
-            yield [self.on_expression, state, statement.test, True]
+            self.on_statement( state, statement)
+            self.on_expression( state, statement.test, True)
             state_else = self.domain.clone_state(state)
-            yield [self.do_statement, state, statement.consequent]
+            self.do_statement( state, statement.consequent)
             if statement.alternate is not None:
-                yield [self.do_statement, state_else, statement.alternate]
+                self.do_statement( state_else, statement.alternate)
             self.domain.join_state(state, state_else)
 
         elif statement.type == "FunctionDeclaration":
-            yield [self.on_statement, state, statement]
+            self.on_statement( state, statement)
        
         elif statement.type == "ReturnStatement":
-            yield [self.on_statement, state, statement]
+            self.on_statement( state, statement)
 
         elif statement.type == "WhileStatement":
-            yield [self.on_statement, state, statement]
+            self.on_statement( state, statement)
             header_state = self.domain.bottom_state()
             while True:
                 prev_header_state = self.domain.clone_state(header_state)
@@ -128,22 +128,22 @@ class LexicalScopedAbsInt(object):
                 if header_state == prev_header_state:
                     break
 
-                yield [self.do_expression, state, statement.test, True]
-                yield [self.do_statement, state, statement.body]
+                self.do_expression( state, statement.test, True)
+                self.do_statement( state, statement.body)
 
         
         elif statement.type == "TryStatement":
-            yield [self.do_statement, state, statement.block]
+            self.do_statement( state, statement.block)
         
         elif statement.type == "BlockStatement":
             for st in statement.body:
-                yield [self.do_statement, state, st]
+                self.do_statement( state, st)
         
         elif statement.type == "ForStatement":
-            yield [self.on_statement, state, statement]
+            self.on_statement( state, statement)
 
             if statement.init is not None:
-                yield [self.do_expression, state, statement.init]
+                self.do_expression( state, statement.init)
             
             header_state = self.domain.bottom_state()
             while True:
@@ -155,44 +155,44 @@ class LexicalScopedAbsInt(object):
                     break
 
                 if statement.test is not None:
-                    yield [self.do_expression, state, statement.test, True]
+                    self.do_expression( state, statement.test, True)
 
                 if statement.body is not None:
-                    yield [self.do_statement, state, statement.body]
+                    self.do_statement( state, statement.body)
 
                 if statement.update is not None:
-                    yield [self.do_expression, state, statement.update]
+                    self.do_expression( state, statement.update)
         
         elif statement.type == "ThrowStatement":
-            yield [self.on_statement, state, statement]
+            self.on_statement( state, statement)
 
         elif statement.type == "SwitchStatement":
-            yield [self.on_statement, state, statement]
-            yield [self.on_expression, state, statement.discriminant]
+            self.on_statement( state, statement)
+            self.on_expression( state, statement.discriminant)
 
             case_states = []
             for case in statement.cases:
                 current_case = self.domain.clone_state(state)
                 case_states.append(current_case)
                 for statement in case.consequent:
-                    yield [self.do_statement, current_case, statement]
+                    self.do_statement( current_case, statement)
 
             for s in case_states:
                 self.domain.join_state(state, s)
 
         elif statement.type == "ClassDeclaration":
-            yield [self.on_statement, state, statement]
+            self.on_statement( state, statement)
 
         elif statement.type == "ClassBody":
-            yield [self.on_statement, state, statement]
+            self.on_statement( state, statement)
 
         elif statement.type == "MethodDefinition":
-            yield [self.on_statement, state, statement]
+            self.on_statement( state, statement)
 
         elif statement.type == "ForInStatement":
 
-            yield [self.on_expression, state, statement.left]
-            yield [self.on_expression, state, statement.right]
+            self.on_expression( state, statement.left)
+            self.on_expression( state, statement.right)
             
             header_state = self.domain.bottom_state()
             while True:
@@ -203,7 +203,7 @@ class LexicalScopedAbsInt(object):
                 if header_state == prev_header_state:
                     break
 
-                yield [self.do_statement, state, statement.body]
+                self.do_statement( state, statement.body)
         
     def do_prog(self, prog : esprima.nodes.Node) -> None:
         """
@@ -213,14 +213,14 @@ class LexicalScopedAbsInt(object):
         """
         state = self.domain.init_state()
         for statement in prog:
-            yield [self.do_statement, state, statement]
+            self.do_statement( state, statement)
         self.on_end(state)
 
     def run(self):
         """
         Run the analyzer
         """
-        call(self.do_prog, self.ast.body)
+        self.do_prog(self.ast.body)
 
 class CodeTransform(object):
     """
@@ -273,9 +273,9 @@ class CodeTransform(object):
         if exprdecl is None:
             return
         if exprdecl.type == "VariableDeclaration":
-            yield [self.do_statement, exprdecl]
+            self.do_statement( exprdecl)
         else:
-            yield [self.do_expr, exprdecl]
+            self.do_expr( exprdecl)
 
     def do_expr(self, expr):
         if expr is None:
@@ -284,75 +284,75 @@ class CodeTransform(object):
             return
         results = []
         if expr.type == "NewExpression":
-            yield [self.do_expr, expr.callee]
+            self.do_expr( expr.callee)
             for argument in expr.arguments:
-                results.append((yield [self.do_expr, argument]))
+                results.append((self.do_expr( argument)))
 
         elif expr.type == "ConditionalExpression":
-            results.append((yield [self.do_expr,expr.test]))
-            results.append((yield [self.do_expr,  expr.consequent]))
-            results.append((yield [self.do_expr, expr.alternate]))
+            results.append((self.do_expr(expr.test)))
+            results.append((self.do_expr(  expr.consequent)))
+            results.append((self.do_expr( expr.alternate)))
 
         elif expr.type == "SequenceExpression":
             for e in expr.expressions:
-                results.append((yield [self.do_expr, e]))
+                results.append((self.do_expr( e)))
 
         elif expr.type == "AssignmentExpression":
             if expr.left.type == "MemberExpression":
-                results.append((yield [self.do_expr, expr.left.object]))
+                results.append((self.do_expr( expr.left.object)))
                 if expr.left.computed:
-                        results.append((yield [self.do_expr,expr.left.property]))
-            results.append((yield [self.do_expr,expr.right]))
+                        results.append((self.do_expr(expr.left.property)))
+            results.append((self.do_expr(expr.right)))
 
         elif expr.type == "ObjectExpression":
             for prop in expr.properties:
                 if prop.computed:
-                    results.append((yield [self.do_expr,prop.key]))
+                    results.append((self.do_expr(prop.key)))
                 else:
                     if prop.type == "Property":
-                        results.append((yield [self.do_expr, prop.value]))
+                        results.append((self.do_expr( prop.value)))
 
         elif expr.type == "ArrayExpression":
             for elem in expr.elements:
-                results.append((yield [self.do_expr,elem]))
+                results.append((self.do_expr(elem)))
 
         elif expr.type == "MemberExpression":
-            results.append((yield [self.do_expr,expr.object]))
+            results.append((self.do_expr(expr.object)))
             if expr.computed:
-                results.append((yield [self.do_expr,expr.property]))
+                results.append((self.do_expr(expr.property)))
 
         elif expr.type == "UnaryExpression":
-            results.append((yield [self.do_expr,expr.argument]))
+            results.append((self.do_expr(expr.argument)))
 
         elif expr.type == "BinaryExpression":
-            results.append((yield [self.do_expr,expr.left]))
-            results.append((yield [self.do_expr,expr.right]))
+            results.append((self.do_expr(expr.left)))
+            results.append((self.do_expr(expr.right)))
 
         elif expr.type == "LogicalExpression":
-            results.append((yield [self.do_expr,expr.left]))
-            results.append((yield [self.do_expr,expr.right]))
+            results.append((self.do_expr(expr.left)))
+            results.append((self.do_expr(expr.right)))
 
         elif expr.type == "FunctionExpression":
-            results.append((yield [self.do_statement,expr.body]))
+            results.append((self.do_statement(expr.body)))
 
         elif expr.type == "ArrowFunctionExpression":
             if expr.expression:
-                results.append((yield [self.do_expr,expr.body]))
+                results.append((self.do_expr(expr.body)))
             else:
-                results.append((yield [self.do_statement,expr.body]))
+                results.append((self.do_statement(expr.body)))
 
         elif expr.type == "CallExpression": #todo reduced
-            results.append((yield [self.do_expr,expr.callee]))
+            results.append((self.do_expr(expr.callee)))
             for argument in expr.arguments:
                 if argument.type == "BlockStatement":
-                    results.append((yield [self.do_statement, argument])) #TODO hack
-                results.append((yield [self.do_expr,argument]))
+                    results.append((self.do_statement( argument))) #TODO hack
+                results.append((self.do_expr(argument)))
 
         elif expr.type == "UpdateExpression":
-            results.append((yield [self.do_expr,expr.argument]))
+            results.append((self.do_expr(expr.argument)))
 
         elif expr.type == "AwaitExpression":
-            results.append((yield [self.do_expr, expr.argument]))
+            results.append((self.do_expr( expr.argument)))
 
         return self.after_expression(expr, results)
 
@@ -368,82 +368,82 @@ class CodeTransform(object):
                 if decl.id.type == "ObjectPattern":
                     for prop in decl.id.properties:
                         if prop.computed:
-                            results.append((yield [self.do_expr,prop.key]))
+                            results.append((self.do_expr(prop.key)))
                         else:
                             if prop.type == "Property":
-                                results.append((yield [self.do_expr,prop.value]))
+                                results.append((self.do_expr(prop.value)))
                 if decl.init is not None:
-                    results.append((yield [self.do_expr, decl.init]))
+                    results.append((self.do_expr( decl.init)))
 
         elif statement.type == "ExpressionStatement":
-            results.append((yield [self.do_expr, statement.expression]))
+            results.append((self.do_expr( statement.expression)))
 
         elif statement.type == "IfStatement":
-            results.append((yield [self.do_expr,statement.test]))
-            results.append((yield [self.do_statement, statement.consequent]))
+            results.append((self.do_expr(statement.test)))
+            results.append((self.do_statement( statement.consequent)))
             if statement.alternate is not None:
-                results.append((yield [self.do_statement, statement.alternate]))
+                results.append((self.do_statement( statement.alternate)))
 
         elif statement.type == "FunctionDeclaration":
-            results.append((yield [self.do_statement, statement.body]))
+            results.append((self.do_statement( statement.body)))
        
         elif statement.type == "ReturnStatement":
             if statement.argument is not None:
-                results.append((yield [self.do_expr, statement.argument]))
+                results.append((self.do_expr( statement.argument)))
 
         elif statement.type == "WhileStatement":
-            results.append((yield [self.do_expr,statement.test]))
-            results.append((yield [self.do_statement,statement.body]))
+            results.append((self.do_expr(statement.test)))
+            results.append((self.do_statement(statement.body)))
         
         elif statement.type == "TryStatement":
-            results.append((yield [self.do_statement,statement.block]))
+            results.append((self.do_statement(statement.block)))
         
         elif statement.type == "BlockStatement":
             for st in statement.body:
-                results.append((yield [self.do_statement, st]))
+                results.append((self.do_statement( st)))
         
         elif statement.type == "ForStatement":
             if statement.init is not None:
-                results.append((yield [self.do_expr_or_declaration,statement.init]))
+                results.append((self.do_expr_or_declaration(statement.init)))
             if statement.test is not None:
-                results.append((yield [self.do_expr,statement.test]))
+                results.append((self.do_expr(statement.test)))
             if statement.update is not None:
-                results.append((yield [self.do_expr_or_declaration,statement.update]))
-            results.append((yield [self.do_statement,statement.body]))
+                results.append((self.do_expr_or_declaration(statement.update)))
+            results.append((self.do_statement(statement.body)))
         
         elif statement.type == "ThrowStatement":
-            results.append((yield [self.do_expr,statement.argument]))
+            results.append((self.do_expr(statement.argument)))
 
         elif statement.type == "SwitchStatement":
-            results.append((yield [self.do_expr,statement.discriminant]))
+            results.append((self.do_expr(statement.discriminant)))
             for case in statement.cases:
-                results.append((yield [self.do_expr,case.test]))
+                results.append((self.do_expr(case.test)))
                 for statement in case.consequent:
-                    results.append((yield [self.do_statement,statement]))
+                    results.append((self.do_statement(statement)))
 
         elif statement.type == "ClassDeclaration":
-            results.append((yield [self.do_statement,statement.body]))
+            results.append((self.do_statement(statement.body)))
 
         elif statement.type == "ClassBody":
             for item in statement.body:
-                results.append((yield [self.do_statement,item]))
+                results.append((self.do_statement(item)))
 
         elif statement.type == "MethodDefinition":
             if statement.key.type != "Identifier":
-                results.append((yield [self.do_expr,statement.key]))
-            results.append((yield [self.do_statement,statement.value.body]))
+                results.append((self.do_expr(statement.key)))
+            results.append((self.do_statement(statement.value.body)))
 
         elif statement.type == "ForInStatement":
-            results.append((yield [self.do_expr_or_declaration,statement.left]))
-            results.append((yield [self.do_expr_or_declaration,  statement.right]))
-            results.append((yield [self.do_statement,statement.body]))
+            results.append((self.do_expr_or_declaration(statement.left)))
+            results.append((self.do_expr_or_declaration(  statement.right)))
+            results.append((self.do_statement(statement.body)))
         
         return self.after_statement(statement, results)
 
     def do_prog(self, prog):
         results = []
         for statement in prog:
-            results.append((yield [self.do_statement, statement]))
+            results.append((self.do_statement( statement)))
         self.after_program(results)
 
     def run(self):       
@@ -453,7 +453,7 @@ class CodeTransform(object):
                 print(" (pass " + str(self.pass_num) + ")")
             else:
                 print("")
-        call(self.do_prog, self.ast.body)
+        self.do_prog(self.ast.body)
         self.pass_num += 1
 
 class ExpressionSimplifier(CodeTransform):
@@ -702,7 +702,7 @@ class FunctionInliner(CodeTransform):
                 ret_expr_copy = node_copy(ret_expr)
                 self.subst.formal = get_ann(o, "call_target.params")
                 self.subst.effective = o.arguments
-                call(self.subst.do_expr, ret_expr_copy)                
+                self.subst.do_expr(ret_expr_copy)
                 node_assign(o, ret_expr_copy) #, ["static_value"])
                 #o.leadingComments = [{"type":"Block", "value":" Inlined "}]
                 self.count += 1
@@ -752,7 +752,7 @@ class LoopUnroller(CodeTransform):
                     if st.type in EXPRESSIONS:
                         st = wrap_in_statement(st)                    
                     self.fixer.set_args(loop_id, loop_iter)
-                    call(self.fixer.do_statement, st)                                                
+                    self.fixer.do_statement(st)
                     o.body.append(st)
                 o.leadingComments = [{"type":"Block", "value":" Begin unrolled loop "}]
                 o.trailingComments = [{"type":"Block", "value":" End unrolled loop "}]
@@ -905,7 +905,7 @@ class VarDefInterpreter(LexicalScopedAbsInt):
         self.current_func = body
         self.state_stack.append(self.domain.clone_state(state))
         self.domain.assign_state(state, self.domain.init_state())
-        yield [self.do_statement, state, body]
+        self.do_statement( state, body)
         set_ann(body, "inner_free_vars", self.inner_free_vars.copy())
         self.current_func = self.func_stack.pop()
         self.inner_free_vars.difference_update(set([x.name for x in state]))
@@ -990,7 +990,7 @@ class VarDefInterpreter(LexicalScopedAbsInt):
             """        
         if expr is None or expr.type == "BlockStatement" :
             return self.new_expr_desc() #TODO
-        sub_expr_desc = yield [self.do_expression, state, expr]
+        sub_expr_desc = self.do_expression( state, expr)
         r = self.new_expr_desc(sub_expr_desc.def_set.union(expr_desc.def_set), sub_expr_desc.has_side_effects or expr_desc.has_side_effects)
         return r
 
@@ -1015,31 +1015,31 @@ class VarDefInterpreter(LexicalScopedAbsInt):
                 else:
                     self.create_def(state, decl, decl.id.name)
                 if decl.init is not None:
-                    expr_desc = yield [self.updated_expr_desc, state, expr_desc, decl.init]
+                    expr_desc = self.updated_expr_desc( state, expr_desc, decl.init)
                     self.link_def_set_to_use(expr_desc.def_set, id_from_node(decl))
                     set_ann(decl, "rhs_side_effects", expr_desc.has_side_effects)
                 set_ann(decl, "in_func", self.current_func)
 
         elif statement.type == "ExpressionStatement":
             #TODO ca devrait etre a la classe parente d'appeler le on_expression avant le on_statement dans ce cas
-            expr_desc = yield [self.updated_expr_desc, state, self.new_expr_desc(), statement.expression]
+            expr_desc = self.updated_expr_desc( state, self.new_expr_desc(), statement.expression)
             self.link_def_set_to_use(expr_desc.def_set, id_from_node(statement.expression)) 
 
         elif statement.type == "ReturnStatement":
-            expr_desc = yield [self.updated_expr_desc, state, self.new_expr_desc(), statement.argument]
+            expr_desc = self.updated_expr_desc( state, self.new_expr_desc(), statement.argument)
             if statement.argument is not None:
                 self.link_def_set_to_use(expr_desc.def_set, id_from_node(statement.argument))
 
         elif statement.type in ["ForStatement", "WhileStatement", "IfStatement"]:
-            expr_desc = yield [self.updated_expr_desc, state, self.new_expr_desc(), statement.test]
+            expr_desc = self.updated_expr_desc( state, self.new_expr_desc(), statement.test)
             self.link_def_set_to_use(expr_desc.def_set, id_from_node(statement.test))
 
         elif statement.type in ["SwitchStatement"]:
-            expr_desc = yield [self.updated_expr_desc, state, self.new_expr_desc(), statement.discriminant]
+            expr_desc = self.updated_expr_desc( state, self.new_expr_desc(), statement.discriminant)
             self.link_def_set_to_use(expr_desc.def_set, id_from_node(statement.discriminant))
 
         elif statement.type == "FunctionDeclaration":
-            yield [self.handle_function_body, state, statement.body]
+            self.handle_function_body( state, statement.body)
 
 
     def on_expression(self, state : Domain.State, expression : esprima.nodes.Node, test : bool = False) -> ExprDesc:
@@ -1060,7 +1060,7 @@ class VarDefInterpreter(LexicalScopedAbsInt):
 
             #In these cases, LHS is read, so we need to register the uses for LHS in the expr desc
             if expression.left.type == "MemberExpression" or expression.operator != "=":
-                expr_desc = yield [self.updated_expr_desc, state, expr_desc, expression.left]
+                expr_desc = self.updated_expr_desc( state, expr_desc, expression.left)
             
             #Register the declaration associated to the LHS as useful: we track declarations and values separately because it's possible that a variable declaration is useful even if the initialization isn't
             existing_defs = self.get_def_set_by_name(state, expression.left.name)
@@ -1069,7 +1069,7 @@ class VarDefInterpreter(LexicalScopedAbsInt):
                     get_ann(node_from_id(d), "decl_used_by").add(id_from_node(expression))               
             
             #register the uses for RHS in expr desc
-            expr_desc = yield [self.updated_expr_desc, state, expr_desc, expression.right]
+            expr_desc = self.updated_expr_desc( state, expr_desc, expression.right)
 
             #We only handle local variables for now, so we create a DEF only if this variable was locally declared
             if bool(existing_defs):
@@ -1084,37 +1084,37 @@ class VarDefInterpreter(LexicalScopedAbsInt):
 
         elif expression.type == "BinaryExpression" or expression.type == "LogicalExpression":
             expr_desc = self.new_expr_desc()
-            expr_desc = yield [self.updated_expr_desc, state, expr_desc, expression.left]
-            expr_desc = yield [self.updated_expr_desc, state, expr_desc, expression.right]
+            expr_desc = self.updated_expr_desc( state, expr_desc, expression.left)
+            expr_desc = self.updated_expr_desc( state, expr_desc, expression.right)
             return expr_desc
 
         elif expression.type == "ConditionalExpression":
             expr_desc = self.new_expr_desc()
-            expr_desc = yield [self.updated_expr_desc, state, expr_desc, expression.test]
-            expr_desc = yield [self.updated_expr_desc, state, expr_desc, expression.consequent]
-            expr_desc = yield [self.updated_expr_desc, state, expr_desc, expression.alternate]
+            expr_desc = self.updated_expr_desc( state, expr_desc, expression.test)
+            expr_desc = self.updated_expr_desc( state, expr_desc, expression.consequent)
+            expr_desc = self.updated_expr_desc( state, expr_desc, expression.alternate)
             return expr_desc
 
         elif expression.type == "ArrayExpression":
             expr_desc = self.new_expr_desc()
             for elem in expression.elements:
-                expr_desc = yield [self.updated_expr_desc, state, expr_desc, elem]
+                expr_desc = self.updated_expr_desc( state, expr_desc, elem)
             return expr_desc
         
         elif expression.type == "ObjectExpression":
             expr_desc = self.new_expr_desc()
             for prop in expression.properties:
                 if prop.computed:
-                    expr_desc = yield [self.updated_expr_desc, state, expr_desc, prop.key]
+                    expr_desc = self.updated_expr_desc( state, expr_desc, prop.key)
                 if prop.type == "Property":
-                    expr_desc = yield [self.updated_expr_desc, state, expr_desc, prop.value]
+                    expr_desc = self.updated_expr_desc( state, expr_desc, prop.value)
             return expr_desc
         
         elif expression.type == "MemberExpression":
             expr_desc = self.new_expr_desc()
-            expr_desc = yield [self.updated_expr_desc, state, expr_desc, expression.object]
+            expr_desc = self.updated_expr_desc( state, expr_desc, expression.object)
             if expression.computed:
-                expr_desc = yield [self.updated_expr_desc, state, expr_desc, expression.property]
+                expr_desc = self.updated_expr_desc( state, expr_desc, expression.property)
             return expr_desc
 
         elif expression.type == "Literal":
@@ -1122,7 +1122,7 @@ class VarDefInterpreter(LexicalScopedAbsInt):
 
         elif expression.type == "UpdateExpression":
             expr_desc = self.new_expr_desc()
-            expr_desc = yield [self.updated_expr_desc, state, expr_desc, expression.argument]
+            expr_desc = self.updated_expr_desc( state, expr_desc, expression.argument)
 
             if expression.argument.type == "Identifier": #For now, only handle updates to identifiers
                 existing_defs = self.get_def_set_by_name(state, expression.argument.name)
@@ -1143,9 +1143,9 @@ class VarDefInterpreter(LexicalScopedAbsInt):
 
         elif expression.type == "CallExpression":
             expr_desc = self.new_expr_desc()
-            expr_desc = yield [self.updated_expr_desc, state, expr_desc, expression.callee]
+            expr_desc = self.updated_expr_desc( state, expr_desc, expression.callee)
             for a in expression.arguments:
-                expr_desc = yield [self.updated_expr_desc, state, expr_desc, a]
+                expr_desc = self.updated_expr_desc( state, expr_desc, a)
             if not get_ann(expression, "callee_is_pure"):                
                 self.link_def_set_to_use(expr_desc.def_set, id_from_node(expression))
             return self.new_expr_desc(expr_desc.def_set, expr_desc.has_side_effects or not get_ann(expression, "callee_is_pure"))
@@ -1155,30 +1155,30 @@ class VarDefInterpreter(LexicalScopedAbsInt):
 
         elif expression.type == "AwaitExpression":
             expr_desc = self.new_expr_desc()
-            expr_desc = yield [self.updated_expr_desc, state, expr_desc, expression.argument]
+            expr_desc = self.updated_expr_desc( state, expr_desc, expression.argument)
             return expr_desc
 
         elif expression.type == "UnaryExpression":
             expr_desc = self.new_expr_desc()
-            expr_desc = yield [self.updated_expr_desc, state, expr_desc, expression.argument]
+            expr_desc = self.updated_expr_desc( state, expr_desc, expression.argument)
             return expr_desc
 
         elif expression.type == "FunctionExpression" or expression.type == "ArrowFunctionExpression":
-            yield [self.handle_function_body, state, expression.body]
+            self.handle_function_body( state, expression.body)
             expr_desc = self.new_expr_desc()
             return expr_desc
 
         elif expression.type == "NewExpression":
             expr_desc = self.new_expr_desc()
             for a in expression.arguments:
-                expr_desc = yield [self.updated_expr_desc, state, expr_desc, a]
+                expr_desc = self.updated_expr_desc( state, expr_desc, a)
             self.link_def_set_to_use(expr_desc.def_set, id_from_node(expression))
             return self.new_expr_desc(expr_desc.def_set, True)
 
         elif expression.type == "SequenceExpression":
             expr_desc = self.new_expr_desc()
             for elem in expression.expressions:
-                expr_desc = yield [self.updated_expr_desc, state, expr_desc, elem]
+                expr_desc = self.updated_expr_desc( state, expr_desc, elem)
             return expr_desc
 
 

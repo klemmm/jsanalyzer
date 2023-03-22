@@ -52,14 +52,14 @@ class Interpreter(object):
         if get_ann(expr, "skip"):
             #print("skipped for site=", expr.site)
             return JSBot
-        callee_ref = yield [self.eval_expr, state, expr.callee]
+        callee_ref = self.eval_expr( state, expr.callee)
         state.consume_expr(callee_ref, consumed_refs)
 
         if isinstance(callee_ref, JSOr) and config.use_filtering_err:
             #print("Or in call:", callee_ref)
             c = callee_ref.choices.difference({JSUndef})
             if len(c) == 1:
-                target, prop, target_id = yield [self.use_lvalue, state, expr.callee, consumed_refs]
+                target, prop, target_id = self.use_lvalue( state, expr.callee, consumed_refs)
                 target.properties[prop] = list(c)[0]
                 callee_ref = list(c)[0]
 
@@ -114,7 +114,7 @@ class Interpreter(object):
             get_ann(expr, "recursion_state").join(state)
 #            if callee is not JSTop:
 #                print("   joined state stack frames: ",  expr.recursion_state.stack_frames, expr.recursion_state.lref, "function=", callee.body.name, site)
-            yield Raise(site)
+            #yield Raise(site)
 
         set_ann(expr, "active", get_ann(expr, "active") + 1)        
         stable = False
@@ -130,13 +130,13 @@ class Interpreter(object):
                 saved_return_value = self.return_value.clone()
             else:
                 saved_return_value = None
-            ret =  yield Try(expr.site, [self.eval_func_call, state, callee, expr, this, consumed_refs])
+            ret = self.eval_func_call( state, callee, expr, this, consumed_refs)
 
             if isinstance(ret, Except):
                 if ret.site != expr.site:
                     set_ann(expr, "active", get_ann(expr, "active") - 1)        
                     set_ann(expr, "recursion_state", None)
-                    yield Raise(ret.site)
+                    #yield Raise(ret.site)
 
                 #print("Unwinded: ", e.site)
                 state.assign(old_recursion_state)
@@ -178,7 +178,7 @@ class Interpreter(object):
         for argument in arguments:
             #We evaluate arguments even if callee is not callable, to handle argument-evaluation side effects
         
-            v = yield [self.eval_expr, state, argument]
+            v = self.eval_expr( state, argument)
             #print("arg:", get_ann(argument, "contextual_static_value"))
             state.consume_expr(v, consumed_refs)
             if callee.is_callable():
@@ -257,9 +257,9 @@ class Interpreter(object):
            
             #evaluate function, join any return states
             if callee.fn_isexpr:
-                return_value = yield [self.eval_expr, state, callee.body]
+                return_value = self.eval_expr( state, callee.body)
             else:
-                yield [self.do_statement, state, callee.body]
+                self.do_statement( state, callee.body)
             self.need_clean = True
             callee.body.pure = self.pure
             callee.body.closure = self.closure
@@ -301,7 +301,7 @@ class Interpreter(object):
             return JSBot
         if expr is None:
             return JSTop
-        result = yield [self.eval_expr_aux, state, expr]
+        result = self.eval_expr_aux( state, expr)
         set_ann(expr, "static_value", State.value_join(get_ann(expr, "static_value"), result))
         if len(self.loop_context) > 0:
             csv = get_ann(expr, "contextual_static_value")
@@ -343,14 +343,14 @@ class Interpreter(object):
         elif lvalue_expr.type == "MemberExpression": #member as lvalue
             self.pure = False
             #Member expression: identify target object (dict), and property name (string)
-            target, prop, target_id = yield [self.use_member, state, lvalue_expr, consumed_refs]
+            target, prop, target_id = self.use_member( state, lvalue_expr, consumed_refs)
         else:
             raise ValueError("Invalid assignment left type")
 
         return target, prop, target_id
             
     def do_assignment(self, state, lvalue_expr, rvalue_expr, abs_rvalue, consumed_refs=None):
-        target, prop, target_id = yield [self.use_lvalue, state, lvalue_expr, consumed_refs]
+        target, prop, target_id = self.use_lvalue( state, lvalue_expr, consumed_refs)
 
         if rvalue_expr is not None and not get_ann(rvalue_expr, "processed") and (target is None or (target_id is not None and "__probable_api" in target.properties.keys())) and isinstance(abs_rvalue, JSRef) and state.objs[abs_rvalue.target()].is_function():
             #self.deferred.append((state.clone(), state.objs[abs_rvalue.target()]))
@@ -374,14 +374,14 @@ class Interpreter(object):
     #Helper function to decompose member expression into object (dict) and property (string). Returns None if not found.
     def use_member(self, state, expr, consumed_refs=None):
         #Member expression type: first, try to find referenced object
-        abs_target = yield [self.eval_expr, state, expr.object]
+        abs_target = self.eval_expr( state, expr.object)
         state.consume_expr(abs_target, consumed_refs)
 
         if isinstance(abs_target, JSOr) and config.use_filtering_err:
             #print("Or in usemember!", abs_target)
             c = abs_target.choices.difference({JSUndef})
             if len(c) == 1:
-                parent_target, parent_prop, parent_target_id = yield [self.use_lvalue, state, expr.object, consumed_refs]
+                parent_target, parent_prop, parent_target_id = self.use_lvalue( state, expr.object, consumed_refs)
                 parent_target.properties[parent_prop] = list(c)[0]
                 abs_target = list(c)[0]
 
@@ -394,7 +394,7 @@ class Interpreter(object):
         #Now, try to find the property name, it can be directly given, or computed.
         if expr.computed:
             #Property name is computed (i.e. tab[x + 1])
-            abs_property = yield [self.eval_expr, state, expr.property]
+            abs_property = self.eval_expr( state, expr.property)
             state.consume_expr(abs_property, consumed_refs)
             if abs_property is JSTop or isinstance(abs_property, JSOr):
                 prop = None
@@ -440,12 +440,12 @@ class Interpreter(object):
 
         elif expr.type == "UpdateExpression":
             consumed_refs = set()
-            argument = yield [self.eval_expr, state, expr.argument]
+            argument = self.eval_expr( state, expr.argument)
             state.consume_expr(argument, consumed_refs)
             result = plugin_manager.handle_update_operation(expr.operator, state, argument)
             state.consume_expr(result, consumed_refs)
 
-            yield [self.do_assignment, state, expr.argument, None, result, consumed_refs]
+            self.do_assignment( state, expr.argument, None, result, consumed_refs)
             state.pending.difference_update(consumed_refs)
             
             if expr.prefix:
@@ -461,23 +461,23 @@ class Interpreter(object):
             obj_id = State.new_id()
             state.objs[obj_id] = JSObject({})
             state.pending.add(obj_id)
-            ret = yield [self.eval_func_helper, state, expr, consumed_refs, obj_id]
+            ret = self.eval_func_helper( state, expr, consumed_refs, obj_id)
             state.consume_expr(ret, consumed_refs)
             state.pending.difference_update(consumed_refs)
             return JSRef(obj_id)
       
         elif expr.type == "ConditionalExpression":
             consumed_refs = set()
-            abs_test_result = yield [self.eval_expr, state, expr.test]
+            abs_test_result = self.eval_expr( state, expr.test)
             state.consume_expr(abs_test_result, consumed_refs)
 
 
             if abs_test_result is JSTop or isinstance(abs_test_result, JSOr):
                 state_then = state
                 state_else = state.clone()
-                expr_then = yield [self.eval_expr, state_then, expr.consequent]
+                expr_then = self.eval_expr( state_then, expr.consequent)
                 state.consume_expr(expr_then, consumed_refs)
-                expr_else = yield [self.eval_expr, state_else, expr.alternate]
+                expr_else = self.eval_expr( state_else, expr.alternate)
                 state.consume_expr(expr_else, consumed_refs)
                 state_then.join(state_else)
                 if State.value_equal(expr_then, expr_else):
@@ -485,10 +485,10 @@ class Interpreter(object):
                 else:
                     result = JSTop
             elif plugin_manager.to_bool(abs_test_result):
-                result = yield [self.eval_expr, state, expr.consequent]
+                result = self.eval_expr( state, expr.consequent)
                 state.consume_expr(result, consumed_refs)
             else:
-                result = yield [self.eval_expr, state, expr.alternate]
+                result = self.eval_expr( state, expr.alternate)
                 state.consume_expr(result, consumed_refs)
 
             state.pending.difference_update(consumed_refs)
@@ -497,7 +497,7 @@ class Interpreter(object):
         elif expr.type == "SequenceExpression":
             consumed_refs = set()
             for e in expr.expressions:
-                r = yield [self.eval_expr, state, e]
+                r = self.eval_expr( state, e)
                 state.consume_expr(r, consumed_refs)
             state.pending.difference_update(consumed_refs)
             return r
@@ -511,20 +511,20 @@ class Interpreter(object):
         elif expr.type == "AssignmentExpression":
             consumed_refs = set()
             if expr.operator[0] == "=":
-                abs_rvalue = yield [self.eval_expr, state, expr.right]
+                abs_rvalue = self.eval_expr( state, expr.right)
                 if state.is_bottom:
                     return JSBot
                 state.consume_expr(abs_rvalue, consumed_refs)
-                yield [self.do_assignment, state, expr.left, expr.right, abs_rvalue, consumed_refs]
+                self.do_assignment( state, expr.left, expr.right, abs_rvalue, consumed_refs)
                 state.pending.difference_update(consumed_refs)
                 return abs_rvalue
             else:
-                left = yield [self.eval_expr, state, expr.left]
+                left = self.eval_expr( state, expr.left)
                 state.consume_expr(left, consumed_refs)
-                right = yield [self.eval_expr, state, expr.right]
+                right = self.eval_expr( state, expr.right)
                 state.consume_expr(right, consumed_refs)
                 result = plugin_manager.handle_binary_operation(expr.operator[0], state, left, right)
-                yield [self.do_assignment, state, expr.left, None, result, consumed_refs]
+                self.do_assignment( state, expr.left, None, result, consumed_refs)
                 state.pending.difference_update(consumed_refs)
                 return result
 
@@ -535,7 +535,7 @@ class Interpreter(object):
             for prop in expr.properties:
                 if prop.type != "Property":
                     continue
-                prop_val = yield [self.eval_expr, state, prop.value]
+                prop_val = self.eval_expr( state, prop.value)
                 state.consume_expr(prop_val, consumed_refs)
                 if prop_val is JSTop:
                     continue
@@ -546,7 +546,7 @@ class Interpreter(object):
                         properties[prop.key.value] = prop_val
 
                 else:
-                    prop_key = yield [self.eval_expr, state, prop.key]
+                    prop_key = self.eval_expr( state, prop.key)
                     state.consume_expr(prop_key, consumed_refs)
                     if isinstance(prop_key, JSPrimitive):
                         properties[prop_key.val] = prop_val
@@ -561,7 +561,7 @@ class Interpreter(object):
             consumed_refs = set()
             i = 0
             for elem in expr.elements:
-                elements[i] = yield [self.eval_expr, state, elem]
+                elements[i] = self.eval_expr( state, elem)
                 state.consume_expr(elements[i], consumed_refs)
                 i = i + 1
             obj_id = State.new_id()
@@ -572,7 +572,7 @@ class Interpreter(object):
 
         elif expr.type == "MemberExpression":
             consumed_refs = set()
-            target, prop, target_id = yield [self.use_member, state, expr, consumed_refs]
+            target, prop, target_id = self.use_member( state, expr, consumed_refs)
             if target is None or prop is None:
                 state.pending.difference_update(consumed_refs)
                 return JSTop
@@ -646,7 +646,7 @@ class Interpreter(object):
 
         elif expr.type == "UnaryExpression": #Unary expression computation delegated to plugins
             consumed_refs = set()
-            argument = yield [self.eval_expr, state, expr.argument]
+            argument = self.eval_expr( state, expr.argument)
             state.consume_expr(argument, consumed_refs)
             result = plugin_manager.handle_unary_operation(expr.operator, state, argument)
             state.consume_expr(result, consumed_refs)
@@ -656,19 +656,19 @@ class Interpreter(object):
 
         elif expr.type == "BinaryExpression" or expr.type == "LogicalExpression": #Also delegated to plugins
             consumed_refs = set()
-            left = yield [self.eval_expr, state, expr.left]
+            left = self.eval_expr( state, expr.left)
             state.consume_expr(left, consumed_refs)
             #special handling for && and || due to shortcircuit evaluation
             if expr.operator == "&&":
                 if left is JSTop or isinstance(left, JSOr):
                     state_right = state.clone()
-                    right = yield [self.eval_expr, state_right, expr.right]
+                    right = self.eval_expr( state_right, expr.right)
                     state_right.consume_expr(right, consumed_refs)
                     state.join(state_right)
                     result = JSTop
                 else:
                     if plugin_manager.to_bool(left):
-                        right = yield [self.eval_expr, state, expr.right]
+                        right = self.eval_expr( state, expr.right)
                         state.consume_expr(right, consumed_refs)
                         result = right
                     else:
@@ -676,19 +676,19 @@ class Interpreter(object):
             elif expr.operator == "||":
                 if left is JSTop:
                     state_right = state.clone()
-                    right = yield [self.eval_expr, state_right, expr.right]
+                    right = self.eval_expr( state_right, expr.right)
                     state_right.consume_expr(right, consumed_refs)
                     state.join(state_right)
                     result = JSTop
                 else:
                     if not plugin_manager.to_bool(left):
-                        right = yield [self.eval_expr, state, expr.right]
+                        right = self.eval_expr( state, expr.right)
                         state.consume_expr(right, consumed_refs)
                         result = right
                     else:
                         result = left
             else:
-                right = yield [self.eval_expr, state, expr.right]
+                right = self.eval_expr( state, expr.right)
                 state.consume_expr(right, consumed_refs)
                 result = plugin_manager.handle_binary_operation(expr.operator, state, left, right)
             state.pending.difference_update(consumed_refs)
@@ -715,11 +715,11 @@ class Interpreter(object):
 
         elif expr.type == "CallExpression":
             consumed_refs = set()
-            ret = yield [self.eval_func_helper, state, expr, consumed_refs]
+            ret = self.eval_func_helper( state, expr, consumed_refs)
             state.pending.difference_update(consumed_refs)
             return ret
         elif expr.type == "AwaitExpression":
-            return (yield [self.eval_expr_aux, state, expr.argument])
+            return (self.eval_expr_aux( state, expr.argument))
         else:
             print("WARNING: Expr type not handled:" + expr.type)
         return
@@ -736,7 +736,7 @@ class Interpreter(object):
             else:
                 saved_unroll_trace = self.unroll_trace
                 self.unroll_trace = None
-                val = yield [self.eval_expr, state, decl.init]
+                val = self.eval_expr( state, decl.init)
                 self.unroll_trace = saved_unroll_trace
                 state.consume_expr(val, consumed_refs)
                 scope = state.objs[state.lref].properties
@@ -761,26 +761,26 @@ class Interpreter(object):
 
     def do_for_init_update(self, state, exprdecl):
         if exprdecl.type == "VariableDeclaration":
-            return (yield [self.do_statement, state, exprdecl])
-        discarded = yield [self.eval_expr, state, exprdecl]
+            return (self.do_statement( state, exprdecl))
+        discarded = self.eval_expr( state, exprdecl)
         self.trace(exprdecl)
         state.consume_expr(discarded)
 
     def do_exprstat(self, state, expr):
-        state.value = yield [self.eval_expr, state, expr]
+        state.value = self.eval_expr( state, expr)
         state.consume_expr(state.value)
 
     def do_throw(self, state, expr):
-        discarded = yield [self.eval_expr, state, expr]
+        discarded = self.eval_expr( state, expr)
         state.consume_expr(discarded)
 
     def do_for_in(self, state, statement):
         statement.left.live = True
         statement.right.live = True
-        yield [self.do_for, state, statement, True]
+        self.do_for( state, statement, True)
     
     def do_while(self, state, statement):
-        yield [self.do_for, state, statement]
+        self.do_for( state, statement)
     
     def compare_trace(self, trace1, trace2):
         if trace1 is False or trace2 is False:
@@ -817,7 +817,7 @@ class Interpreter(object):
         self.break_state = State.bottom()
         exit = False
         if init is not None:
-            yield [self.do_for_init_update, state, init]
+            self.do_for_init_update( state, init)
 
 
         self.loop_context.append((id_from_node(statement), 0))
@@ -869,7 +869,7 @@ class Interpreter(object):
                 if test is None:
                     abs_test_result = JSPrimitive(True)
                 else:
-                    abs_test_result= yield [self.eval_expr, state, test]
+                    abs_test_result= self.eval_expr( state, test)
                     self.trace(test)                    
                 if state.is_bottom:
                     break
@@ -887,9 +887,9 @@ class Interpreter(object):
             #print("condi: ", abs_test_result)
             if abs_test_result is JSTop or plugin_manager.to_bool(abs_test_result):
                 statement.body.live = True
-                yield [self.do_sequence, state, body]
+                self.do_sequence( state, body)
                 if update:
-                    yield [self.do_for_init_update, state, update]
+                    self.do_for_init_update( state, update)
                 state.join(self.continue_state)
                 self.continue_state = saved_loopcont
 
@@ -949,7 +949,7 @@ class Interpreter(object):
         (discriminant, cases) = (statement.discriminant, statement.cases)
         saved_unroll_trace = self.unroll_trace
         self.unroll_trace = None
-        abs_discr = yield [self.eval_expr, state, discriminant]
+        abs_discr = self.eval_expr( state, discriminant)
         self.unroll_trace = saved_unroll_trace
         state.consume_expr(abs_discr, consumed_refs)
         if config.merge_switch:
@@ -965,7 +965,7 @@ class Interpreter(object):
         for case in cases:
             saved_unroll_trace = self.unroll_trace
             self.unroll_trace = None
-            abs_test = yield [self.eval_expr, state, case.test]
+            abs_test = self.eval_expr( state, case.test)
             self.unroll_trace = saved_unroll_trace
             state.consume_expr(abs_test, consumed_refs)
             if (abs_test is not JSTop) and (abs_discr is not JSTop) and ((type(abs_test) != type(abs_discr)) or (abs_test != abs_discr)):
@@ -979,7 +979,7 @@ class Interpreter(object):
                 saved_state = self.break_state
                 self.break_state = State.bottom()
                 for i in range(ncase, ncase+1):
-                    yield [self.do_sequence, state_clone, cases[i].consequent] #Yes
+                    self.do_sequence( state_clone, cases[i].consequent) #Yes
                     if state_clone.is_bottom:
                         break
                 state_clone.join(self.break_state)
@@ -993,7 +993,7 @@ class Interpreter(object):
                 self.break_state = State.bottom()
                 saved_unroll_trace = self.unroll_trace
                 self.unroll_trace = None
-                yield [self.do_sequence, state_clone, case.consequent] #Maybe
+                self.do_sequence( state_clone, case.consequent) #Maybe
                 self.unroll_trace = saved_unroll_trace
                 state_clone.join(self.break_state)
                 self.break_state = saved_state
@@ -1031,7 +1031,7 @@ class Interpreter(object):
         else:
             return
         
-        target, prop, target_id = yield [self.use_lvalue, state, left , consumed_refs]
+        target, prop, target_id = self.use_lvalue( state, left , consumed_refs)
         if target is None or prop is None:
             return
 
@@ -1051,7 +1051,7 @@ class Interpreter(object):
         (test, consequent, alternate) = (statement.test, statement.consequent, statement.alternate)
         saved_unroll_trace = self.unroll_trace
         self.unroll_trace = None
-        abs_test_result = yield [self.eval_expr, state, test]
+        abs_test_result = self.eval_expr( state, test)
         self.unroll_trace = saved_unroll_trace
         state.consume_expr(abs_test_result, consumed_refs)
         
@@ -1063,12 +1063,12 @@ class Interpreter(object):
             self.unroll_trace = None
             state_then = state
             state_else = state.clone()
-            yield [self.do_filtering, state_then, test, True, consumed_refs]
-            yield [self.do_statement, state_then, consequent]
+            self.do_filtering( state_then, test, True, consumed_refs)
+            self.do_statement( state_then, consequent)
 
-            yield [self.do_filtering, state_else, test, False, consumed_refs]
+            self.do_filtering( state_else, test, False, consumed_refs)
             if alternate is not None:
-                yield [self.do_statement, state_else, alternate]
+                self.do_statement( state_else, alternate)
             #print("join")
             self.bring_out_your_dead(state_then)
             self.bring_out_your_dead(state_else)
@@ -1080,7 +1080,7 @@ class Interpreter(object):
         #self.trace(self.wrap_in_statement(node_copy(test)))
 
         if abs_bool is True:
-            yield [self.do_statement, state, consequent]
+            self.do_statement( state, consequent)
         else:
             #TODO temporary workaround for probably incorrect boolean value evaluation
             if config.process_not_taken:
@@ -1094,14 +1094,14 @@ class Interpreter(object):
                 self.break_state = State.bottom()
                 self.continue_state = State.bottom()
                 cl = state.clone()
-                yield [self.do_statement, cl, consequent]
+                self.do_statement( cl, consequent)
                 self.return_state = a
                 self.return_value = b
                 self.break_state = c
                 self.continue_state = d
             #TODO end of temporary workaround
             if alternate is not None:
-                yield [self.do_statement, state, alternate]
+                self.do_statement( state, alternate)
         state.pending.difference_update(consumed_refs)
 
     def do_fundecl(self, state, statement):
@@ -1143,7 +1143,7 @@ class Interpreter(object):
         if argument is None:
             arg_val = JSUndef
         else:
-            arg_val = yield [self.eval_expr, state, argument] 
+            arg_val = self.eval_expr( state, argument) 
             if state.is_bottom:
                 return
         if self.return_value is None or self.return_value is JSBot:
@@ -1193,7 +1193,7 @@ class Interpreter(object):
                 saved_unroll_trace = self.unroll_trace
                 self.unroll_trace = None
             for decl in statement.declarations:
-                yield [self.do_vardecl, state, decl, hoisting]
+                self.do_vardecl( state, decl, hoisting)
             if not hoisting:
                 self.unroll_trace = saved_unroll_trace
 
@@ -1207,12 +1207,12 @@ class Interpreter(object):
             consumed_refs = set()
             for m in statement.body.body:
                 m.live = True
-                fn_expr = yield [self.eval_expr, state, m.value]
+                fn_expr = self.eval_expr( state, m.value)
                 state.consume_expr(fn_expr, consumed_refs)
                 if m.key.type == "Identifier":
                     proto_obj.properties[m.key.name] = fn_expr
                 else:
-                    key_expr = yield [self.eval_expr, state, m.key]
+                    key_expr = self.eval_expr( state, m.key)
                     state.consume_expr(key_expr, consumed_refs)
                     if isinstance(key_expr, JSPrimitive) and type(key_expr.val) == str:
                         proto_obj.properties[key_expr.val] = fn_expr
@@ -1232,7 +1232,7 @@ class Interpreter(object):
             self.trace(statement)
             saved_unroll_trace = self.unroll_trace
             self.unroll_trace = None            
-            yield [self.do_exprstat, state, statement.expression]
+            self.do_exprstat( state, statement.expression)
             self.unroll_trace = saved_unroll_trace
 
         elif statement.type == "ForOfStatement":
@@ -1243,24 +1243,24 @@ class Interpreter(object):
             self.trace(statement)
             saved_unroll_trace = self.unroll_trace
             self.unroll_trace = None
-            yield [self.do_for_in, state, statement]
+            self.do_for_in( state, statement)
             self.unroll_trace = saved_unroll_trace
 
         elif statement.type == "ForStatement":
             self.trace(statement)
             saved_unroll_trace = self.unroll_trace
             self.unroll_trace = None
-            yield [self.do_for, state, statement]
+            self.do_for( state, statement)
             self.unroll_trace = saved_unroll_trace
 
         elif statement.type == "IfStatement":
-            yield [self.do_if, state, statement]
+            self.do_if( state, statement)
         
         elif statement.type == "ThrowStatement":
             self.trace(statement)
             saved_unroll_trace = self.unroll_trace
             self.unroll_trace = None
-            yield [self.do_throw, state, statement.argument]
+            self.do_throw( state, statement.argument)
             self.unroll_trace = saved_unroll_trace
 
         elif statement.type == "FunctionDeclaration":
@@ -1274,14 +1274,14 @@ class Interpreter(object):
             self.trace(statement)
             saved_unroll_trace = self.unroll_trace
             self.unroll_trace = None
-            yield [self.do_return, state, statement.argument]
+            self.do_return( state, statement.argument)
             self.unroll_trace = saved_unroll_trace
 
         elif statement.type == "WhileStatement":
             self.trace(statement)
             saved_unroll_trace = self.unroll_trace
             self.unroll_trace = None
-            yield [self.do_while, state, statement]
+            self.do_while( state, statement)
             self.unroll_trace = saved_unroll_trace
         
         elif statement.type == "BreakStatement":
@@ -1294,21 +1294,21 @@ class Interpreter(object):
             self.trace(statement)
             saved_unroll_trace = self.unroll_trace
             self.unroll_trace = None
-            yield [self.do_statement, state, statement.block]  #TODO we assume that exceptions never happen  ¯\_ツ_/¯
+            self.do_statement( state, statement.block)  #TODO we assume that exceptions never happen  ¯\_ツ_/¯
             self.unroll_trace = saved_unroll_trace
         
         elif statement.type == "BlockStatement":
             self.trace(statement)
             saved_unroll_trace = self.unroll_trace
             self.unroll_trace = None
-            yield [self.do_sequence_with_hoisting, state, statement.body]
+            self.do_sequence_with_hoisting( state, statement.body)
             self.unroll_trace = saved_unroll_trace
         
         elif statement.type == "EmptyStatement":
             pass
 
         elif statement.type == "SwitchStatement":
-            yield [self.do_switch, state, statement]
+            self.do_switch( state, statement)
 
         else:
             print("WARNING: Statement type not handled: " + statement.type)
@@ -1318,17 +1318,17 @@ class Interpreter(object):
 
     def do_sequence(self, state, sequence):
         for statement in sequence:
-            yield [self.do_statement, state, statement]
+            self.do_statement( state, statement)
     
     def do_sequence_with_hoisting(self, state, sequence):
         #half-assed hoisting
         for statement in sequence:
             if statement.type == "FunctionDeclaration" or statement.type == "VariableDeclaration":
-                yield [self.do_statement, state, statement, True]
+                self.do_statement( state, statement, True)
 
         for statement in sequence:
             if not statement.type == "FunctionDeclaration":
-                yield [self.do_statement, state, statement]
+                self.do_statement( state, statement)
 
 
     def run(self, entry_state=None):
@@ -1366,7 +1366,7 @@ class Interpreter(object):
         if not self.quiet:
             print("Starting abstract interpretation of main program...")
         try:
-            call(self.do_sequence_with_hoisting,state, self.ast.body)
+            self.do_sequence_with_hoisting(state, self.ast.body)
             if not self.quiet:
                 print("Main program processing finished.")
             self.bring_out_your_dead(state)
@@ -1409,7 +1409,7 @@ class Interpreter(object):
 
                 for r in fn_refs:
                     state_fn = state.clone()
-                    call(self.eval_func_call, state_fn, state_fn.objs[r.target()], None)
+                    self.eval_func_call( state_fn, state_fn.objs[r.target()], None)
                     state.join(state_fn)
 
             if not self.quiet:
