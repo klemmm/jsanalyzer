@@ -1,7 +1,6 @@
 import esprima
 from abstract import State, JSObject, JSNull, JSUndef, JSTop, JSBot, JSRef, JSPrimitive, JSValue, MissingMode, JSOr, JSSpecial, GCConfig
 from debug import debug
-from tools import call, Try, Raise, Except
 from node_tools import node_copy, get_ann, set_ann, id_from_node, del_ann, copy_all_ann, node_from_id, node_equals
 from typing import Set, Union, List, Dict, Optional, Callable
 
@@ -485,6 +484,8 @@ class Interpreter(object):
             #Property name is directly given (i.e. foo.bar)
             prop = expr.property.name
 
+        if prop == "log":
+            print("log!")
         if isinstance(abs_target, JSRef):
             return target, prop, abs_target.target()
         elif isinstance(abs_target, JSPrimitive):

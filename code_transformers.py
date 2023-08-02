@@ -3,7 +3,6 @@ import esprima
 import re
 import math
 from abstract import JSPrimitive, JSRef, State, JSOr, JSNull, JSUndef
-from tools import call
 from config import regexp_rename, rename_length, simplify_expressions, simplify_function_calls, simplify_control_flow, max_unroll_ratio, remove_dead_code
 from functools import reduce
 from collections import namedtuple
@@ -767,10 +766,12 @@ class EvalReplacer(CodeTransform):
         if o is None:
             return False
         if get_ann(o, "eval") is not None:            
-            block = esprima.nodes.BlockStatement(get_ann(o, "eval"))            
+            block = esprima.nodes.BlockStatement(get_ann(o, "eval").body)            
             block.live = True
             o.arguments = [block] #TODO not valid JS 
             set_ann(o, "eval", None)
+            #print(block)
+            #print(o)
         if get_ann(o, "fn_cons") is not None:            
             o.__dict__ = get_ann(o, "fn_cons")[0].expression.__dict__
         return True

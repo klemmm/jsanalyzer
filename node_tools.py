@@ -24,10 +24,16 @@ def get_ann(node, name, default=None):
 
 def set_ann(node, name, value):
     mark_node(node)
+    if node.node_id == 14:
+        pass
+        #print("SET: ", node.node_id, name)
     annotations[node.node_id][name] = value
 
 def del_ann(node, name):
     mark_node(node)
+    if node.node_id == 14:
+        pass
+        #print("DEL: ", node.node_id, name)
     try:
         del annotations[node.node_id][name]
     except KeyError:

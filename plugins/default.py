@@ -567,10 +567,16 @@ def initialize() -> None:
         if target is JSTop:
             return JSTop #TODO should clear entire state here
         if isinstance(target, JSPrimitive) and type(target.val) is str:
-            ast = esprima.parse(target.val, options={ 'range': True})
+            print(get_ann(expr, "eval") is None)
+            if get_ann(expr, "eval") is not None:
+                ast = get_ann(expr, "eval")
+            else:
+                ast = esprima.parse(target.val, options={ 'range': True})
+                set_ann(expr, "eval", ast) 
+            print(get_ann(expr, "eval") is None)
             i = Interpreter(ast, target.val, True)
             i.run(state)
-            set_ann(expr, "eval", ast.body)        
+            #print(ast)
             return state.value
         else:
             return target
