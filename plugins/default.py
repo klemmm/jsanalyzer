@@ -37,6 +37,7 @@ lift_or : Callable = None
 register_method_hook : Callable = None
 Interpreter : object = None
 Data : object = None    
+evaluate_function : Callable = None
 
 def initialize() -> None:
     """
@@ -447,12 +448,40 @@ def initialize() -> None:
                 return JSPrimitive(string.val[int(sta.val):int(end.val)])
 
     def string_replace(state, expr, string, pattern, replacement):
+        occ = 1
         if string is JSTop or pattern is JSTop or replacement is JSTop:
             return JSTop
+        if isinstance(pattern, JSRef):
+            if "g" in state.objs[pattern.target()].properties["regexp_flags"].val:
+                occ = 0
+            pattern = state.objs[pattern.target()].properties["regexp"]
         if type(pattern.val) is re.Pattern:
-            return JSPrimitive(re.sub(pattern.val, replacement.val, string.val))
+            if isinstance(replacement, JSRef) and state.objs[replacement.target()].is_callable():
+                is_top = False
+                def replace_func(m):
+                    nonlocal is_top
+                    replaced = evaluate_function(state, replacement, JSPrimitive(m[0]))
+                    if isinstance(replaced, JSPrimitive) and type(replaced.val) is str:
+                        return replaced.val
+                    else:
+                        is_top = True
+                        return ""
+                result = JSPrimitive(re.sub(pattern.val, replace_func, string.val, occ))
+                if is_top:
+                    return JSTop
+                return result
+            return JSPrimitive(re.sub(pattern.val, replacement.val, string.val, 1))
         else:
-            return JSPrimitive(string.val.replace(pattern.val, replacement.val, 1))
+            pos = string.val.find(pattern.val)
+            if pos == -1:
+                return JSPrimitive(string.val)
+            if isinstance(replacement, JSRef) and state.objs[replacement.target()].is_callable():
+                replaced = evaluate_function(state, replacement, JSPrimitive(string.val[pos:pos+len(pattern.val)]))
+                if not isinstance(replaced, JSPrimitive) or type(replaced.val) != str:
+                    return JSTop
+            else:
+                replaced = replacement
+            return JSPrimitive(string.val[0:pos] + replaced.val + string.val[pos + len(pattern.val):])
 
     def string_slice(state, expr, string, begin=JSPrimitive(0.0), end=JSPrimitive(None)):
         if isinstance(string, JSPrimitive) and type(string.val) is str and isinstance(begin, JSPrimitive) and type(begin.val) is float and isinstance(end, JSPrimitive) and (type(end.val) is float or end.val is None):
@@ -517,6 +546,11 @@ def initialize() -> None:
         return JSTop
 
 
+    def string_constructor(state, expr, string):
+        if isinstance(string, JSPrimitive) and type(string.val):
+            return string
+        return JSTop
+
     def decode_uri_component(state, expr, string):
         if isinstance(string, JSPrimitive) and type(string.val) is str:
             return JSPrimitive(urllib.parse.unquote(string.val))
@@ -536,9 +570,10 @@ def initialize() -> None:
     def regexp_match(state, expr, this, target):
         return JSPrimitive(this.properties["regexp"].val.match(target.val) is not None)
 
-    def regexp(state, expr, this, string):
+    def regexp(state, expr, this, string, flags=JSPrimitive("")):
         if isinstance(string, JSPrimitive) and type(string.val) is str:
             this.properties["regexp"] = JSPrimitive(re.compile(string.val))
+            this.properties["regexp_flags"] = flags
             test_id = State.new_id()
             state.objs[test_id] = JSObject.simfct(regexp_match, True)
             this.properties["test"] = JSRef(test_id)
@@ -661,7 +696,10 @@ def initialize() -> None:
     register_binary_handler(lift_or(binary_handler))
 
     string_fromcharcode_ref = register_preexisting_object(JSObject.simfct(string_fromcharcode, True))
-    string_ref = register_preexisting_object(JSObject({"fromCharCode": JSRef(string_fromcharcode_ref)}))
+    string_obj = JSObject({"fromCharCode": JSRef(string_fromcharcode_ref)})
+    string_obj.pure_simfct = True
+    string_obj.simfct = string_constructor
+    string_ref = register_preexisting_object(string_obj)
     register_global_symbol('String', JSRef(string_ref))
 
     ___display_ref = register_preexisting_object(JSObject.simfct(___display));

@@ -152,11 +152,29 @@ class DependencyManager(object):
 
 dm = DependencyManager()
 
+interpreters = []
+
+def enter_interpreter(i):
+    global interpreters
+    interpreters.append(i)
+
+
+def exit_interpreter():
+    global interpreters
+    interpreters.pop()
+
+def evaluate_function(state, func_ref, *args):
+    assert(isinstance(func_ref, JSRef))
+    func = state.objs[func_ref.target()]
+    assert(func.is_callable())
+    result = interpreters[-1].eval_func_call(state, func, list(args))
+    return result
+
 def initialize():
     global Interpreter
     Interpreter = interpreter.Interpreter
 
-    inject = ["Data", "Interpreter", "JSOr", "JSBot", "JSTop", "JSUndef", "JSNull", "JSPrimitive", "JSObject", "JSRef", "State", "JSSpecial", "MissingMode", "set_ann", "get_ann", "register_update_handler", "register_preexisting_object", "register_binary_handler", "register_unary_handler", "lift_or", "to_bool", "register_global_symbol", "register_method_hook"]
+    inject = ["Data", "Interpreter", "JSOr", "JSBot", "JSTop", "JSUndef", "JSNull", "JSPrimitive", "JSObject", "JSRef", "State", "JSSpecial", "MissingMode", "set_ann", "get_ann", "register_update_handler", "register_preexisting_object", "register_binary_handler", "register_unary_handler", "lift_or", "to_bool", "register_global_symbol", "register_method_hook", "evaluate_function"]
     for p in config.enabled_plugins:
         plugin_module = __import__("plugins." + p)
         getattr(plugin_module, p).Interpreter = interpreter.Interpreter

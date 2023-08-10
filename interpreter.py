@@ -243,29 +243,35 @@ class Interpreter(object):
     #callee (callable JSObject, or JSTop): represent callee object
     #expr (AST node, or None): represent call expression, if any
     def eval_func_call(self, state, callee:Union[JSObject, JSSpecial], expr, this=None, consumed_refs=None):
-        if expr is None:
-            arguments = []
+        if isinstance(expr, list):
+            #pass arguments as abstract value
+            args_val = expr
+            expr = None
         else:
-            arguments = expr.arguments
-       
-        #Argument evaluation is the same in each case.
-        #Evaluate argument, then handle the actual function call.
-        args_val = []
-        for argument in arguments:
-            #We evaluate arguments even if callee is not callable, to handle argument-evaluation side effects
-        
-            v = self.eval_expr( state, argument)
-            #print("arg:", get_ann(argument, "contextual_static_value"))
-            state.consume_expr(v, consumed_refs)
-            if callee.is_callable():
-                args_val.append(v)
-            elif isinstance(v, JSRef) and state.objs[v.target()].is_function():
-                #If the function is unknown, and closures are passed as arguments, we assume these closures will be called by the unknown function.
-                if not get_ann(argument, "processed"):
-                    set_ann(argument, "processed", True)                    
-                    deferred_id = state.objs[state.gref].properties["___deferred"].target()
-                    fn_id = State.new_id()
-                    state.objs[deferred_id].properties[fn_id] = v
+            #pass arguments as esprima expressions (DEPRECATED)
+            if expr is None:
+                arguments = []
+            else:
+                arguments = expr.arguments
+           
+            #Argument evaluation is the same in each case.
+            #Evaluate argument, then handle the actual function call.
+            args_val = []
+            for argument in arguments:
+                #We evaluate arguments even if callee is not callable, to handle argument-evaluation side effects
+            
+                v = self.eval_expr( state, argument)
+                #print("arg:", get_ann(argument, "contextual_static_value"))
+                state.consume_expr(v, consumed_refs)
+                if callee.is_callable():
+                    args_val.append(v)
+                elif isinstance(v, JSRef) and state.objs[v.target()].is_function():
+                    #If the function is unknown, and closures are passed as arguments, we assume these closures will be called by the unknown function.
+                    if not get_ann(argument, "processed"):
+                        set_ann(argument, "processed", True)                    
+                        deferred_id = state.objs[state.gref].properties["___deferred"].target()
+                        fn_id = State.new_id()
+                        state.objs[deferred_id].properties[fn_id] = v
 
         #Handle the case where callee is a simfct
         if callee is None:
@@ -461,11 +467,6 @@ class Interpreter(object):
                 parent_target.properties[parent_prop] = list(c)[0]
                 abs_target = list(c)[0]
 
-        #If we cannot locate the referenced object, we will return JSTop later (but still evaluate computed property, if needed)
-        if isinstance(abs_target, JSRef):
-            target = state.objs[abs_target.target()]
-        elif isinstance(abs_target, JSPrimitive):
-            target = abs_target
 
         #Now, try to find the property name, it can be directly given, or computed.
         if expr.computed:
@@ -483,9 +484,13 @@ class Interpreter(object):
         else:
             #Property name is directly given (i.e. foo.bar)
             prop = expr.property.name
+        
+        #If we cannot locate the referenced object, we will return JSTop later (but still evaluate computed property, if needed)
+        if isinstance(abs_target, JSRef):
+            target = state.objs[abs_target.target()]
+        elif isinstance(abs_target, JSPrimitive):
+            target = abs_target
 
-        if prop == "log":
-            print("log!")
         if isinstance(abs_target, JSRef):
             return target, prop, abs_target.target()
         elif isinstance(abs_target, JSPrimitive):
@@ -1423,6 +1428,7 @@ class Interpreter(object):
         debug("Init state: ", str(state))
         GCConfig.preexisting_objects = plugin_manager.preexisting_objects
 
+        plugin_manager.enter_interpreter(self)
         if not self.quiet:
             print("Starting abstract interpretation of main program...")
         try:
@@ -1436,7 +1442,7 @@ class Interpreter(object):
                 if isinstance(state.value, JSRef):
                     print("", state.objs[state.value.target()])
             dead_funcs = 0
-            funcs = 0
+            uncs = 0
             if not self.quiet:
                 print("Processing callbacks...")
             deferred_id = state.objs[state.gref].properties["___deferred"].target()
@@ -1474,6 +1480,7 @@ class Interpreter(object):
 
             if not self.quiet:
                 print("Abstract state stabilized after " + str(i) + " steps.")
+
         
         except Exception as e:
             if self.last is None:
@@ -1487,3 +1494,5 @@ class Interpreter(object):
                 print("Called from: \n" + t + "\n")
             print("\nException " + str(e) + ":")
             raise
+        finally:
+            plugin_manager.exit_interpreter()
