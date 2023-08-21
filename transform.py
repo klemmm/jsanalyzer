@@ -9,6 +9,7 @@ import code_transformers
 import argparse
 import resource
 from node_tools import mark_node_recursive, load_annotations
+from config import Stats
 
 resource.setrlimit(resource.RLIMIT_STACK, (2**29,-1))
 sys.setrecursionlimit(1000000)
@@ -124,3 +125,11 @@ f = open(args.output, "w")
 f.write(json_data)
 f.close()
 
+print("Statistics:")
+print("Simplified expressions: ", Stats.simplified_expressions, "/", Stats.simplified_expressions_tot)
+print("Inlined function calls : ", Stats.inlined_functions, "/", Stats.inlined_functions_tot)
+print("Loops Unrolled: ", Stats.loops_unrolled, "/", Stats.loops_unrolled_tot)
+print("Effect-less statements removed: ", Stats.useless_statement, "/", Stats.useless_statement_tot)
+print("Unused variables assignment or declaration removed: ", Stats.useless_var, "/", Stats.useless_var_tot)
+print("Unreachable blocks removed: ", Stats.dead_code, "/", Stats.dead_code_tot)
+print("Eval or Function Constructor processed: ", Stats.eval_processed, "/", Stats.eval_processed_tot)

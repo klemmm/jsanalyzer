@@ -11,7 +11,6 @@ import sys
 from jseval import *
 from typing import Callable
 
-
 # Imported/injected symbols from plugin manager
 JSValue : object = None
 JSOr : JSValue = None
@@ -586,6 +585,7 @@ def initialize() -> None:
     def fn_cons(state, expr, this, *args):
         raw_body = args[-1]
         fn_args = args[0:-1] #TODO
+        set_ann(expr, "is_eval", True)
         if raw_body is JSTop:
             return JSTop #TODO should clear entire state here
         if isinstance(raw_body, JSPrimitive) and type(raw_body.val) is str:
@@ -601,6 +601,8 @@ def initialize() -> None:
     def eval_fct(state, expr, target): 
         if target is JSTop:
             return JSTop #TODO should clear entire state here
+
+        set_ann(expr, "is_eval", True)
         if isinstance(target, JSPrimitive) and type(target.val) is str:
             print(get_ann(expr, "eval") is None)
             if get_ann(expr, "eval") is not None:

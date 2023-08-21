@@ -3,7 +3,7 @@ import esprima
 import re
 import math
 from abstract import JSPrimitive, JSRef, State, JSOr, JSNull, JSUndef
-from config import regexp_rename, rename_length, simplify_expressions, simplify_function_calls, simplify_control_flow, max_unroll_ratio, remove_dead_code
+from config import regexp_rename, rename_length, simplify_expressions, simplify_function_calls, simplify_control_flow, max_unroll_ratio, remove_dead_code, Stats
 from functools import reduce
 from collections import namedtuple
 from node_tools import get_ann, set_ann, del_ann, node_from_id, id_from_node, clear_ann, node_assign, node_copy,  dump_ann
@@ -481,6 +481,9 @@ class ExpressionSimplifier(CodeTransform):
         """
 
         #print("simplify expression", o.node_id)
+        if not get_ann(o, "stats_counted_ex"):
+            Stats.simplified_expressions_tot += 1
+            set_ann(o, "stats_counted_ex", True)
 
         calls = []
         #Collect side-effects call for any sub-expression. If we encounter side effects not releted to function call, return True
@@ -536,6 +539,9 @@ class ExpressionSimplifier(CodeTransform):
                 return calls
             
         if (isinstance(static_value, JSPrimitive) or static_value == JSNull) and not get_ann(o, "is_updated"):            
+            if o.value is None:
+                Stats.simplified_expressions += 1
+            
             o.type = "Literal"
             if static_value == JSNull:
                 o.value = None
@@ -696,13 +702,17 @@ class FunctionInliner(CodeTransform):
         if o.type == "CallExpression" and get_ann(o, "call_target.body"):
             body = node_from_id(get_ann(o, "call_target.body"))
             ret_expr = self.get_return_expression(body)
-            
+           
+            if not get_ann(o, "stats_counted_fct"):
+                set_ann(o, "stats_counted_fct", True)
+                Stats.inlined_functions_tot += 1
             if ret_expr is not None:
                 ret_expr_copy = node_copy(ret_expr)
                 self.subst.formal = get_ann(o, "call_target.params")
                 self.subst.effective = o.arguments
                 self.subst.do_expr(ret_expr_copy)
                 node_assign(o, ret_expr_copy) #, ["static_value"])
+                Stats.inlined_functions += 1
                 #o.leadingComments = [{"type":"Block", "value":" Inlined "}]
                 self.count += 1
             else:
@@ -716,9 +726,14 @@ class DeadCodeRemover(CodeTransform):
         super().__init__(ast, "Dead Code Remover")
 
     def before_statement(self, o):
+        if not get_ann(o, "stats_counted_dead"):
+            set_ann(o, "stats_counted_dead", True)
+            Stats.dead_code_tot += 1
+
         if not o.live and o.type == "BlockStatement":
             o.body = [esprima.nodes.EmptyStatement()]
             o.body[0].leadingComments = [{"type":"Block", "value":" Dead Code "}]
+            Stats.dead_code += 1
             return False
         return True
 
@@ -729,6 +744,8 @@ class LoopUnroller(CodeTransform):
         self.always_unroll = always_unroll
 
     def after_statement(self, o, dummy):
+        if (o.type == "WhileStatement" or o.type == "ForStatement"):
+            Stats.loops_unrolled_tot += 1
         if (o.type == "WhileStatement" or o.type == "ForStatement") and type(get_ann(o, "unrolled")) is list:
             loop_id = id_from_node(o)
             u = get_ann(o, "unrolled")
@@ -740,6 +757,7 @@ class LoopUnroller(CodeTransform):
                 st = node_from_id(i)                                
                 unrolled_size += st.range[1] - st.range[0]  
             if self.always_unroll or unrolled_size / (o.range[1] - o.range[0]) < max_unroll_ratio:
+                Stats.loops_unrolled += 1
                 o.type = "BlockStatement"
                 o.body = []
                 loop_iter = -1       
@@ -765,14 +783,18 @@ class EvalReplacer(CodeTransform):
     def before_expression(self, o):
         if o is None:
             return False
+        if get_ann(o, "is_eval") is not None:
+            Stats.eval_processed_tot += 1
         if get_ann(o, "eval") is not None:            
             block = esprima.nodes.BlockStatement(get_ann(o, "eval").body)            
             block.live = True
             o.arguments = [block] #TODO not valid JS 
             set_ann(o, "eval", None)
+            Stats.eval_processed += 1
             #print(block)
             #print(o)
         if get_ann(o, "fn_cons") is not None:            
+            Stats.eval_processed += 1
             o.__dict__ = get_ann(o, "fn_cons")[0].expression.__dict__
         return True
 
@@ -1267,6 +1289,9 @@ class UselessVarRemover(CodeTransform):
         if self.only_comment:
             return
         for b in body:
+            if not get_ann(b, "stats_counted_var"):
+                Stats.useless_var_tot += 1
+                set_ann(b, "stats_counted_var", True)
             if b.type == "ExpressionStatement":
                 func = get_ann(b.expression, "in_func")
                 if b.expression.type == "AssignmentExpression":
@@ -1298,6 +1323,7 @@ class UselessVarRemover(CodeTransform):
                     bye.append(b)
 
         for b in bye:
+            Stats.useless_var += 1
             body.remove(b)
 
 
@@ -1385,8 +1411,12 @@ class UselessStatementRemover(CodeTransform):
     def process_statement_list(self, statement_list):
             bye = []
             for st in statement_list:
+                if not get_ann(st, "stats_counted_usr"):
+                    Stats.useless_statement_tot += 1
+                    set_ann(st, "stats_counted_usr", True)
                 if st.type == "ExpressionStatement" and not get_ann(st.expression, "side_effects"):
                     bye.append(st)
+                    Stats.useless_statement += 1
             for b in bye:
                 statement_list.remove(b)
 

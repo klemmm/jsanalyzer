@@ -27,3 +27,20 @@ rename_length = 3
 max_loop_context = 32
 max_loop_context_nesting = 1
 
+class Stats(object):
+    simplified_expressions = 0
+    simplified_expressions_tot = 0
+    inlined_functions = 0
+    inlined_functions_tot = 0
+    eval_processed = 0
+    eval_processed_tot = 0
+    loops_unrolled = 0
+    loops_unrolled_tot = 0
+    useless_statement = 0
+    useless_statement_tot = 0
+    useless_var = 0
+    useless_var_tot = 0
+    dead_code = 0
+    dead_code_tot = 0
+
+
