@@ -483,6 +483,9 @@ class ExpressionSimplifier(CodeTransform):
         #print("simplify expression", o.node_id)
         if not get_ann(o, "stats_counted_ex"):
             Stats.simplified_expressions_tot += 1
+            print("Count: ")
+            print(o)
+            print("")
             set_ann(o, "stats_counted_ex", True)
 
         calls = []
@@ -780,15 +783,29 @@ class EvalReplacer(CodeTransform):
     def __init__(self, ast):
         super().__init__(ast, "Eval Handler")
 
+
+    def before_statement(self, st):
+        if st is None:
+            return False
+        if st.type == "ExpressionStatement":
+            o = st.expression
+            if get_ann(o, "eval") is not None:            
+                if get_ann(o, "eval_value_unused"):
+                    block = esprima.nodes.BlockStatement(get_ann(o, "eval").body)           
+                    block.live = True
+                    st.__dict__ = block.__dict__
+        return True
+
     def before_expression(self, o):
         if o is None:
             return False
         if get_ann(o, "is_eval") is not None:
             Stats.eval_processed_tot += 1
         if get_ann(o, "eval") is not None:            
-            block = esprima.nodes.BlockStatement(get_ann(o, "eval").body)            
-            block.live = True
-            o.arguments = [block] #TODO not valid JS 
+            if not get_ann(o, "eval_value_unused"):
+                block = esprima.nodes.BlockStatement(get_ann(o, "eval").body)            
+                block.live = True
+                o.arguments = [block] #TODO not valid JS 
             set_ann(o, "eval", None)
             Stats.eval_processed += 1
             #print(block)

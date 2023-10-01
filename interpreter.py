@@ -1294,6 +1294,8 @@ class Interpreter(object):
             state.pending.difference_update(consumed_refs)
 
         elif statement.type == "ExpressionStatement":
+            if statement.expression.type == "CallExpression" and statement.expression.callee.type == "Identifier" and statement.expression.callee.name == "eval":
+                set_ann(statement.expression, "eval_value_unused", True)
             self.trace(statement)
             saved_unroll_trace = self.unroll_trace
             self.unroll_trace = None            
