@@ -3,7 +3,7 @@ import esprima
 import re
 import math
 from abstract import JSPrimitive, JSRef, State, JSOr, JSNull, JSUndef
-from config import regexp_rename, rename_length, simplify_expressions, simplify_function_calls, simplify_control_flow, max_unroll_ratio, remove_dead_code, Stats
+from config import regexp_rename, rename_length, simplify_expressions, simplify_function_calls, simplify_control_flow, max_unroll_ratio, remove_dead_code, Stats, inline_max_statements
 from functools import reduce
 from collections import namedtuple
 from node_tools import get_ann, set_ann, del_ann, node_from_id, id_from_node, clear_ann, node_assign, node_copy,  dump_ann
@@ -696,6 +696,20 @@ class FunctionInliner(CodeTransform):
             if body.type == "BlockStatement" and len(body.body) > 0 and body.body[0].type == "ReturnStatement":
                 return body.body[0].argument
             return None
+
+    def before_statement(self, o):
+        if o.type == "ExpressionStatement" and o.expression.type == "CallExpression" and get_ann(o.expression, "call_target.body"):
+            body = node_from_id(get_ann(o.expression, "call_target.body"))
+            if len(body.body) <= inline_max_statements:
+                body_copy = node_copy(body)
+                self.subst.formal = get_ann(o.expression, "call_target.params")
+                self.subst.effective = o.expression.arguments
+                self.subst.do_statement(body_copy)
+                node_assign(o, body_copy)
+                Stats.inlined_functions += 1
+                self.count += 1
+
+        return True
 
     def before_expression(self, o):
         if o.type == "CallExpression" and not get_ann(o, "call_target.body"):

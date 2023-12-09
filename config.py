@@ -11,6 +11,7 @@ use_unify = True
 use_filtering_if = True
 use_filtering_err = True
 remove_dead_code = True
+inline_max_statements = 1
 
 #List of enabled plugins
 enabled_plugins = [
